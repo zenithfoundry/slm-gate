@@ -38,6 +38,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 }));
 
 const { getDb, writeEvent, cacheGet, cacheSet, LangfuseSink, formatEventForLangfuse, computeCycleRateAvg } = await import('../../src/ledger/index.js');
+const { __resetProviderRegistry } = await import('../../src/pricing/providers.js');
 
 describe('Ledger', () => {
   beforeEach(() => {
@@ -114,6 +115,27 @@ describe('Ledger', () => {
     expect(() => writeEvent(event)).not.toThrow();
   });
 
+  const withGeminiBudget = (fn: () => void) => {
+    process.env.GEMINI_WINDOW_BUDGET = '1000000';
+    __resetProviderRegistry();
+    try { fn(); } finally {
+      delete process.env.GEMINI_WINDOW_BUDGET;
+      __resetProviderRegistry();
+    }
+  };
+
+  test('emits NO cycle score when the provider has no configured window budget', () => {
+    __resetProviderRegistry();
+    const event = {
+      ts: new Date().toISOString(), layer: 'mcp' as const, request_id: 'req_no_budget',
+      route: 'condition' as const, is_local_call: 1, in_tok: 100, out_tok: 50,
+      api_in_tok: 0, api_out_tok: 0, cost_usd: 0, slm_latency_s: 0.1, api_latency_s: 0,
+      slm_gate: 'on' as const, api_model: 'gemini-2.5-flash',
+    };
+    const scores = (formatEventForLangfuse(event).scores || []).filter(sc => sc.name.startsWith('cycle_extended_per_window_'));
+    expect(scores).toHaveLength(0);
+  });
+
   test('emits per-event cycle score for gemini event and avoids other providers', () => {
     const event = {
       ts: new Date().toISOString(),
@@ -132,12 +154,16 @@ describe('Ledger', () => {
       api_model: 'gemini-2.5-flash',
     };
 
-    const payload = formatEventForLangfuse(event);
-    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
-    
-    expect(cycleScores).toHaveLength(1);
-    expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
-    expect(cycleScores[0].value).toBe(150);
+    withGeminiBudget(() => {
+      const payload = formatEventForLangfuse(event);
+      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+
+      expect(cycleScores).toHaveLength(1);
+      expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
+      // 50 tokens saved * (300 min / 1,000,000 tokens) = 0.015 min.
+      // The old assertion was 150 — half a 5-hour window from one 100-token call.
+      expect(cycleScores[0].value).toBeCloseTo(0.015, 6);
+    });
   });
 
   test('event with no resolvable provider emits no cycle score', () => {
@@ -181,12 +207,14 @@ describe('Ledger', () => {
       api_model: 'gemini-2.5-flash',
     };
 
-    const payload = formatEventForLangfuse(event);
-    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
-    
-    expect(cycleScores).toHaveLength(1);
-    expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
-    expect(cycleScores[0].value).toBe(0);
+    withGeminiBudget(() => {
+      const payload = formatEventForLangfuse(event);
+      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+
+      expect(cycleScores).toHaveLength(1);
+      expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
+      expect(cycleScores[0].value).toBe(0);
+    });
   });
 
   test('computeCycleRateAvg equals mean of emitted per-event values for provider', () => {
@@ -241,20 +269,25 @@ describe('Ledger', () => {
       }
     ];
 
-    const p1 = formatEventForLangfuse(rows[0]);
-    const p2 = formatEventForLangfuse(rows[1]);
-    const p3 = formatEventForLangfuse(rows[2]);
+    process.env.GEMINI_WINDOW_BUDGET = '1000000';
+    process.env.CLAUDE_WINDOW_BUDGET = '250';
+    __resetProviderRegistry();
+    try {
+      const v1 = formatEventForLangfuse(rows[0]).scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
+      const v2 = formatEventForLangfuse(rows[1]).scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
+      const v3 = formatEventForLangfuse(rows[2]).scores?.find(s => s.name === 'cycle_extended_per_window_claude')?.value as number;
 
-    const v1 = p1.scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
-    const v2 = p2.scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
-    const v3 = p3.scores?.find(s => s.name === 'cycle_extended_per_window_claude')?.value as number;
-
-    const avg = computeCycleRateAvg(rows);
-    expect(avg.gemini).toBe((v1 + v2) / 2);
-    expect(avg.gemini).toBe(75);
-    expect(avg.claude).toBe(v3);
-    expect(avg.claude).toBe(300);
-    expect(avg.chatgpt).toBeNull();
+      // The invariant that matters: the aggregate is exactly the mean of what was emitted
+      // per event, so the dashboard average can never drift from the underlying scores.
+      const avg = computeCycleRateAvg(rows);
+      expect(avg.gemini).toBeCloseTo((v1 + v2) / 2, 9);
+      expect(avg.claude).toBeCloseTo(v3, 9);
+      expect(avg.chatgpt).toBeNull();
+    } finally {
+      delete process.env.GEMINI_WINDOW_BUDGET;
+      delete process.env.CLAUDE_WINDOW_BUDGET;
+      __resetProviderRegistry();
+    }
   });
 
   test('flushQueue parses and logs 207 per-item errors to stderr', async () => {

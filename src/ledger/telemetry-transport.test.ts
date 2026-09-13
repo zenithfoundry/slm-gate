@@ -7,6 +7,7 @@
  */
 
 import { formatEventForLangfuse, LedgerEvent } from './index.js';
+import { __resetProviderRegistry } from '../pricing/providers.js';
 
 const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
   ts: '2026-09-11T22:05:11.775Z',
@@ -68,17 +69,26 @@ describe('environment separates benchmark traffic from real traffic', () => {
 });
 
 describe('provider attribution is carried, not re-derived', () => {
+  afterEach(() => {
+    delete process.env.CLAUDE_WINDOW_BUDGET;
+    __resetProviderRegistry();
+  });
+
   it('uses the provider already resolved onto the event', () => {
     // writeEvent now enriches a single event object and mirrors THAT, so SQLite and
     // Langfuse cannot disagree. Previously the un-enriched event was mirrored and
     // Langfuse re-derived provider through a chain ending in CONFIG.PROVIDER.
-    const payload = formatEventForLangfuse(ev({ provider: 'claude', api_model: undefined, agent: undefined }));
+    process.env.CLAUDE_WINDOW_BUDGET = '250';
+    __resetProviderRegistry();
+    const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: undefined, agent: undefined }));
     const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_per_window_'));
     expect(cycle?.name).toBe('cycle_extended_per_window_claude');
   });
 
   it('prefers an explicit provider over what the model string would imply', () => {
-    const payload = formatEventForLangfuse(ev({ provider: 'claude', api_model: 'gemini-2.5-flash' }));
+    process.env.CLAUDE_WINDOW_BUDGET = '250';
+    __resetProviderRegistry();
+    const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: 'gemini-2.5-flash' }));
     const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_per_window_'));
     expect(cycle?.name).toBe('cycle_extended_per_window_claude');
   });

@@ -2,6 +2,12 @@ import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
 import { waitWithBackoff } from '../utils/backoff.js';
+import {
+  getProviderRegistry,
+  providerFromAgentName,
+  providerFromModelId,
+  type MeteringModel,
+} from '../pricing/providers.js';
 
 let db: Database.Database | null = null;
 
@@ -29,7 +35,7 @@ export interface LedgerEvent {
   request_id: string;
   session_id?: string;
   skill?: string;
-  route: 'defer_local' | 'escalate' | 'forward_compressed' | 'forward_raw' | 'condition';
+  route: 'defer_local' | 'escalate' | 'forward_compressed' | 'forward_raw' | 'condition' | 'feedback';
   is_local_call: number; // 0 or 1
   slm_model?: string;
   api_model?: string;
@@ -277,25 +283,89 @@ export function isLocalEvent(e: LedgerEvent): boolean {
   return e.route === 'defer_local' || (!!e.verifier_flags && !e.verifier_flags.includes('escalate'));
 }
 
+export type RoutingOutcome = 'resolved_local' | 'distilled_forwarded' | 'escalated_cloud';
+
+/**
+ * Classifies what actually happened to a request.
+ *
+ * The previous binary (isLocalEvent) had no slot for `condition`, so every distilled MCP
+ * tool result was labelled "Escalated (Cloud)" in the `verified` pie while the same trace
+ * carried a `call:local` tag — the two widgets flatly contradicted each other. Distillation
+ * is a third outcome: real local work was done, AND the payload still went to the cloud.
+ *
+ * @param e The ledger event to classify
+ * @returns Which of the three routing outcomes occurred
+ */
+export function routingOutcome(e: LedgerEvent): RoutingOutcome {
+  if (isLocalEvent(e)) return 'resolved_local';
+  if (e.route === 'condition' || e.route === 'forward_compressed') return 'distilled_forwarded';
+  return 'escalated_cloud';
+}
+
+// Detection is delegated to the data-driven provider registry so a new host or vendor is
+// configuration (PROVIDER_REGISTRY_PATH), not a code change and a release.
 export function providerFromModel(model?: string): 'claude' | 'chatgpt' | 'gemini' | null {
-  if (!model) return null;
-  const m = model.toLowerCase();
-  if (m.includes('claude') || m.includes('sonnet') || m.includes('opus') || m.includes('haiku') || m.includes('anthropic')) return 'claude';
-  if (m.includes('gemini') || m.includes('gemma') || m.includes('bison')) return 'gemini';
-  if (m.includes('gpt') || m.includes('openai') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4')) return 'chatgpt';
-  return null;
+  return providerFromModelId(model) as 'claude' | 'chatgpt' | 'gemini' | null;
 }
 
 export function providerFromAgent(agent?: string): 'claude' | 'chatgpt' | 'gemini' | null {
-  if (!agent) return null;
-  const a = agent.toLowerCase();
-  if (a.includes('antigravity')) return 'gemini';
-  if (a.includes('claude')) return 'claude';
-  if (a.includes('chatgpt') || a.includes('openai')) return 'chatgpt';
-  return null;
+  return providerFromAgentName(agent) as 'claude' | 'chatgpt' | 'gemini' | null;
+}
+
+/**
+ * Resolves the provider for an event using every available signal, in priority order.
+ *
+ * @param e The ledger event
+ * @returns Provider id, or null when the event cannot be attributed.
+ */
+export function resolveProvider(e: LedgerEvent): string | null {
+  return e.provider ?? providerFromModelId(e.api_model) ?? providerFromAgentName(e.agent) ?? CONFIG.PROVIDER ?? null;
+}
+
+/**
+ * Units of a provider's window that this single event frees.
+ *
+ * The unit depends on the metering model: requests never sent for 'message' providers,
+ * tokens never sent for 'compute' providers. Returning units (not minutes) keeps this
+ * honest — conversion to minutes requires a window budget the gate cannot observe.
+ *
+ * @param e The ledger event
+ * @param metering How the provider meters its window
+ * @returns Units saved, never negative.
+ */
+export function perEventUnitsSaved(e: LedgerEvent, metering: MeteringModel): number {
+  if (metering === 'message') {
+    // Only a prompt answered entirely locally avoids a request. A distilled-but-forwarded
+    // payload still costs one message, no matter how much it was compressed.
+    return e.route === 'defer_local' ? 1 : 0;
+  }
+  return perEventTokensSaved(e);
+}
+
+/**
+ * Minutes of a provider's rolling window freed by a single event.
+ *
+ * @param e The ledger event
+ * @param providerId Provider id, as resolved by resolveProvider()
+ * @returns Minutes freed, clamped to [0, windowMinutes], or null when the provider is
+ *   unknown or its window budget has not been configured.
+ */
+export function perEventCycleMinutes(e: LedgerEvent, providerId: string): number | null {
+  const profile = getProviderRegistry()[providerId];
+  if (!profile) return null;
+  // No budget means no denominator. Emitting a number here is what produced the old
+  // nonsense figures, so we emit nothing instead.
+  if (!profile.windowBudget || profile.windowBudget <= 0) return null;
+
+  const unitsSaved = perEventUnitsSaved(e, profile.metering);
+  const minutesPerUnit = profile.windowMinutes / profile.windowBudget;
+  const minutes = unitsSaved * minutesPerUnit;
+  return Math.min(profile.windowMinutes, Math.max(0, minutes));
 }
 
 export function perEventTokensSaved(e: LedgerEvent): number {
+  // 'feedback' rows record a user action (an elision expansion), not model work.
+  if (e.route === 'feedback') return 0;
   const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
   if (e.route === 'defer_local') {
     return (e.in_tok || 0) + (e.out_tok || 0);
@@ -313,6 +383,7 @@ export function perEventTokensSaved(e: LedgerEvent): number {
 }
 
 export function perEventBaselineTokens(e: LedgerEvent): number {
+  if (e.route === 'feedback') return 0;
   const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
   if (e.route === 'defer_local') {
     return (e.in_tok || 0) + (e.out_tok || 0);
@@ -360,17 +431,16 @@ export function computeCycleRates(
   rows: LedgerEvent[],
   fallbackProvider?: 'claude' | 'chatgpt' | 'gemini' | null
 ): Record<'claude'|'chatgpt'|'gemini', number> {
-  const s = computeTotalsByProvider(rows, fallbackProvider);
-  const plans = {
-    claude: CONFIG.RESOLVED_PLAN_CLAUDE,
-    chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
-    gemini: CONFIG.RESOLVED_PLAN_GEMINI
-  };
+  // Aggregate minutes freed across all of a provider's traffic. Uses the same rate-based
+  // definition as the per-event score, so the two can never disagree.
   const out: any = { claude: 0, chatgpt: 0, gemini: 0 };
-  for (const p of ['claude', 'chatgpt', 'gemini'] as const) {
-    const t = s[p];
-    out[p] = t.baselineTokens > 0 ? Number((plans[p].windowMinutes * (t.tokensSaved / t.baselineTokens)).toFixed(2)) : 0;
+  for (const r of rows) {
+    const p = (r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || fallbackProvider || null);
+    if (p && p in out) {
+      out[p] += perEventCycleMinutes(r, p) ?? 0;
+    }
   }
+  for (const p of Object.keys(out)) out[p] = Number(out[p].toFixed(2));
   return out;
 }
 
@@ -378,23 +448,18 @@ export function computeCycleRateAvg(
   rows: LedgerEvent[],
   fallbackProvider: 'claude' | 'chatgpt' | 'gemini' | null = CONFIG.PROVIDER ?? null
 ): Record<'claude' | 'chatgpt' | 'gemini', number | null> {
-  const plans = {
-    claude: CONFIG.RESOLVED_PLAN_CLAUDE,
-    chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
-    gemini: CONFIG.RESOLVED_PLAN_GEMINI
-  };
   const counts: Record<'claude' | 'chatgpt' | 'gemini', number> = { claude: 0, chatgpt: 0, gemini: 0 };
   const sums: Record<'claude' | 'chatgpt' | 'gemini', number> = { claude: 0, chatgpt: 0, gemini: 0 };
 
   for (const r of rows) {
     const p = (r.provider || providerFromModel(r.api_model) || providerFromAgent(r.agent) || fallbackProvider || null) as 'claude' | 'chatgpt' | 'gemini' | null;
     if (p && (p === 'claude' || p === 'chatgpt' || p === 'gemini')) {
-      const baseline = perEventBaselineTokens(r);
-      if (baseline > 0) {
-        const saved = perEventTokensSaved(r);
-        const wm = plans[p].windowMinutes;
-        const val = wm * (saved / baseline);
-        sums[p] += val;
+      // null means the provider has no configured window budget, so this event contributes
+      // nothing and is excluded from the denominator too — an unmeasurable event must not
+      // be averaged in as a zero.
+      const minutes = perEventCycleMinutes(r, p);
+      if (minutes !== null) {
+        sums[p] += minutes;
         counts[p] += 1;
       }
     }
@@ -542,7 +607,11 @@ export interface LangfuseQueuePayload {
 }
 
 export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
-  const referenceCloudModel = CONFIG.CLOUD_MODEL || 'gemini-2.5-flash';
+  // Price against the model that actually served (or would have served) this event.
+  // Previously every defer_local/condition event was priced at CONFIG.CLOUD_MODEL, so
+  // Claude traffic was costed at Gemini rates — and because CLOUD_MODEL comes from .env,
+  // the figure silently changed depending on which directory the gate was spawned in.
+  const referenceCloudModel = e.api_model || CONFIG.CLOUD_MODEL || 'gemini-2.5-flash';
   
   const baselineTokens = perEventBaselineTokens(e);
   const tokensSaved = perEventTokensSaved(e);
@@ -556,7 +625,7 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     costSavedUsd = baselineCostUsd;
   } else if (e.route === 'forward_compressed') {
     const rawInTok = typeof parsedMeta.raw_in_tok === 'number' ? parsedMeta.raw_in_tok : (e.api_in_tok > 0 ? Math.round(e.api_in_tok * 1.5) : e.in_tok);
-    baselineCostUsd = safeCalculateCostUsd(e.api_model || referenceCloudModel, rawInTok, e.api_out_tok || e.out_tok || 0);
+    baselineCostUsd = safeCalculateCostUsd(referenceCloudModel, rawInTok, e.api_out_tok || e.out_tok || 0);
     costSavedUsd = Math.max(0, baselineCostUsd - (e.cost_usd || 0));
   } else if (e.route === 'condition') {
     baselineCostUsd = safeCalculateCostUsd(referenceCloudModel, baselineTokens, 0);
@@ -576,7 +645,8 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     e.slm_gate === 'on' ? 'slm_gate=on' : 'slm_gate=off',
     `route:${e.route}`,
     `layer:${e.layer}`,
-    `call:${e.is_local_call ? 'local' : 'cloud'}`,
+    `call:${routingOutcome(e) === 'resolved_local' ? 'local' : 'cloud'}`,
+    `outcome:${routingOutcome(e)}`,
     `model:${e.api_model || e.slm_model || 'unknown'}`
   ];
 
@@ -657,8 +727,13 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
   if (typeof e.quality_score === 'number') {
     scores.push({ id: `${e.request_id}_score_accuracy_rate_pct`, name: 'accuracy_rate_pct', value: Number((e.quality_score * 100).toFixed(2)), dataType: 'NUMERIC' });
   } else {
-    const isLocalAttempted = parsedMeta.local_attempted === 1 || e.route === 'defer_local' || e.route === 'condition' || e.is_local_call === 1;
-    if (isLocalAttempted) {
+    // Only score accuracy when a verifier ACTUALLY RAN. Previously `route === 'condition'`
+    // and `is_local_call === 1` both forced isAccepted true, so every MCP event scored a
+    // free 100 and the "SLM Accuracy Rate" widget measured nothing at all. The MCP path
+    // never invokes the verifier (src/verifier is only called from llm-gate/pipeline.ts),
+    // so those events must now produce NO accuracy score rather than a fake perfect one.
+    const localAttempted = parsedMeta.local_attempted === 1;
+    if (localAttempted) {
       let hasFailureFlag = false;
       if (e.verifier_flags) {
         try {
@@ -668,39 +743,48 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
           hasFailureFlag = Boolean(e.verifier_flags);
         }
       }
-      const isAccepted = parsedMeta.local_accepted === 1 || e.route === 'defer_local' || e.route === 'condition' || (e.is_local_call === 1 && !hasFailureFlag);
+      const isAccepted = parsedMeta.local_accepted === 1 || !hasFailureFlag;
       scores.push({ id: `${e.request_id}_score_accuracy_rate_pct`, name: 'accuracy_rate_pct', value: isAccepted ? 100 : 0, dataType: 'NUMERIC' });
     }
   }
 
-  const isLocal = isLocalEvent(e);
-  const verifiedLabel = isLocal ? 'Passed (Local SLM)' : 'Escalated (Cloud)';
-  const verifiedComment = isLocal
-    ? 'Handled 100% locally by Small Language Model ($0 cloud cost)'
-    : 'Distilled by SLM and escalated to Cloud model';
+  const outcome = routingOutcome(e);
+  const verifiedLabels: Record<RoutingOutcome, { label: string; comment: string }> = {
+    resolved_local: {
+      label: 'Passed (Local SLM)',
+      comment: 'Handled 100% locally by Small Language Model ($0 cloud cost)'
+    },
+    distilled_forwarded: {
+      label: 'Distilled (Forwarded)',
+      comment: 'Compressed locally by the SLM, then forwarded to the cloud model'
+    },
+    escalated_cloud: {
+      label: 'Escalated (Cloud)',
+      comment: 'Sent to the cloud model without local resolution'
+    }
+  };
   scores.push({
     id: `${e.request_id}_score_verified`,
     name: 'verified',
-    value: verifiedLabel,
+    value: verifiedLabels[outcome].label,
     dataType: 'CATEGORICAL',
-    comment: verifiedComment
+    comment: verifiedLabels[outcome].comment
   });
 
-  const resolvedProvider = (e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null) as 'claude' | 'chatgpt' | 'gemini' | null;
-  if (resolvedProvider && (resolvedProvider === 'claude' || resolvedProvider === 'chatgpt' || resolvedProvider === 'gemini') && baselineTokens > 0) {
-    const plans = {
-      claude: CONFIG.RESOLVED_PLAN_CLAUDE,
-      chatgpt: CONFIG.RESOLVED_PLAN_CHATGPT,
-      gemini: CONFIG.RESOLVED_PLAN_GEMINI
-    };
-    const wm = plans[resolvedProvider].windowMinutes;
-    const value = wm * (tokensSaved / baselineTokens);
-    scores.push({
-      id: `${e.request_id}_score_cycle_${resolvedProvider}`,
-      name: `cycle_extended_per_window_${resolvedProvider}`,
-      value,
-      dataType: 'NUMERIC'
-    });
+  const resolvedProvider = resolveProvider(e);
+  if (resolvedProvider) {
+    const cycleMinutes = perEventCycleMinutes(e, resolvedProvider);
+    // Emitted only when the provider's window budget is configured. Without a denominator
+    // there is no honest way to express savings as minutes, so we stay silent rather than
+    // publishing the old ratio-times-window figure.
+    if (cycleMinutes !== null) {
+      scores.push({
+        id: `${e.request_id}_score_cycle_${resolvedProvider}`,
+        name: `cycle_extended_per_window_${resolvedProvider}`,
+        value: cycleMinutes,
+        dataType: 'NUMERIC'
+      });
+    }
   }
 
   const environment = e.environment ?? CONFIG.LANGFUSE_ENVIRONMENT;

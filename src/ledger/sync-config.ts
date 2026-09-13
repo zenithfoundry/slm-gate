@@ -31,9 +31,10 @@ export async function syncScoreConfigs(): Promise<void> {
       dataType: 'CATEGORICAL',
       categories: [
         { label: 'Passed (Local SLM)', value: 'Passed (Local SLM)' },
+        { label: 'Distilled (Forwarded)', value: 'Distilled (Forwarded)' },
         { label: 'Escalated (Cloud)', value: 'Escalated (Cloud)' }
       ],
-      description: 'Routing decision: SLM resolution vs Cloud escalation'
+      description: 'Routing outcome: resolved locally, distilled then forwarded, or escalated to cloud'
     },
     {
       name: 'cost_saved_cents',
@@ -55,17 +56,17 @@ export async function syncScoreConfigs(): Promise<void> {
     {
       name: 'cycle_extended_per_window_chatgpt',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 3h ChatGPT window from SLM savings (all-time rate)'
+      description: 'Extra minutes of a 3h ChatGPT window freed by this single request'
     },
     {
       name: 'cycle_extended_per_window_claude',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 5h Claude window from SLM savings (all-time rate)'
+      description: 'Extra minutes of a 5h Claude window freed by this single request'
     },
     {
       name: 'cycle_extended_per_window_gemini',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 5h Gemini window from SLM savings (all-time rate)'
+      description: 'Extra minutes of a 5h Gemini window freed by this single request'
     }
   ];
 

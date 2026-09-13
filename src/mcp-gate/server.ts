@@ -122,8 +122,10 @@ export async function createServer() {
           writeEvent({
             ts: new Date().toISOString(),
             layer: 'mcp',
-            request_id: `evt_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
-            route: 'condition',
+            request_id: `fb_${crypto.randomUUID()}`,
+            // Its own route: this is a user feedback signal, not a conditioning event.
+            // As 'condition' it polluted route counts and collected a free accuracy score.
+            route: 'feedback',
             is_local_call: 0,
             api_model: args?.model ? String(args.model) : undefined,
             agent: args?.agent ? String(args.agent) : undefined,

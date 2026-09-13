@@ -1,3 +1,4 @@
+import { __resetProviderRegistry } from '../pricing/providers.js';
 import { computeCycleRates, computeTotalsByProvider, formatEventForLangfuse, LedgerEvent, providerFromAgent, providerFromModel } from './index.js';
 
 describe('formatEventForLangfuse', () => {
@@ -26,7 +27,9 @@ describe('formatEventForLangfuse', () => {
   });
 
   it('Test 2: Given quality_score undefined, SLM hit, and route = local, expect accuracy_rate_pct = 100 (accepted)', () => {
-    const event: LedgerEvent = { ...baseEvent, route: 'defer_local', quality_score: undefined, is_local_call: 1 };
+    // meta.local_attempted is the llm-gate's record that the verifier actually ran.
+    // Without it there is no verdict to report and no score is emitted (see Test 4b).
+    const event: LedgerEvent = { ...baseEvent, route: 'defer_local', quality_score: undefined, is_local_call: 1, meta: JSON.stringify({ local_attempted: 1, local_accepted: 1 }) };
     const payload = formatEventForLangfuse(event);
     const accuracyScore = payload.scores?.find(s => s.name === 'accuracy_rate_pct');
     expect(accuracyScore).toBeDefined();
@@ -39,6 +42,7 @@ describe('formatEventForLangfuse', () => {
       route: 'escalate', 
       is_local_call: 1, 
       quality_score: undefined,
+      meta: JSON.stringify({ local_attempted: 1 }),
       verifier_flags: '["some_flag"]'
     };
     const payload = formatEventForLangfuse(event);
@@ -77,7 +81,7 @@ describe('formatEventForLangfuse', () => {
 });
 
 describe('computeCycleRates', () => {
-  it('computes cycle rates using the token-based formula across providers', () => {
+  it('computes aggregate cycle minutes using the per-provider metering model', () => {
     const rows: LedgerEvent[] = [
       {
         ts: new Date().toISOString(),
@@ -113,14 +117,22 @@ describe('computeCycleRates', () => {
       }
     ];
 
-    const rates = computeCycleRates(rows);
+    // Without a configured window budget there is no denominator, so no minutes can be
+    // claimed. The old assertion (300 minutes freed by a single 100-token call) was the bug.
+    __resetProviderRegistry();
+    expect(computeCycleRates(rows)).toEqual({ claude: 0, chatgpt: 0, gemini: 0 });
 
-    // gemini: baseline = 200, saved = 200. rate = 300 * 200/200 = 300
-    // claude: baseline = 100, saved = 100. rate = 300 * 100/100 = 300
-    // chatgpt: baseline = 0, rate should be 0
-    expect(rates.gemini).toBe(300);
-    expect(rates.claude).toBe(300);
+    // With budgets configured, each provider converts savings using its own metering model.
+    process.env.CLAUDE_WINDOW_BUDGET = '250';       // messages / 300 min
+    process.env.GEMINI_WINDOW_BUDGET = '1000000';   // tokens   / 300 min
+    __resetProviderRegistry();
+    const rates = computeCycleRates(rows);
+    expect(rates.claude).toBeCloseTo(1.2, 2);       // 1 message avoided * 300/250
+    expect(rates.gemini).toBeCloseTo(0.06, 2);      // 200 tokens saved * 300/1e6
     expect(rates.chatgpt).toBe(0);
+    delete process.env.CLAUDE_WINDOW_BUDGET;
+    delete process.env.GEMINI_WINDOW_BUDGET;
+    __resetProviderRegistry();
   });
 });
 
