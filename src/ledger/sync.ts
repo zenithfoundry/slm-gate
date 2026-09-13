@@ -156,10 +156,15 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
       }
 
       if (hasClient) {
+        // Langfuse stamps the ingestion envelope, not the body, and ScoreBody has no
+        // timestamp field. Using new Date() here backdated nothing: it collapsed the entire
+        // backfill onto the moment the sync ran, destroying the time series.
+        const envelopeTs = payload.eventTs ?? payload.trace?.timestamp ?? new Date(event.ts).toISOString();
+
         batch.push({
           id: crypto.randomUUID(),
           type: 'trace-create',
-          timestamp: new Date().toISOString(),
+          timestamp: envelopeTs,
           body: payload.trace
         });
         
@@ -168,7 +173,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
           batch.push({
             id: crypto.randomUUID(),
             type: 'generation-create',
-            timestamp: new Date().toISOString(),
+            timestamp: envelopeTs,
             body: {
               ...gen,
               traceId: payload.trace.id
@@ -181,7 +186,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
             batch.push({
               id: crypto.randomUUID(),
               type: 'score-create',
-              timestamp: new Date().toISOString(),
+              timestamp: envelopeTs,
               body: {
                 ...score,
                 traceId: payload.trace.id
@@ -194,7 +199,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
           batch.push({
             id: crypto.randomUUID(),
             type: 'span-create',
-            timestamp: new Date().toISOString(),
+            timestamp: envelopeTs,
             body: {
               ...payload.span,
               traceId: payload.trace.id

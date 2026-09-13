@@ -29,6 +29,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     LANGFUSE_PUBLIC_KEY: '',
     LANGFUSE_SECRET_KEY: '',
     LANGFUSE_HOST: '',
+    LANGFUSE_ENVIRONMENT: 'default',
     PROVIDER: undefined,
     RESOLVED_PLAN_CLAUDE: { windowMinutes: 300, plan: 'claude-pro' },
     RESOLVED_PLAN_CHATGPT: { windowMinutes: 180, plan: 'chatgpt-plus' },

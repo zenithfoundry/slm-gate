@@ -1,6 +1,7 @@
 import { CONFIG } from '../config.js';
 import { createServer } from './server.js';
-import { LangfuseSink, logLedgerInfo } from '../ledger/index.js';
+import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
+import { logLedgerInfo } from '../ledger/index.js';
 
 async function main() {
   if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
@@ -13,10 +14,7 @@ async function main() {
   console.error(`[mcp-gate] Models -> Brain: ${CONFIG.SLM_BRAIN_MODEL} | Gate: ${CONFIG.SLM_GATE_MODEL}`);
   logLedgerInfo('mcp-gate');
 
-  // Start background flush for Langfuse offline queue
-  setInterval(() => {
-    LangfuseSink.flushQueue().catch(err => console.error('[mcp-gate] Langfuse flush error:', err));
-  }, 5 * 60 * 1000);
+  installLangfuseFlushLifecycle('mcp-gate');
 
   try {
     const { start } = await createServer();

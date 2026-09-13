@@ -4,13 +4,21 @@ import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { isValidPlanKey, getSubscriptionPlan, getValidPlanKeys } from './pricing/plans.js';
 
-// Load .env (if it exists) into process.env. Does not crash if missing.
-config();
-
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 const ROOT_DIR = path.resolve(dirname, '..');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
+
+// Load THIS PACKAGE'S .env, resolved module-relative. Deliberately not cwd-relative:
+// MCP hosts spawn the gate with cwd set to whatever workspace the user has open, so a
+// bare dotenv.config() silently found nothing and left LANGFUSE_*/PROVIDER undefined
+// while LEDGER_PATH's module-relative default still resolved — a gate that looked
+// healthy and shipped no telemetry.
+//
+// The caller's cwd .env is deliberately NOT loaded as a fallback: it would pull an
+// unrelated project's PROVIDER, CLOUD_API_KEY and CLOUD_MODEL into this process.
+// Host-supplied process.env still wins, because dotenv never overrides an existing var.
+config({ path: path.join(ROOT_DIR, '.env') });
 
 // Zod pre-processors for env strings
 const parseInteger = (fallback: number) => z.string().optional().transform(v => v ? parseInt(v, 10) : fallback);
@@ -79,6 +87,12 @@ const envSchema = z.object({
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().optional(),
+  // Langfuse environment dimension. Keeps benchmark/harness runs out of the real
+  // traffic view — the dashboard's Env selector filters on this. Langfuse requires
+  // lowercase alphanumeric plus - and _, and forbids the 'langfuse' prefix.
+  LANGFUSE_ENVIRONMENT: z.string()
+    .regex(/^(?!langfuse)[a-z0-9_-]+$/, "LANGFUSE_ENVIRONMENT must be lowercase alphanumeric (- and _ allowed) and must not start with 'langfuse'")
+    .default('default'),
   SUBSCRIPTION_PLAN: z.string().optional(),
   PLAN_CLAUDE: z.string().optional(),
   PLAN_CHATGPT: z.string().optional(),

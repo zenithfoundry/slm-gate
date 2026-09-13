@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
+import { waitWithBackoff } from '../utils/backoff.js';
 
 let db: Database.Database | null = null;
 
@@ -45,6 +46,12 @@ export interface LedgerEvent {
   meta?: string; // JSON
   agent?: string;
   provider?: string | null;
+  /**
+   * Langfuse environment dimension. Separates benchmark/harness runs from real traffic so
+   * they can be filtered out of the dashboard. Defaults to CONFIG.LANGFUSE_ENVIRONMENT;
+   * the harness sets 'bench'.
+   */
+  environment?: string | null;
 }
 
 import fs from 'node:fs';
@@ -103,7 +110,8 @@ export function getDb(): Database.Database {
         slm_gate TEXT,
         meta TEXT,
         provider TEXT,
-        agent TEXT
+        agent TEXT,
+        environment TEXT
       );
 
       CREATE TABLE IF NOT EXISTS cache (
@@ -131,6 +139,29 @@ export function getDb(): Database.Database {
       );
     `);
 
+
+    // Additive, idempotent column migrations. CREATE TABLE IF NOT EXISTS above only covers
+    // fresh databases, and this process runs headless inside MCP hosts where nobody will
+    // remember to run scripts/migrations/*. Every column here must be nullable.
+    const tableInfo = db.prepare('PRAGMA table_info(events)').all() as { name: string }[] | undefined;
+    if (Array.isArray(tableInfo)) {
+      const eventColumns = new Set(tableInfo.map(c => c.name));
+      for (const [column, ddl] of [
+        ['provider', 'ALTER TABLE events ADD COLUMN provider TEXT'],
+        ['agent', 'ALTER TABLE events ADD COLUMN agent TEXT'],
+        ['environment', 'ALTER TABLE events ADD COLUMN environment TEXT'],
+      ] as const) {
+        if (eventColumns.has(column)) continue;
+        try {
+          db.exec(ddl);
+          console.error(`[ledger] Migrated: added events.${column}`);
+        } catch (err) {
+          // "duplicate column name" means another process won the race — benign.
+          const message = err instanceof Error ? err.message : String(err);
+          if (!/duplicate column name/i.test(message)) throw err;
+        }
+      }
+    }
 
     const policyCount = db.prepare('SELECT count(*) as c FROM distill_policy').get() as { c: number } | undefined;
     if (!policyCount || policyCount.c === 0) {
@@ -377,48 +408,58 @@ export function computeCycleRateAvg(
 }
 
 export function writeEvent(e: LedgerEvent) {
-  const provider = e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null;
+  // Resolve derived fields ONCE and carry them on a single enriched object, so SQLite and
+  // Langfuse can never disagree. Previously `provider` was computed into a local, written
+  // to SQLite, and then the *un-enriched* `e` was mirrored — leaving Langfuse to re-derive
+  // it through a chain ending in CONFIG.PROVIDER, which is unset when .env fails to load.
+  const event: LedgerEvent = {
+    ...e,
+    provider: e.provider ?? providerFromModel(e.api_model) ?? providerFromAgent(e.agent) ?? CONFIG.PROVIDER ?? null,
+    environment: e.environment ?? CONFIG.LANGFUSE_ENVIRONMENT,
+  };
+
   const statement = getDb().prepare(`
     INSERT OR REPLACE INTO events (
       ts, layer, request_id, session_id, skill, route, is_local_call, slm_model, api_model,
       in_tok, out_tok, api_in_tok, api_out_tok, cost_usd, slm_latency_s, api_latency_s,
-      verifier_flags, quality_score, slm_gate, meta, provider, agent
+      verifier_flags, quality_score, slm_gate, meta, provider, agent, environment
     ) VALUES (
       @ts, @layer, @request_id, @session_id, @skill, @route, @is_local_call, @slm_model, @api_model,
       @in_tok, @out_tok, @api_in_tok, @api_out_tok, @cost_usd, @slm_latency_s, @api_latency_s,
-      @verifier_flags, @quality_score, @slm_gate, @meta, @provider, @agent
+      @verifier_flags, @quality_score, @slm_gate, @meta, @provider, @agent, @environment
     )
   `);
-  
-  // better-sqlite3 strictly requires all named parameters to exist on the object, 
+
+  // better-sqlite3 strictly requires all named parameters to exist on the object,
   // so we must coalesce any undefined optional properties to null.
   statement.run({
-    ts: e.ts,
-    layer: e.layer,
-    request_id: e.request_id,
-    session_id: e.session_id ?? null,
-    skill: e.skill ?? null,
-    route: e.route,
-    is_local_call: e.is_local_call,
-    slm_model: e.slm_model ?? null,
-    api_model: e.api_model ?? null,
-    in_tok: e.in_tok,
-    out_tok: e.out_tok,
-    api_in_tok: e.api_in_tok,
-    api_out_tok: e.api_out_tok,
-    cost_usd: e.cost_usd,
-    slm_latency_s: e.slm_latency_s,
-    api_latency_s: e.api_latency_s,
-    verifier_flags: e.verifier_flags ?? null,
-    quality_score: e.quality_score ?? null,
-    slm_gate: e.slm_gate,
-    meta: e.meta ?? null,
-    provider: provider,
-    agent: e.agent ?? null
+    ts: event.ts,
+    layer: event.layer,
+    request_id: event.request_id,
+    session_id: event.session_id ?? null,
+    skill: event.skill ?? null,
+    route: event.route,
+    is_local_call: event.is_local_call,
+    slm_model: event.slm_model ?? null,
+    api_model: event.api_model ?? null,
+    in_tok: event.in_tok,
+    out_tok: event.out_tok,
+    api_in_tok: event.api_in_tok,
+    api_out_tok: event.api_out_tok,
+    cost_usd: event.cost_usd,
+    slm_latency_s: event.slm_latency_s,
+    api_latency_s: event.api_latency_s,
+    verifier_flags: event.verifier_flags ?? null,
+    quality_score: event.quality_score ?? null,
+    slm_gate: event.slm_gate,
+    meta: event.meta ?? null,
+    provider: event.provider,
+    agent: event.agent ?? null,
+    environment: event.environment ?? null
   });
 
   // Mirror to Langfuse if enabled
-  LangfuseSink.mirrorEvent(e);
+  LangfuseSink.mirrorEvent(event);
 }
 
 export function cacheGet(key: string): string | null {
@@ -450,6 +491,7 @@ export interface LangfuseGenerationPayload {
   };
   startTime: string;
   endTime: string;
+  environment?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -458,12 +500,24 @@ export interface LangfuseScorePayload {
   name: string;
   value: number | string;
   comment?: string;
+  environment?: string | null;
   dataType?: 'NUMERIC' | 'BOOLEAN' | 'CATEGORICAL';
 }
 
 export interface LangfuseQueuePayload {
+  /**
+   * The originating event's timestamp. Langfuse stamps each ingestion envelope, not the
+   * body, so this must be carried through the queue and applied to every envelope at
+   * flush time — otherwise all history collapses onto whenever the flush happened and
+   * every date-windowed widget breaks.
+   */
+  eventTs?: string;
+  /** Langfuse environment dimension, applied to trace, generation and score bodies. */
+  environment?: string | null;
   trace: {
     id: string;
+    timestamp?: string;
+    environment?: string | null;
     sessionId?: string | null;
     tags: string[];
     metadata?: Record<string, unknown>;
@@ -649,16 +703,25 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     });
   }
 
+  const environment = e.environment ?? CONFIG.LANGFUSE_ENVIRONMENT;
+  const eventTs = new Date(e.ts).toISOString();
+
   return {
+    eventTs,
+    environment,
     trace: {
       id: e.request_id,
+      // TraceBody supports `timestamp` directly; ScoreBody does not, so scores rely on the
+      // ingestion envelope instead (see flushQueue / sync.ts).
+      timestamp: eventTs,
+      environment,
       sessionId: e.session_id,
       tags,
       metadata,
       name: traceName,
     },
-    generations,
-    scores,
+    generations: generations.map(g => ({ ...g, environment })),
+    scores: scores.map(s => ({ ...s, environment })),
   };
 }
 
@@ -688,101 +751,151 @@ export class LangfuseSink {
     }
   }
 
-  static async flushQueue() {
-    if (!this.hasValidConfig()) return;
-    
+  /**
+   * Ship queued Langfuse payloads.
+   *
+   * Drains to empty rather than a single fixed-size page: the previous `LIMIT 50` with no
+   * loop meant throughput was capped at 50 events per invocation, so a backlog could never
+   * catch up. Rows are only deleted after the server accepts them, so a failure leaves the
+   * queue intact and the offline contract holds.
+   *
+   * @param options.maxBatches Safety valve so a pathological queue cannot spin forever.
+   * @param options.deadlineMs Wall-clock budget; used by the shutdown drain, where MCP hosts
+   *   force-kill after a short grace period.
+   * @returns Number of queue rows successfully shipped.
+   */
+  static async flushQueue(options: { maxBatches?: number; deadlineMs?: number } = {}): Promise<number> {
+    if (!this.hasValidConfig()) return 0;
+
+    const { maxBatches = 100, deadlineMs } = options;
+    const startedAt = Date.now();
     const db = getDb();
-    const rows = db.prepare('SELECT id, payload FROM langfuse_queue WHERE synced = 0 LIMIT 50').all() as {id: number, payload: string}[];
-    
-    if (rows.length === 0) return;
-    
-    const batch = [];
-    const rowIds = [];
-    
-    for (const row of rows) {
-      rowIds.push(row.id);
-      const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
-      
-      batch.push({
-        id: crypto.randomUUID(),
-        type: 'trace-create',
-        timestamp: new Date().toISOString(),
-        body: payload.trace
-      });
-      
-      const generations = payload.generations || (payload.generation ? [payload.generation] : []);
-      for (const gen of generations) {
-        batch.push({
-          id: crypto.randomUUID(),
-          type: 'generation-create',
-          timestamp: new Date().toISOString(),
-          body: {
-            ...gen,
-            traceId: payload.trace.id
-          }
-        });
+    const MAX_ATTEMPTS = 3;
+    let shipped = 0;
+
+    for (let batchNo = 0; batchNo < maxBatches; batchNo++) {
+      if (deadlineMs !== undefined && Date.now() - startedAt >= deadlineMs) {
+        console.error('[ledger] Langfuse flush hit its time budget; remaining rows stay queued.');
+        break;
       }
 
-      if (payload.scores && Array.isArray(payload.scores)) {
-        for (const score of payload.scores) {
+      // ORDER BY id so the oldest events drain first and ordering is deterministic.
+      const rows = db
+        .prepare('SELECT id, payload FROM langfuse_queue WHERE synced = 0 ORDER BY id ASC LIMIT 50')
+        .all() as { id: number; payload: string }[];
+
+      if (rows.length === 0) break;
+
+      const batch = [];
+      const rowIds = [];
+
+      for (const row of rows) {
+        rowIds.push(row.id);
+        const payload = JSON.parse(row.payload) as LangfuseQueuePayload;
+
+        // Langfuse stamps the ingestion ENVELOPE, not the body. ScoreBody has no timestamp
+        // field at all, so without this every score lands at flush time and the whole time
+        // series collapses onto a few instants — which is what broke the date filters.
+        const envelopeTs = payload.eventTs ?? payload.trace?.timestamp ?? new Date().toISOString();
+
+        batch.push({
+          id: crypto.randomUUID(),
+          type: 'trace-create',
+          timestamp: envelopeTs,
+          body: payload.trace
+        });
+
+        const generations = payload.generations || (payload.generation ? [payload.generation] : []);
+        for (const gen of generations) {
           batch.push({
             id: crypto.randomUUID(),
-            type: 'score-create',
-            timestamp: new Date().toISOString(),
-            body: {
-              ...score,
-              traceId: payload.trace.id
-            }
+            type: 'generation-create',
+            timestamp: envelopeTs,
+            body: { ...gen, traceId: payload.trace.id }
+          });
+        }
+
+        if (payload.scores && Array.isArray(payload.scores)) {
+          for (const score of payload.scores) {
+            batch.push({
+              id: crypto.randomUUID(),
+              type: 'score-create',
+              timestamp: envelopeTs,
+              body: { ...score, traceId: payload.trace.id }
+            });
+          }
+        }
+
+        if (payload.span) {
+          batch.push({
+            id: crypto.randomUUID(),
+            type: 'span-create',
+            timestamp: envelopeTs,
+            body: { ...payload.span, traceId: payload.trace.id }
           });
         }
       }
 
-      if (payload.span) {
-        batch.push({
-          id: crypto.randomUUID(),
-          type: 'span-create',
-          timestamp: new Date().toISOString(),
-          body: {
-            ...payload.span,
-            traceId: payload.trace.id
-          }
-        });
-      }
-    }
-    
-    try {
-      const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
-      const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ batch })
-      });
-      
-      let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
-      try {
-        body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
-      } catch { /* not JSON */ }
+      let accepted = false;
+      for (let attempt = 0; attempt < MAX_ATTEMPTS && !accepted; attempt++) {
+        try {
+          const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+          const res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ batch })
+          });
 
-      if (body && Array.isArray(body.errors) && body.errors.length > 0) {
-        for (const e of body.errors) {
-          console.error(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+          let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
+          try {
+            body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
+          } catch { /* not JSON */ }
+
+          if (body && Array.isArray(body.errors) && body.errors.length > 0) {
+            for (const e of body.errors) {
+              console.error(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+            }
+          }
+
+          if (res.ok) {
+            accepted = true;
+            break;
+          }
+
+          // 429 and 5xx are transient: back off and retry the same batch. Anything else is
+          // a permanent rejection (bad payload, bad auth) that retrying cannot fix.
+          const isTransient = res.status === 429 || res.status >= 500;
+          const errText = body ? JSON.stringify(body) : await res.text().catch(() => '(no body)');
+          if (!isTransient) {
+            console.warn(`[ledger] Warning: Langfuse ingestion rejected (${res.status}): ${errText}`);
+            break;
+          }
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await waitWithBackoff(attempt, MAX_ATTEMPTS, `Langfuse ingestion ${res.status}`, res.headers.get('retry-after'), 'ledger');
+          } else {
+            console.warn(`[ledger] Warning: Langfuse ingestion failed after ${MAX_ATTEMPTS} attempts (${res.status}): ${errText}`);
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await waitWithBackoff(attempt, MAX_ATTEMPTS, `Langfuse network error (${message})`, null, 'ledger');
+          } else {
+            console.warn(`[ledger] Warning: Langfuse network flush failed: ${message}`);
+          }
         }
       }
 
-      if (!res.ok) {
-        const errText = body ? JSON.stringify(body) : await res.text().catch(() => '(no body)');
-        console.warn(`[ledger] Warning: Langfuse ingestion failed (${res.status}): ${errText}`);
-      } else {
-        const placeholders = rowIds.map(() => '?').join(',');
-        db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[ledger] Warning: Langfuse network flush failed: ${message}`);
+      if (!accepted) break; // leave rows queued for the next attempt
+
+      const placeholders = rowIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
+      shipped += rowIds.length;
     }
+
+    return shipped;
   }
 
   /**

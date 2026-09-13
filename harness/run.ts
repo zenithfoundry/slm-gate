@@ -3,6 +3,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { CONFIG } from '../src/config.js';
 import { LedgerEvent, writeEvent } from '../src/ledger/index.js';
+
+/**
+ * Langfuse environment tag for benchmark traffic. Keeps harness runs out of the real-traffic
+ * view — without it, bench events land in the same ledger and the same dashboard as
+ * production events and silently skew every widget.
+ */
+const BENCH_ENVIRONMENT = 'bench';
 import { deriveArms, GradedResult } from './arms.js';
 import { renderSvg } from './curve.js';
 import { loadTasks } from './dataset.js';
@@ -118,7 +125,7 @@ async function callLlmGate(prompt: string, routeHeader: string, taskId?: string)
         has_code_fence: res.hasCodeFence ? 1 : 0
       })
     };
-    writeEvent(event);
+    writeEvent({ ...event, environment: BENCH_ENVIRONMENT });
     
     return {
       answer: extractAnswer(res.body),
@@ -291,7 +298,7 @@ async function run() {
             local_accepted: isLocal ? 1 : 0
           })
         };
-        writeEvent(event);
+        writeEvent({ ...event, environment: BENCH_ENVIRONMENT });
       }
 
       results.push({

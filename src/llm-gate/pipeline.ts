@@ -5,6 +5,7 @@ import { handleSlmError } from '../models/helpers.js';
 import { classify } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { calculateCostUsd } from '../pricing/index.js';
+import { waitWithBackoff as sharedWaitWithBackoff } from '../utils/backoff.js';
 import { compressContext } from '../utils/compression.js';
 import { isLatestInstructionFromTool } from '../utils/safety.js';
 import { verify } from '../verifier/index.js';
@@ -78,15 +79,9 @@ export async function waitWithBackoff(
   reason: string,
   retryAfter?: string | null
 ): Promise<void> {
-  let delayMs = 1500 * Math.pow(2, attempt) + Math.random() * 500;
-  if (retryAfter) {
-    const parsedSeconds = parseInt(retryAfter, 10);
-    if (!isNaN(parsedSeconds) && parsedSeconds > 0) {
-      delayMs = Math.max(delayMs, parsedSeconds * 1000);
-    }
-  }
-  console.error(`[llm-gate] ${reason}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${maxRetries})...`);
-  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  // Implementation lives in utils/backoff.ts so the ledger's Langfuse flush can share it
+  // without a circular import. This wrapper preserves the existing call signature.
+  return sharedWaitWithBackoff(attempt, maxRetries, reason, retryAfter, 'llm-gate');
 }
 
 // Very basic token estimator. A real implementation would use a proper tokenizer like tiktoken.
