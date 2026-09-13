@@ -8,16 +8,17 @@
  * tool call against a 300-minute window.
  */
 
+import { describe, beforeEach, afterEach, it, expect } from '@jest/globals';
+import { calculateCostUsd, normalizeModelId } from '../pricing/index.js';
+import { __resetProviderRegistry } from '../pricing/providers.js';
 import {
+  computeCycleRateAvg,
   formatEventForLangfuse,
+  LedgerEvent,
   perEventCycleMinutes,
   perEventUnitsSaved,
   routingOutcome,
-  computeCycleRateAvg,
-  LedgerEvent,
 } from './index.js';
-import { __resetProviderRegistry } from '../pricing/providers.js';
-import { calculateCostUsd, normalizeModelId } from '../pricing/index.js';
 
 const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
   ts: '2026-09-13T13:56:35.118Z',
