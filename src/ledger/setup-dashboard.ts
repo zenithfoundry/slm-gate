@@ -253,17 +253,24 @@ async function setupDashboard(): Promise<void> {
 
     console.log('\nPlacing widgets on dashboard...');
     
-    // Arrange them in a 2x2 grid
-    // Standard grid is usually 12 cols wide, x:0-12, y: row
-    const placements = [
-      { type: 'widget', widgetId: targetWidgets[0].id },
-      { type: 'widget', widgetId: targetWidgets[1].id },
-      { type: 'widget', widgetId: targetWidgets[2].id },
-      { type: 'widget', widgetId: targetWidgets[3].id },
-      { type: 'widget', widgetId: targetWidgets[4].id },
-      { type: 'widget', widgetId: targetWidgets[5].id },
-      { type: 'widget', widgetId: targetWidgets[6].id },
+    // Explicit 12-column grid. Omitting x/y/width/height makes Langfuse auto-place each
+    // widget, and colliding auto-placements overwrite each other server-side — the POST
+    // still returns 200, so four of seven cards silently vanished from the definition.
+    const layout = [
+      { x: 0, y: 0, width: 6, height: 6 }, // Routing Decision (pie)
+      { x: 6, y: 0, width: 3, height: 3 }, // Tokens Saved
+      { x: 9, y: 0, width: 3, height: 3 }, // Cost Saved
+      { x: 6, y: 3, width: 6, height: 3 }, // SLM Accuracy Rate
+      { x: 0, y: 6, width: 4, height: 3 }, // Claude Cycle Extended
+      { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT Cycle Extended
+      { x: 8, y: 6, width: 4, height: 3 }, // Gemini Cycle Extended
     ];
+
+    const placements = targetWidgets.map((w, i) => ({
+      type: 'widget',
+      widgetId: w.id,
+      ...layout[i],
+    }));
 
     for (const [i, p] of placements.entries()) {
       if (!p.widgetId) continue;
@@ -285,6 +292,32 @@ async function setupDashboard(): Promise<void> {
         console.warn(`⚠ Error placing widget '${widgets[i].name}':`, err);
         failures++;
       }
+    }
+
+    // A 200 on POST /placements does not mean the placement survived: colliding positions
+    // are dropped server-side. Re-read the definition and confirm every widget is present.
+    console.log('\nVerifying persisted placements...');
+    try {
+      const vRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}`, { headers }, 'verify placements');
+      if (!vRes.ok) {
+        console.warn(`⚠ Could not verify placements: ${await vRes.text()}`);
+        failures++;
+      } else {
+        const vData = await vRes.json();
+        const persisted: any[] = vData.definition?.widgets || [];
+        const persistedIds = new Set(persisted.map(p => p.widgetId));
+        for (const [i, w] of targetWidgets.entries()) {
+          if (!persistedIds.has(w.id)) {
+            console.error(`✗ Widget '${widgets[i].name}' did NOT persist on the dashboard.`);
+            failures++;
+          }
+        }
+        placedCount = targetWidgets.filter(w => persistedIds.has(w.id)).length;
+        console.log(`✓ ${persisted.length} placement(s) present in the dashboard definition.`);
+      }
+    } catch (err) {
+      console.warn(`⚠ Error verifying placements:`, err);
+      failures++;
     }
   }
 
