@@ -37,7 +37,8 @@
     "slm-gate": "./dist/cli.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=10"
   },
   "scripts": {
     "slm-gate": "tsx src/cli.ts",

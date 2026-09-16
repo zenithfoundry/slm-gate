@@ -31,7 +31,13 @@ jobs:
           
       - name: Install dependencies
         run: pnpm install
-        
+
+      - name: Verify better-sqlite3 prebuilt binary loads
+        # pnpm-workspace.yaml skips better-sqlite3's build script and relies on the prebuilt
+        # binary in the tarball. Prebuilds are per platform/arch, so a missing one would
+        # otherwise surface as a confusing require error somewhere inside the test suite.
+        run: node -e "require('better-sqlite3')(':memory:').prepare('select 1').get()"
+
       - name: Typecheck and Build
         run: pnpm run build
         

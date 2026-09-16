@@ -134,9 +134,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
 
   // 1. Cache Check
   // PROMPT_VERSION participates in the key. It is documented in .env.example as the lever to
-  // bump when prompt logic changes, but was read nowhere — so after any change to the prompts,
-  // the models, or the SLM call shape, identical payloads kept returning results computed by
-  // the OLD code, forever. Bumping it now genuinely invalidates every cached conditioning.
+  // bump when prompt logic changes.
   const hash = crypto.createHash('sha256')
     .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION)
     .digest('hex');
@@ -163,8 +161,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // 2. Distill
   // Compresses ONE narrative run. distillToolResult never sends protected content here, so this
   // prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and
-  // reliably loses opaque tokens, which is why the old ⟦PRESERVE_n⟧ protocol caused every
-  // markdown compression to be discarded. An explicit word budget is what actually drives the
+  // reliably loses opaque tokens. An explicit word budget is what actually drives the
   // ratio: without it the model rewords instead of condensing (measured 4-8% vs 44-60%).
   const slmFunc = async (t: string, taskDesc?: string) => {
     const wordCount = t.trim().split(/\s+/).length;
@@ -172,7 +169,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     const prompt = `Compress the text below to AT MOST ${targetWords} words.\n\nKeep: every instruction, requirement, constraint, name, number, path and technical specific.\nDelete: background, history, rationale, motivation, repetition and filler.\nOutput ONLY the compressed text as terse bullet points. No preamble, no heading.\n\nTask context: ${taskDesc || 'None'}\n\n${t}`;
     // This was the only model call in the pipeline with neither a token ceiling nor a timeout.
     // Ollama sends HTTP response headers only AFTER generation completes, so the effective cap
-    // was Node fetch's 300s header timeout — surfacing as `fetch failed`, misclassified as a
+    // is Node fetch's 300s header timeout surfacing as `fetch failed`, misclassified as a
     // transport error, long after the MCP client had given up. SLM_TIMEOUT_MS now governs it.
     // The ceiling is per-run and generous against the target so a summary is never cut mid-
     // sentence; the run is discarded anyway if it comes back longer than the original.

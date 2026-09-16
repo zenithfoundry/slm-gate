@@ -202,6 +202,46 @@ ${filler.replace(/Background/g, 'Different')}`;
     expect(result).toBe(text);
   });
 
+  it('(i) narrative runs reach the model through a bounded pool, never all at once', async () => {
+    const patterns = await buildPreserveList();
+    const runs = Array.from({ length: 5 }, (_, i) =>
+      `Run ${i} prose that exists purely to pad this section past the size floor. `.repeat(7));
+    const text = runs.join('\nYou MUST keep this line\n');
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const gatedSlm = jest.fn(async (t: string) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      // Yield a macrotask so every worker that can dispatch has done so before any call returns.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      inFlight--;
+      return t.slice(0, 40);
+    });
+
+    const result = await distillToolResult(gatedSlm as any, text, undefined, undefined, undefined, patterns);
+
+    expect(gatedSlm).toHaveBeenCalledTimes(5);
+    expect(maxInFlight).toBe(2);
+    expect(result.match(/You MUST keep this line/g)).toHaveLength(4);
+    expect(result.length).toBeLessThan(text.length);
+  });
+
+  it('(j) warns when every narrative run is under the floor and nothing could be compressed', async () => {
+    const patterns = await buildPreserveList();
+    // Heading-dense: every prose run between two protected headings is well under the floor.
+    const text = Array.from({ length: 12 }, (_, i) =>
+      `## Section ${i}\nOne short sentence about section ${i} that stays under the size floor.`).join('\n\n');
+
+    const result = await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
+
+    expect(mockSlm).not.toHaveBeenCalled();
+    expect(result).toBe(text);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/12 narrative run\(s\), 12 under the 400-char floor, 0 sent, 0 failed/)
+    );
+  });
+
   it('logs greedy list warning if > 70% lines are preserved', async () => {
     const patterns = await buildPreserveList();
     const text = `MUST line 1\nMUST line 2\nMUST line 3\nNormal line`;

@@ -52,13 +52,13 @@ export class SLM {
           format: jsonSchema as any,
           keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
           // `think` is a REQUEST-level field, not an `options` entry. Ollama silently drops
-          // unknown keys from `options`, so this used to have no effect: a thinking model
+          // unknown keys from `options`: a thinking model
           // (qwen3 / qwen3.5, the default brain for ram-24 and above) reasoned until it hit
           // num_predict, returned done_reason:length with EMPTY content, and the parse failed.
           // That produced `resolver_error: format` on essentially every standalone call, twice
           // per call because of the retry below. Keep this out of `options`.
           think: false,
-          // No `as any`: every key below is a real Ollama option, so a future typo fails the build
+          // Every key below is a real Ollama option, so a future typo fails the build
           // instead of being silently ignored the way `think` was.
           options: {
             temperature: temp,

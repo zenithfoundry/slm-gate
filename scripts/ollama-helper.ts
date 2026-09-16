@@ -120,11 +120,21 @@ export async function ensureOllamaReady(
  *
  * Exported because a test that asserts on ledger rows must open THIS database, not whatever
  * CONFIG.LEDGER_PATH resolved to in the parent process.
+ *
+ * Created on first use rather than at import: smoke-e2e's `--fake-downstream` child imports
+ * this module too and would otherwise leave a second, empty directory behind on every run.
+ * The directory is removed when the process that created it exits.
  */
-export const E2E_LEDGER_PATH = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-e2e-')),
-  'e2e-ledger.sqlite'
-);
+let e2eLedgerDir: string | undefined;
+
+export function e2eLedgerPath(): string {
+  if (!e2eLedgerDir) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-e2e-'));
+    process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
+    e2eLedgerDir = dir;
+  }
+  return path.join(e2eLedgerDir, 'e2e-ledger.sqlite');
+}
 
 /**
  * Constructs an environment variable map that inherits the current process environment
@@ -151,11 +161,10 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     SLM_GATE_MODEL,
     SLM_BRAIN_MODEL,
     SELF_CONSISTENCY_K: '1', // Default setting for generation passes
-    LEDGER_PATH: E2E_LEDGER_PATH,
-    // Pinned so the assertions do not depend on whatever thresholds the developer's .env
-    // happens to carry. The canned payloads are sized against these two numbers.
-    DISTILL_MIN_TOKENS: '500',
-    DISTILL_MAX_TOKENS: '1000',
+    LEDGER_PATH: e2eLedgerPath(),
+    // Distillation thresholds are deliberately NOT pinned here. A script whose canned payload
+    // is sized against particular DISTILL_MIN/MAX_TOKENS values passes them in `overrides`,
+    // next to the payload, where the coupling is visible.
     ...overrides
   };
 }

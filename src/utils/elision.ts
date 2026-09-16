@@ -14,6 +14,18 @@ import { TOOL_RESULT_PREFIXES } from './constants.js';
 const MIN_COMPRESSIBLE_SEGMENT_CHARS = 400;
 
 /**
+ * How many narrative runs are in flight at the model at once.
+ *
+ * Ollama executes at most OLLAMA_NUM_PARALLEL requests (1 on most hosts) and queues the rest,
+ * while the per-call timeout is a Promise.race that cannot cancel the queued generation. Firing
+ * every run at once therefore made late runs burn their whole SLM_TIMEOUT_MS waiting in Ollama's
+ * queue, time out having never run, and then keep occupying the GPU after the caller had given
+ * up — starving the runs still queued behind them. A run is now handed to the model only when a
+ * slot frees up, so its timer starts when its generation can actually start.
+ */
+const MAX_CONCURRENT_SEGMENT_CALLS = 2;
+
+/**
  * Computes a deterministic SHA-256 ID for a tool elision.
  * By hashing the tool name, arguments, and original content, we ensure that
  * identical tool outputs always produce the exact same elision ID,
@@ -365,19 +377,33 @@ export async function distillToolResult(
     // We skip the SLM Semantic loop because structural integrity is more important than size.
   } else if (estimateTokens(finalText) > maxTokens) {
     // --------------------------------------------------------------------------
-    // SUMMARIZE MODE: segment-wise compression.
+    // SUMMARIZE MODE
     //
-    // The model is never shown protected content, and is never asked to carry placeholder
-    // tokens through a rewrite. Measured on a 5KB markdown payload: asked to reproduce nine
-    // ⟦PRESERVE_n⟧ tokens verbatim, qwen2.5-coder:3b kept ZERO of them. It did not mangle
-    // them — it ignored the custody protocol entirely and summarised everything, protected
-    // content included, so the whole compression had to be thrown away and the payload was
-    // forwarded uncompressed. Small models summarise prose well. They are not reliable
-    // custodians of opaque tokens, and no amount of prompt wording fixes that.
+    // Some lines in the payload are "protected": contract lines, signatures, anything
+    // the caller must receive character-for-character. Everything else is ordinary
+    // prose we're allowed to shorten.
     //
-    // So: split into alternating protected / narrative runs, compress ONLY the narrative
-    // runs, and splice the protected runs back in from our own copy. Reassembly is then
-    // deterministic and cannot drop a contract line, which is what makes this safe on a 3B.
+    // The obvious approach is to hand the model the whole payload with the protected
+    // lines swapped for markers like ⟦PRESERVE_3⟧, ask it to leave the markers alone,
+    // and put the real lines back afterwards. We tried that. On a 5KB markdown payload
+    // with nine markers, qwen2.5-coder:3b returned none of them. It didn't garble them —
+    // it ignored the instruction completely and summarised everything, protected lines
+    // included. There was no way to tell which parts were still exact, so the entire
+    // result had to be discarded and the payload went out uncompressed.
+    //
+    // That isn't a wording problem. A 3B model summarises prose well, but it will not
+    // reliably carry meaningless tokens through a rewrite, and no prompt tuning fixes it.
+    //
+    // So we never show the model the protected content at all:
+    //
+    //   1. Split the payload into alternating runs — protected, prose, protected, ...
+    //   2. Send only the prose runs to the model to be shortened.
+    //   3. Stitch the result back together, taking the protected runs from our own
+    //      copy rather than from anything the model returned.
+    //
+    // Reassembly is pure string joining. The protected content is physically never in
+    // the model's input or output, so it cannot be dropped or altered — which is what
+    // makes this safe to run on a 3B model.
     // --------------------------------------------------------------------------
     const slmLines = finalText.split('\n');
     const protectedLineIndices = new Set<number>();
@@ -426,8 +452,10 @@ export async function distillToolResult(
       for (let i = 0; i < slmLines.length; i++) {
         const line = slmLines[i];
         if (protectedLineIndices.has(i) || line.trim().length < 20) continue;
-        // Explore rate keeps embedding off the critical path for most lines.
-        if (Math.random() < CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
+        // The explore rate is the FRACTION OF LINES that get an embedding call (0.15 = 15%), as
+        // .env.example documents and as ROUTING_TUNE_EXPLORE_RATE reads. Each call is a serial
+        // round-trip to the embedding model, so sampling is what keeps it off the critical path.
+        if (Math.random() >= CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
 
         const emb = await embedText(line);
         if (!emb) continue;
@@ -456,12 +484,17 @@ export async function distillToolResult(
       else segments.push({ protected: isProtected, lines: [slmLines[i]] });
     }
 
-    // Phase 5: compress narrative runs concurrently. Protected runs are never sent anywhere.
+    // Phase 5: compress narrative runs through a small worker pool. Protected runs are never
+    // sent anywhere. A run is handed to the model only when a worker is free, so the per-call
+    // timeout (started inside `slm`) measures generation time, not time spent in Ollama's queue.
     const protectedBlocks = segments.filter(s => s.protected).map(s => s.lines.join('\n'));
-    await Promise.all(segments.map(async (segment) => {
-      if (segment.protected) return;
+    const narrativeRuns = segments.filter(s => !s.protected);
+    const queue = narrativeRuns.filter(s => s.lines.join('\n').trim().length >= MIN_COMPRESSIBLE_SEGMENT_CHARS);
+    const skippedUnderFloor = narrativeRuns.length - queue.length;
+    let failedRuns = 0;
+
+    const compressRun = async (segment: { lines: string[] }) => {
       const original = segment.lines.join('\n');
-      if (original.trim().length < MIN_COMPRESSIBLE_SEGMENT_CHARS) return;
       try {
         const summary = (await slm(original, task)).trim();
         // Accept only a non-empty result that actually shrank; otherwise keep the original.
@@ -470,11 +503,31 @@ export async function distillToolResult(
         }
       } catch (err) {
         // Fail open for THIS run only — every other run still compresses.
+        failedRuns++;
         console.error(`[distill] segment kept verbatim after compression failure: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
+    const workerCount = Math.min(MAX_CONCURRENT_SEGMENT_CALLS, queue.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      for (let run = queue.shift(); run; run = queue.shift()) {
+        await compressRun(run);
       }
     }));
 
     const rebuilt = segments.map(s => s.lines.join('\n')).join('\n');
+
+    // Summarize mode can legitimately change nothing: a heading-dense document splits into many
+    // narrative runs that each fall under the size floor. Without this line the payload would
+    // then be hard-truncated below with no trace of WHY compression was never attempted.
+    if (estimateTokens(rebuilt) > maxTokens) {
+      const sentRuns = narrativeRuns.length - skippedUnderFloor;
+      console.warn(
+        `[distill] summarize left ~${estimateTokens(rebuilt)} tokens against a budget of ${maxTokens}: ` +
+        `${narrativeRuns.length} narrative run(s), ${skippedUnderFloor} under the ${MIN_COMPRESSIBLE_SEGMENT_CHARS}-char floor, ` +
+        `${sentRuns} sent, ${failedRuns} failed; hard truncation follows`
+      );
+    }
 
     // Invariant, not a discard path. Protected runs are spliced back from our own copy, so this
     // can only trip if the segmentation is wrong — never because a model misbehaved.

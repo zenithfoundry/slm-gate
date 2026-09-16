@@ -36,7 +36,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
-import { ensureOllamaReady, getE2EEnv, E2E_LEDGER_PATH, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
+import { ensureOllamaReady, getE2EEnv, e2eLedgerPath, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
 
 // 1. Fake downstream server mode
 if (process.argv[2] === '--fake-downstream') {
@@ -206,9 +206,20 @@ else {
       // Opens the SAME database the spawned gate wrote to. getDb() would resolve
       // CONFIG.LEDGER_PATH in THIS process, which is the developer's real ledger — a different
       // file from the throwaway one the child was given, so the row would never be found.
-      const { default: Database } = await import('better-sqlite3');
-      const db = new Database(E2E_LEDGER_PATH, { readonly: true });
-      const row = db.prepare("SELECT * FROM events WHERE layer = 'mcp' AND route = 'condition' ORDER BY ts DESC LIMIT 1").get();
+      //
+      // The file is absent when the child never initialised its ledger. That is the assertion
+      // failure below, not a SQLITE_CANTOPEN stack trace from opening a path that does not exist.
+      const ledgerPath = e2eLedgerPath();
+      let row: unknown;
+      if (fs.existsSync(ledgerPath)) {
+        const { default: Database } = await import('better-sqlite3');
+        const db = new Database(ledgerPath, { readonly: true });
+        try {
+          row = db.prepare("SELECT * FROM events WHERE layer = 'mcp' AND route = 'condition' ORDER BY ts DESC LIMIT 1").get();
+        } finally {
+          db.close();
+        }
+      }
       if (!row) {
         console.error("FAIL: No ledger row found for layer=mcp, route=condition.");
         pass = false;
