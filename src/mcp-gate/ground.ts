@@ -52,5 +52,7 @@ export async function scan(rootUri: string): Promise<string> {
     return 'No specific framework or environment detected from root files.';
   }
 
-  return 'Detected environment context:\\n- ' + detected.join('\\n- ');
+  // Single `\n`: `\\n` emitted the two characters backslash-n, so the whole environment
+  // context reached the cloud model as one run-on line.
+  return 'Detected environment context:\n- ' + detected.join('\n- ');
 }

@@ -198,7 +198,9 @@ Return 1 or 2 simple patterns like "package.json" or "yarn.lock" or "docker-comp
         for (const p of patternRes.patterns) {
           const contents = await fsRead(p);
           if (contents.length > 0) {
-            evidenceFound += contents.join('\\n') + '\\n';
+            // Single `\n`: the evidence block was previously joined with the literal characters
+            // backslash-n, so the brain model saw one unbroken line of file contents.
+            evidenceFound += contents.join('\n') + '\n';
             break;
           }
         }

@@ -1,4 +1,6 @@
 import { config } from 'dotenv';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -110,6 +112,21 @@ export async function ensureOllamaReady(
 }
 
 /**
+ * Ledger every spawned E2E gate writes to. A throwaway file per run, for the same reason
+ * tests/setup-env.ts does it for the unit suite — except the motivation here is the CACHE the
+ * ledger also holds: run against the developer's real ledger and a canned E2E payload is served
+ * from a result computed by an EARLIER BUILD. A genuine regression then passes, and a genuine fix
+ * appears to fail. Both happened while this was being verified.
+ *
+ * Exported because a test that asserts on ledger rows must open THIS database, not whatever
+ * CONFIG.LEDGER_PATH resolved to in the parent process.
+ */
+export const E2E_LEDGER_PATH = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-e2e-')),
+  'e2e-ledger.sqlite'
+);
+
+/**
  * Constructs an environment variable map that inherits the current process environment
  * and injects necessary Ollama configuration constants. This is useful when spawning
  * child processes (like E2E tests) that need to know how to connect to the local SLM infrastructure.
@@ -134,6 +151,11 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     SLM_GATE_MODEL,
     SLM_BRAIN_MODEL,
     SELF_CONSISTENCY_K: '1', // Default setting for generation passes
+    LEDGER_PATH: E2E_LEDGER_PATH,
+    // Pinned so the assertions do not depend on whatever thresholds the developer's .env
+    // happens to carry. The canned payloads are sized against these two numbers.
+    DISTILL_MIN_TOKENS: '500',
+    DISTILL_MAX_TOKENS: '1000',
     ...overrides
   };
 }

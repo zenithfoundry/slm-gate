@@ -51,22 +51,30 @@ describe('distill module', () => {
     console.warn = originalConsoleWarn;
   });
 
-  it('(a) generic requirement/heading/code lines are preserved with NO TLS patterns loaded', async () => {
+  // Narrative runs under MIN_COMPRESSIBLE_SEGMENT_CHARS are left verbatim, so payloads here need
+  // a realistic amount of prose between the protected lines for the model to be invoked at all.
+  const filler = 'Background prose that exists purely to pad this section to a realistic size. '.repeat(7);
+  const textSentToModel = (mock: any) => mock.mock.calls.map((c: any[]) => c[0]).join('\n---\n');
+
+  it('(a) protected lines are never shown to the model, and survive verbatim', async () => {
     const patterns = await buildPreserveList();
-    const text = `Some irrelevant text
+    const text = `${filler}
 # Main Heading
-Another text
+${filler}
 You MUST do this
 Here is code: \`const a = 1;\`
 End`;
 
     const result = await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
-    
-    // With our mockSLM, the text passes through.
-    // We just verify it replaced lines with placeholders and restored them.
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined);
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringMatching(/Some irrelevant text/), undefined); // Not preserved
-    expect(result).toBe(text);
+
+    // The guarantee: the model is not a custodian of protected content, it never receives it.
+    const sent = textSentToModel(mockSlm);
+    expect(sent).not.toContain('You MUST do this');
+    expect(sent).not.toContain('# Main Heading');
+    expect(sent).toContain('Background prose');
+
+    expect(result).toContain('You MUST do this');
+    expect(result).toContain('# Main Heading');
   });
 
   it('(b) a user config pattern in extend mode is preserved alongside defaults', async () => {
@@ -76,10 +84,13 @@ End`;
     }));
 
     const patterns = await buildPreserveList();
-    const text = `MUST keep this\nUSER_MAGIC_LINE here`;
-    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
+    const text = `MUST keep this\nUSER_MAGIC_LINE here\n${filler}`;
+    const result = await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
 
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined); // Combined block
+    const sent = textSentToModel(mockSlm);
+    expect(sent).not.toContain('USER_MAGIC_LINE here');
+    expect(sent).not.toContain('MUST keep this');
+    expect(result).toContain('USER_MAGIC_LINE here');
   });
 
   it('(c) replace mode preserves ONLY user + adapter patterns', async () => {
@@ -90,12 +101,14 @@ End`;
     }));
 
     const patterns = await buildPreserveList();
-    const text = `MUST drop this\nUSER_MAGIC_LINE here`;
+    // The MUST line sits inside a compressible run; alone it would fall under the size floor.
+    const text = `MUST drop this\n${filler}\nUSER_MAGIC_LINE here`;
     await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
 
-    // MUST line is not preserved because replace mode drops built-ins
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('MUST drop this'), undefined); 
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined); // USER line
+    const sent = textSentToModel(mockSlm);
+    // Built-ins are dropped in replace mode, so the MUST line is ordinary narrative now.
+    expect(sent).toContain('MUST drop this');
+    expect(sent).not.toContain('USER_MAGIC_LINE here');
   });
 
   it('(d) an invalid user regex is skipped with a warning and doesn\'t crash', async () => {
@@ -106,78 +119,87 @@ End`;
 
     const patterns = await buildPreserveList();
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining('[distill] Warning: Skipping invalid regex pattern: [invalid regex'));
-    
+
     // The valid one should still work
-    const text = `USER_MAGIC_LINE here`;
+    const text = `USER_MAGIC_LINE here\n${filler}`;
     await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined);
+    expect(textSentToModel(mockSlm)).not.toContain('USER_MAGIC_LINE here');
   });
 
   it('(e) TLS-specific patterns are preserved only when TLS_ADAPTER=on', async () => {
     // State 1: OFF
     (CONFIG as any).TLS_ADAPTER = false;
     let patterns = await buildPreserveList();
-    let text = `Phase 2`;
-    await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
-    // Not preserved
-    expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('Phase 2'), undefined);
+    await distillToolResult(mockSlm as any, `Phase 2\n${filler}`, undefined, undefined, undefined, patterns);
+    // Not preserved, so it is ordinary narrative and does reach the model.
+    expect(textSentToModel(mockSlm)).toContain('Phase 2');
 
     jest.clearAllMocks();
 
     // State 2: ON
     (CONFIG as any).TLS_ADAPTER = true;
     patterns = await buildPreserveList();
-    const text2 = `Phase 3`;
-    await distillToolResult(mockSlm as any, text2, undefined, undefined, undefined, patterns);
-    
+    await distillToolResult(mockSlm as any, `Phase 3\n${filler}`, undefined, undefined, undefined, patterns);
+
     // In test:decoupling, the adapter is missing, so patterns will be empty
     const { existsSync } = await import('fs');
     const { fileURLToPath } = await import('url');
     const { resolve, dirname } = await import('path');
     const adapterPath = resolve(dirname(fileURLToPath(import.meta.url)), '../../src/adapters/tech-lead-stack.ts');
-    
+
     if (existsSync(adapterPath)) {
-      // Preserved
-      expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('⟦PRESERVE_0⟧'), undefined);
+      expect(textSentToModel(mockSlm)).not.toContain('Phase 3');
     } else {
-      // Not preserved due to missing adapter (in decoupling mode)
-      expect(mockSlm).toHaveBeenCalledWith(expect.stringContaining('Phase 3'), undefined);
+      expect(textSentToModel(mockSlm)).toContain('Phase 3');
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Failed to load TLS adapter patterns'), expect.anything());
     }
   });
 
-  it('(f) the assert-fallback still returns original text when a protected line would be lost', async () => {
+  it('(f) protected content survives even when the model ignores every instruction', async () => {
     const patterns = await buildPreserveList();
-    const text = `Header
+    const text = `${filler}
 You MUST do this
-Footer`;
+${filler}`;
 
-    // Mock SLM that drops the placeholder entirely
-    const destructiveSlm = jest.fn(async () => {
-      return `Header\nFooter`; // placeholder dropped
-    });
+    // This is the measured worst case: asked to reproduce nine placeholder tokens verbatim,
+    // qwen2.5-coder:3b returned its own prose and kept none of them. Under the old
+    // placeholder-custody design that destroyed the compression. It can no longer destroy
+    // anything, because the protected line is never handed to the model in the first place.
+    const destructiveSlm = jest.fn(async () => 'Completely unrelated replacement prose.');
 
     const result = await distillToolResult(destructiveSlm as any, text, undefined, undefined, undefined, patterns);
-    
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('distill_fallback'));
-    expect(result).toBe(text); // Returned original text
+
+    expect(result).toContain('You MUST do this');
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('distill_fallback'));
+    expect(result.length).toBeLessThan(text.length);
   });
 
-  it('(g) successful compression keeps placeholders intact and does not fallback', async () => {
+  it('(g) a model that throws leaves that run verbatim without failing the whole payload', async () => {
     const patterns = await buildPreserveList();
-    const text = `This is some very long and boring introductory text that we dont need because it just wastes tokens.
+    // Deliberately distinct from (f): distilled results are cached by content, so reusing the
+    // same payload would serve (f)'s output instead of exercising the throwing model.
+    const text = `${filler.replace(/Background/g, 'Different')}
 You MUST do this
-And some more useless text that should be compressed away.`;
+${filler.replace(/Background/g, 'Different')}`;
 
-    const compressingSlm = jest.fn(async () => {
-      return `Intro text cut.\n⟦PRESERVE_0⟧\nEnd cut.`; 
-    });
+    const throwingSlm = jest.fn(async () => { throw new Error('SLM call timed out during stage: distill'); });
 
-    const result = await distillToolResult(compressingSlm as any, text, undefined, undefined, undefined, patterns);
-    
-    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining('distill_fallback'));
+    const result = await distillToolResult(throwingSlm as any, text, undefined, undefined, undefined, patterns);
+
+    // Fail open: nothing compressed, nothing lost, no exception escapes.
+    expect(throwingSlm).toHaveBeenCalled();
     expect(result).toContain('You MUST do this');
-    expect(result.length).toBeLessThan(text.length);
+    expect(result).toContain('Different prose');
+  });
+
+  it('(h) short narrative runs are not worth a model round-trip and are skipped', async () => {
+    const patterns = await buildPreserveList();
+    const text = `Tiny bit of prose.\nYou MUST do this\nAnother tiny bit.`;
+
+    const result = await distillToolResult(mockSlm as any, text, undefined, undefined, undefined, patterns);
+
+    expect(mockSlm).not.toHaveBeenCalled();
+    expect(result).toBe(text);
   });
 
   it('logs greedy list warning if > 70% lines are preserved', async () => {

@@ -51,12 +51,20 @@ export class SLM {
           messages: [{ role: 'user', content: promptWithSchema }],
           format: jsonSchema as any,
           keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
+          // `think` is a REQUEST-level field, not an `options` entry. Ollama silently drops
+          // unknown keys from `options`, so this used to have no effect: a thinking model
+          // (qwen3 / qwen3.5, the default brain for ram-24 and above) reasoned until it hit
+          // num_predict, returned done_reason:length with EMPTY content, and the parse failed.
+          // That produced `resolver_error: format` on essentially every standalone call, twice
+          // per call because of the retry below. Keep this out of `options`.
+          think: false,
+          // No `as any`: every key below is a real Ollama option, so a future typo fails the build
+          // instead of being silently ignored the way `think` was.
           options: {
             temperature: temp,
             num_ctx: CONFIG.NUM_CTX,
-            num_predict: 2000,
-            think: false
-          } as any
+            num_predict: 2000
+          }
         });
         responseText = response.message.content;
       } else if (CONFIG.SLM_PROVIDER === 'openai') {
@@ -128,23 +136,30 @@ export class SLM {
    * @param model The ID of the model to execute
    * @param messages Array of history messages
    * @param temperature Generation temperature, default from CONFIG
+   * @param maxTokens Optional ceiling on generated tokens. Left unset for conversational
+   *   proxying (llm-gate), where truncating the user's answer would be wrong. Summarising
+   *   callers (mcp-gate distill) MUST pass one: with temperature 0 and repetitive input a 3B
+   *   model can loop until the context window fills, which at local speeds runs for minutes.
    * @returns Raw text completion
    */
   async generateText(
     model: string,
     messages: { role: string, content: string }[],
-    temperature: number = CONFIG.TEMPERATURE
+    temperature: number = CONFIG.TEMPERATURE,
+    maxTokens?: number
   ): Promise<string> {
     if (CONFIG.SLM_PROVIDER === 'ollama') {
       const response = await this.client.chat({
         model,
         messages,
         keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
+        // Request-level, never inside `options` — see generateJSON for what that cost us.
+        think: false,
         options: {
           temperature,
           num_ctx: CONFIG.NUM_CTX,
-          think: false
-        } as any
+          ...(maxTokens !== undefined && { num_predict: maxTokens })
+        }
       });
       return stripThinkTags(response.message.content);
     } else if (CONFIG.SLM_PROVIDER === 'openai') {
@@ -157,7 +172,8 @@ export class SLM {
         body: JSON.stringify({
           model,
           messages,
-          temperature
+          temperature,
+          ...(maxTokens !== undefined && { max_tokens: maxTokens })
         }),
         signal: AbortSignal.timeout(CONFIG.SLM_TIMEOUT_MS)
       });
@@ -196,11 +212,12 @@ export class SLM {
         messages,
         stream: true,
         keep_alive: CONFIG.OLLAMA_KEEP_ALIVE,
+        // Request-level, never inside `options` — see generateJSON for what that cost us.
+        think: false,
         options: {
           temperature,
-          num_ctx: CONFIG.NUM_CTX,
-          think: false
-        } as any
+          num_ctx: CONFIG.NUM_CTX
+        }
       });
       for await (const chunk of response) {
         yield chunk.message.content;

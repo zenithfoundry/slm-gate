@@ -31,13 +31,12 @@ import { ListToolsRequestSchema, CallToolRequestSchema, ListToolsResultSchema, C
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getDb } from '../src/ledger/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootPath = path.resolve(__dirname, '..');
 
-import { ensureOllamaReady, getE2EEnv, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
+import { ensureOllamaReady, getE2EEnv, E2E_LEDGER_PATH, SLM_GATE_MODEL, SLM_BRAIN_MODEL } from "./ollama-helper.js";
 
 // 1. Fake downstream server mode
 if (process.argv[2] === '--fake-downstream') {
@@ -106,7 +105,19 @@ else {
       DOWNSTREAM_MCP: JSON.stringify({
         command: "tsx",
         args: [__filename, "--fake-downstream"]
-      })
+      }),
+      // Sized to THIS test's canned payload (~212 estimated tokens), which is far below any
+      // realistic DISTILL_MIN_TOKENS — under the shipped thresholds nothing happened at all and
+      // the assertion below could never pass.
+      //
+      // What this exercises is the HARD-TRUNCATION path, not SLM summarisation: `get_skill` is
+      // 'verbatim' in the seeded distill_policy table (skill contracts must never be reworded),
+      // so the model is deliberately never invoked for this payload. The value of the assertions
+      // is therefore that the MUST line and the heading survive truncation and the remainder is
+      // left recoverable behind an elision marker.
+      // SLM compression itself is covered by e2e:standalone-mcp and tests/mcp-gate/distill.test.ts.
+      DISTILL_MIN_TOKENS: '50',
+      DISTILL_MAX_TOKENS: '180'
     });
     console.log("Using in-process FAKE downstream MCP server.");
 
@@ -191,8 +202,12 @@ else {
         console.log("SKIP: askUser section not present (graceful skip).");
       }
 
-      // Assertion (d): Ledger row written
-      const db = getDb();
+      // Assertion (d): Ledger row written.
+      // Opens the SAME database the spawned gate wrote to. getDb() would resolve
+      // CONFIG.LEDGER_PATH in THIS process, which is the developer's real ledger — a different
+      // file from the throwaway one the child was given, so the row would never be found.
+      const { default: Database } = await import('better-sqlite3');
+      const db = new Database(E2E_LEDGER_PATH, { readonly: true });
       const row = db.prepare("SELECT * FROM events WHERE layer = 'mcp' AND route = 'condition' ORDER BY ts DESC LIMIT 1").get();
       if (!row) {
         console.error("FAIL: No ledger row found for layer=mcp, route=condition.");

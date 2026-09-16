@@ -87,16 +87,18 @@ This prints a clean, offline summary showing tokens saved, compression ratio, re
 
 Before you start, you need three things installed on your computer:
 
-**1. Node.js (version 20 or later)**
+**1. Node.js (version 22 or later)**
 
 Node.js is the runtime that `slm-gate` itself runs on. Check if you have it:
 
 ```bash
 node -v
-# Should print: v20.x.x or higher
+# Should print: v22.x.x or higher (22, 24 and 26 are all supported)
 ```
 
 If not, download it from [nodejs.org](https://nodejs.org/) (choose the LTS version).
+
+> _No compiler or Xcode Command Line Tools are needed. The one native dependency (`better-sqlite3`) ships prebuilt binaries for macOS, Linux and Windows, and `pnpm install` uses them as-is. Node 20 reached end-of-life and is no longer supported: `pnpm install` prints an `Unsupported engine` warning on it and `doctor` reports an issue._
 
 **2. pnpm (package manager)**
 
@@ -310,6 +312,8 @@ To use Tech-Lead-Stack as your downstream:
 | [Sourcerer](https://github.com/st3v3nmw/sourcerer-mcp) | Semantic code search that reduces token waste |
 
 > **No downstream MCP server?** That's fine too. Without a `DOWNSTREAM_MCP` configured, `mcp-gate` runs as a standalone MCP server exposing a single `condition_prompt` tool — you add it to your editor and it will compress any prompt you send through it.
+>
+> One behavioural difference to know about: the deterministic trimming rules (keep a file's skeleton, keep errors and the tail of a log, keep the top matches of a search) are selected by **tool name**, so they only apply when `slm-gate` is proxying a downstream server and can see which tool produced the output. A standalone `condition_prompt` call carries no tool name, so it has exactly one compression path — asking the local model to summarise — and that path only engages above `DISTILL_MAX_TOKENS`.
 
 ---
 
@@ -553,6 +557,8 @@ See the full config reference: [`configs/claude-code/README.md`](configs/claude-
 
 Restart Claude Desktop after saving.
 
+> **Claude Desktop starts MCP servers from a working directory that does not exist.** Leave `LEDGER_PATH` blank in your `.env`, or set it to the full path on your machine. A relative path such as `./output/ledger.sqlite` makes the server fail on startup with `ENOENT: mkdir './output'`. See [Ledger Path Must Be a Full Path on Your Machine](#ledger-path-must-be-a-full-path-on-your-machine).
+
 See the full config reference: [`configs/claude-desktop/README.md`](configs/claude-desktop/README.md)
 
 ---
@@ -698,7 +704,7 @@ MCP_GATE_TRANSPORT=stdio
 DOWNSTREAM_MCP=                         # Leave blank for standalone; set to TLS config for downstream
 
 # ── Ledger & Telemetry ─────────────────────────────────────────────────────
-LEDGER_PATH=./output/ledger.sqlite
+LEDGER_PATH=/Users/yourname/projects/small-language-model-gate/output/ledger.sqlite   # Full path on YOUR machine — see the section below
 LANGFUSE_PUBLIC_KEY=                    # Optional — leave blank if not using Langfuse
 LANGFUSE_SECRET_KEY=
 LANGFUSE_HOST=https://cloud.langfuse.com
@@ -710,6 +716,37 @@ SUBSCRIPTION_PLAN=claude-pro            # Set this to match your actual plan
 RAM_PRESET=ram-16
 TLS_ADAPTER=off                         # Set to 'on' only if using Tech-Lead-Stack downstream
 ```
+
+---
+
+### Ledger Path Must Be a Full Path on Your Machine
+
+`LEDGER_PATH` is where `slm-gate` writes its local SQLite ledger. It must be the **full path on your machine**, starting from the root of your disk — never a path relative to the repository.
+
+```bash
+# macOS / Linux
+LEDGER_PATH=/Users/yourname/projects/small-language-model-gate/output/ledger.sqlite
+
+# Windows
+LEDGER_PATH=C:\Users\yourname\projects\small-language-model-gate\output\ledger.sqlite
+```
+
+To get the value for your machine, run `pwd` inside the repository folder and append `/output/ledger.sqlite`.
+
+**Why this matters.** Your editor or MCP host launches `slm-gate` as a background process, and the folder it launches *from* is not your repository. Claude Desktop, for example, starts MCP servers from a working directory that does not exist at all. A relative value such as `./output/ledger.sqlite` is resolved against that folder, so the server fails on startup with:
+
+```text
+Error: ENOENT: no such file or directory, mkdir './output'
+```
+
+The same relative path works from a terminal inside the repository, which is why it can look fine in one place and fail in the app.
+
+Two rules follow from this:
+
+- **Leaving `LEDGER_PATH` blank is safe.** A blank value means "use the default", which is `output/ledger.sqlite` under the folder where you installed `slm-gate`, already resolved to a full path.
+- **If you set it, set the full path.** `pnpm run dev doctor` reports an issue for any value that is not a full path.
+
+If you also run CLI commands such as `pnpm run slm-gate metrics` from a terminal, both the MCP server and the CLI read this same `.env`, so they land on the same file. If your host's config `env` block sets `LEDGER_PATH` directly, use the same full path there.
 
 ---
 
@@ -752,13 +789,13 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 
 - **`LLM_GATE_PORT`** — The port `llm-gate` listens on. Only change if something else is using this port. Default: `8787`
 - **`LLM_GATE_EXPOSE`** — Which API formats `llm-gate` accepts. Default: `openai,anthropic`
-- **`DOWNSTREAM_MCP`** — If you want `mcp-gate` to sit in front of another MCP server (like Tech-Lead-Stack), put that server's launch command here as a JSON string. Leave blank for standalone mode.
+- **`DOWNSTREAM_MCP`** — If you want `mcp-gate` to sit in front of another MCP server (like Tech-Lead-Stack), put that server's launch command here as a JSON string. Ships blank, which is standalone mode; any file path inside the JSON must also be a full path on your machine.
 - **`MCP_GATE_TRANSPORT`** — How `mcp-gate` communicates with your editor: `stdio` (your editor launches it directly) or `http` (network connection). Most setups use `stdio`. Default: `stdio`
 - **`MCP_GATE_PORT`** — The port for HTTP mode only. Default: `8788`
 
 #### Ledger & Telemetry
 
-- **`LEDGER_PATH`** — Where the local database file is stored. This is what `pnpm run slm-gate metrics` reads from. Default: `./output/ledger.sqlite`. **Important:** If the gate runs inside an MCP server (e.g. Antigravity) and CLI commands run from a different shell, both must resolve to the **same absolute path** — otherwise they silently write to different files. Set `LEDGER_PATH` to an absolute path to avoid this.
+- **`LEDGER_PATH`** — Where the local database file is stored. This is what `pnpm run slm-gate metrics` reads from. Blank = `output/ledger.sqlite` under the install folder (already a full path). If you set it, it **must be a full path on your machine**, never one relative to the repository — see [Ledger Path Must Be a Full Path on Your Machine](#ledger-path-must-be-a-full-path-on-your-machine). `doctor` reports an issue for a relative value.
 - **`PROVIDER`** — The cloud provider your IDE sends traffic to (`gemini`, `claude`, or `chatgpt`). Used for per-provider cycle extension metrics when the inbound request carries no recognizable model string. Not the same as `SLM_PROVIDER`. Default: `gemini`.
 - **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** — Optional Langfuse connection. Fill these in only if you're using Langfuse for visual dashboards. Leave blank otherwise.
 - **`SUBSCRIPTION_PLAN`** — Tells the metrics dashboard which plan you're on, so it can calculate how much subscription runway you've reclaimed. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
@@ -768,7 +805,7 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 When a tool response is very large, `slm-gate` compresses it and keeps only the essential parts. The original is stashed locally so the AI can retrieve any trimmed content cheaply on demand.
 
 - **`DISTILL_MIN_TOKENS`** — Responses smaller than this (in tokens) are passed through untouched — they're too small to be worth compressing. **500 tokens ≈ ~50 lines of code.** Default: `500`
-- **`DISTILL_MAX_TOKENS`** — The maximum size a response can be after compression. Anything still over this limit after compression gets trimmed, and a retrieval marker is inserted so the AI can ask for the trimmed content. **2000 tokens ≈ ~200 lines of code.** Default: `2000`
+- **`DISTILL_MAX_TOKENS`** — The maximum size a response can be after compression. Anything still over this limit after compression gets trimmed, and a retrieval marker is inserted so the AI can ask for the trimmed content. It is also the threshold at which the local model is asked to summarise at all, which in standalone mode is the only compression trigger there is. **2000 tokens ≈ ~200 lines of code.** Default: `2000`
 - **`DISTILL_PRESERVE_PATH`** — Path to a file listing text patterns that must never be compressed or altered (e.g., specific code markers). Optional.
 - **`DISTILL_PRESERVE_MODE`** — Whether your custom patterns are added to (`extend`) or replace (`replace`) the built-in protection list. Use `extend`. Default: `extend`
 - **`KEEP_RECENT_TOOL_TURNS`** — How many of the most recent tool responses to always keep in full (never compress), because they're almost certainly still needed. Default: `2`

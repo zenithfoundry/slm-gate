@@ -140,9 +140,10 @@ async function run() {
   }
 
   // 1. Node version check
-  // We require Node 20+ for native fetch and advanced crypto/module resolution capabilities.
+  // Node 22 is the floor set by package.json `engines`: better-sqlite3 >= 13 (N-API prebuilds)
+  // requires it, and it is the oldest release still receiving prebuilt binaries.
   const nodeMajor = parseInt(process.versions.node.split('.')[0], 10);
-  report(nodeMajor >= 20, `Node version ≥ 20 (found v${process.versions.node})`, 'Upgrade Node.js to v20 or later.');
+  report(nodeMajor >= 22, `Node version ≥ 22 (found v${process.versions.node})`, 'Upgrade Node.js to v22 or later.');
 
   // 2. .env presence and CONFIG parsing
   // Validates that the configuration template has been implemented by the user.
@@ -269,17 +270,24 @@ async function run() {
     report(!CONFIG.TLS_ADAPTER, 'DOWNSTREAM_MCP is blank (standalone mode)', 'TLS_ADAPTER=on requires DOWNSTREAM_MCP to be set');
   }
 
-  // 8. SQLite Ledger permissions
-  // The ledger requires write access to its directory to log events.
-  const ledgerDir = path.dirname(CONFIG.LEDGER_PATH);
-  try {
-    if (!fs.existsSync(ledgerDir)) {
-      fs.mkdirSync(ledgerDir, { recursive: true });
+  // 8. SQLite Ledger path & permissions
+  // MCP hosts (Claude Desktop among them) spawn the gate with a working directory that may not
+  // exist. A cwd-relative LEDGER_PATH therefore passes here — doctor runs from the repo — and
+  // ENOENTs inside the host, so only an absolute path is accepted.
+  if (!path.isAbsolute(CONFIG.LEDGER_PATH)) {
+    report(false, `Ledger path is a full path (${CONFIG.LEDGER_PATH})`,
+      `Set LEDGER_PATH to a full path on this machine, e.g. ${path.join(CONFIG.OUTPUT_DIR, 'ledger.sqlite')} — or leave it blank to use that default.`);
+  } else {
+    const ledgerDir = path.dirname(CONFIG.LEDGER_PATH);
+    try {
+      if (!fs.existsSync(ledgerDir)) {
+        fs.mkdirSync(ledgerDir, { recursive: true });
+      }
+      fs.accessSync(ledgerDir, fs.constants.W_OK);
+      report(true, `Ledger path is writable (${CONFIG.LEDGER_PATH})`);
+    } catch (e) {
+      report(false, `Ledger path is not writable (${CONFIG.LEDGER_PATH})`, 'Fix permissions for the output directory.');
     }
-    fs.accessSync(ledgerDir, fs.constants.W_OK);
-    report(true, `Ledger path is writable (${CONFIG.LEDGER_PATH})`);
-  } catch (e) {
-    report(false, `Ledger path is not writable (${CONFIG.LEDGER_PATH})`, 'Fix permissions for the output directory.');
   }
 
   // 9. Port Availability

@@ -8,6 +8,12 @@ import { TOOL_RESULT_PREFIXES } from './constants.js';
 // NOTE:: "Elision" meaning is; Leaving out a sound, a syllable, or a word part when speaking.
 
 /**
+ * Narrative runs shorter than this are left verbatim during summarize-mode compression.
+ * A model round-trip on a line or two costs more wall-clock time than the tokens it saves.
+ */
+const MIN_COMPRESSIBLE_SEGMENT_CHARS = 400;
+
+/**
  * Computes a deterministic SHA-256 ID for a tool elision.
  * By hashing the tool name, arguments, and original content, we ensure that
  * identical tool outputs always produce the exact same elision ID,
@@ -234,7 +240,9 @@ export async function distillToolResult(
   }
 
   // Determine caching keys
-  const policyVersion = 'v1';
+  // Was a hardcoded 'v1', so a distilled result could never be invalidated at all.
+  // CONFIG.PROMPT_VERSION is the documented lever for exactly this, so it belongs in the key.
+  const policyVersion = CONFIG.PROMPT_VERSION;
   const elisionId = computeElisionId(toolName || 'unknown', args, text);
   const cacheKey = crypto.createHash('sha256').update(text + (task||'') + (toolName||'') + policyVersion).digest('hex');
 
@@ -357,14 +365,21 @@ export async function distillToolResult(
     // We skip the SLM Semantic loop because structural integrity is more important than size.
   } else if (estimateTokens(finalText) > maxTokens) {
     // --------------------------------------------------------------------------
-    // SUMMARIZE MODE: Advanced Multi-Phase Preservation & Compression
+    // SUMMARIZE MODE: segment-wise compression.
+    //
+    // The model is never shown protected content, and is never asked to carry placeholder
+    // tokens through a rewrite. Measured on a 5KB markdown payload: asked to reproduce nine
+    // ⟦PRESERVE_n⟧ tokens verbatim, qwen2.5-coder:3b kept ZERO of them. It did not mangle
+    // them — it ignored the custody protocol entirely and summarised everything, protected
+    // content included, so the whole compression had to be thrown away and the payload was
+    // forwarded uncompressed. Small models summarise prose well. They are not reliable
+    // custodians of opaque tokens, and no amount of prompt wording fixes that.
+    //
+    // So: split into alternating protected / narrative runs, compress ONLY the narrative
+    // runs, and splice the protected runs back in from our own copy. Reassembly is then
+    // deterministic and cannot drop a contract line, which is what makes this safe on a 3B.
     // --------------------------------------------------------------------------
-    let textToProcess = finalText;
-    const preserved = new Map<string, string>();
-    let preserveIdx = 0;
-
-    const slmLines = textToProcess.split('\n');
-    const modifiedLines: string[] = [];
+    const slmLines = finalText.split('\n');
     const protectedLineIndices = new Set<number>();
     
     // Phase 1: Structural Tokenization
@@ -372,7 +387,7 @@ export async function distillToolResult(
     // of critical structures (code fences, tables, frontmatter) so they aren't split.
     try {
       const md = new MarkdownIt();
-      const tokens = md.parse(textToProcess, {});
+      const tokens = md.parse(finalText, {});
       
       const protectNode = (start: number, end: number) => {
         for (let i = start; i < end; i++) protectedLineIndices.add(i);
@@ -395,107 +410,79 @@ export async function distillToolResult(
       console.error('[distill] Structural parsing failed', e);
     }
 
-    // Load semantic feedback history for this tool
-    const pastFeedback = CONFIG.DISTILL_ADAPTIVE ? getDistillFeedback(resolvedToolName) : [];
-
-    let currentBlock: string[] = [];
-    let blockStart = -1;
-
-    // Phase 2: Aggregate protected lines into cohesive placeholder blocks
+    // Phase 2: user-supplied preserve patterns, plus elision markers from an earlier pass.
     for (let i = 0; i < slmLines.length; i++) {
       const line = slmLines[i];
-      // A line is protected if it falls in an AST node, matches a user regex, or is a prior elision marker
-      const isProtected = protectedLineIndices.has(i) || preservePatterns.some(p => p.test(line)) || line.includes('lines elided [id:');
-      
-      if (isProtected) {
-        if (blockStart === -1) blockStart = i;
-        currentBlock.push(line);
-      } else {
-        if (currentBlock.length > 0) {
-          const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
-          preserved.set(placeholder, currentBlock.join('\n'));
-          modifiedLines.push(placeholder);
-          currentBlock = [];
-          blockStart = -1;
-        }
-        modifiedLines.push(line);
+      if (preservePatterns.some(p => p.test(line)) || line.includes('lines elided [id:')) {
+        protectedLineIndices.add(i);
       }
     }
-    
-    // Flush trailing block
-    if (currentBlock.length > 0) {
-      const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
-      preserved.set(placeholder, currentBlock.join('\n'));
-      modifiedLines.push(placeholder);
-    }
-    
-    // Phase 3: Adaptive Semantic Feedback Loop
-    // For the remaining unprotected lines, we probabilistically sample them. If their embedding 
-    // closely matches text that the user previously requested via expand_elision, we preemptively preserve it!
-    if (CONFIG.DISTILL_ADAPTIVE && pastFeedback.length > 0) {
-      for (let i = 0; i < modifiedLines.length; i++) {
-        const line = modifiedLines[i];
-        
-        // Skip existing placeholders and short meaningless lines
-        if (line.match(/⟦PRESERVE_\d+⟧/) || line.trim().length < 20) continue;
-        
-        // Explore rate prevents 100% computational overhead on every line
+
+    // Phase 3: Adaptive Semantic Feedback Loop. Probabilistically sample unprotected lines; if
+    // one closely matches text a user previously pulled back with expand_elision, protect it
+    // preemptively. (The list is empty unless DISTILL_ADAPTIVE is on.)
+    const pastFeedback = CONFIG.DISTILL_ADAPTIVE ? getDistillFeedback(resolvedToolName) : [];
+    if (pastFeedback.length > 0) {
+      for (let i = 0; i < slmLines.length; i++) {
+        const line = slmLines[i];
+        if (protectedLineIndices.has(i) || line.trim().length < 20) continue;
+        // Explore rate keeps embedding off the critical path for most lines.
         if (Math.random() < CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
 
         const emb = await embedText(line);
-        if (emb) {
-          let maxSim = 0;
-          for (const fb of pastFeedback) {
-             const fbEmb = bufferToFloat64Array(fb.embedding_blob);
-             const sim = cosineSimilarity(emb, fbEmb);
-             if (sim > maxSim) maxSim = sim;
-          }
-          
-          if (maxSim >= CONFIG.DISTILL_ADAPTIVE_THRESHOLD) {
-             const placeholder = `⟦PRESERVE_${preserveIdx++}⟧`;
-             preserved.set(placeholder, line);
-             modifiedLines[i] = placeholder;
-             adaptivePreservedCount++;
-          }
+        if (!emb) continue;
+        let maxSim = 0;
+        for (const fb of pastFeedback) {
+          const sim = cosineSimilarity(emb, bufferToFloat64Array(fb.embedding_blob));
+          if (sim > maxSim) maxSim = sim;
+        }
+        if (maxSim >= CONFIG.DISTILL_ADAPTIVE_THRESHOLD) {
+          protectedLineIndices.add(i);
+          adaptivePreservedCount++;
         }
       }
     }
-    
+
     if (adaptivePreservedCount > 0) {
       console.info(`[distill] Adaptive loop preemptively preserved ${adaptivePreservedCount} regions based on semantic memory.`);
     }
-    
-    const textToCompress = modifiedLines.join('\n');
-    const compressed = await slm(textToCompress, task);
-    
-    // Reverse reconstruction: map placeholders back to the strict original string bytes
-    let slmFinal = compressed;
-    for (const [placeholder, originalLine] of preserved.entries()) {
-      if (slmFinal.includes(placeholder)) {
-        slmFinal = slmFinal.replace(placeholder, originalLine);
-      } else {
-        const match = placeholder.match(/PRESERVE_(\d+)/);
-        if (match) {
-          const idx = match[1];
-          const altRegex = new RegExp(`(?:⟦|\\[|__|\\()\\s*PRESERVE_${idx}\\s*(?:⟧|\\]|__|\\))`, 'g');
-          if (altRegex.test(slmFinal)) {
-            slmFinal = slmFinal.replace(altRegex, originalLine);
-          }
+
+    // Phase 4: collapse the line map into contiguous protected / narrative runs.
+    const segments: { protected: boolean; lines: string[] }[] = [];
+    for (let i = 0; i < slmLines.length; i++) {
+      const isProtected = protectedLineIndices.has(i);
+      const current = segments[segments.length - 1];
+      if (current && current.protected === isProtected) current.lines.push(slmLines[i]);
+      else segments.push({ protected: isProtected, lines: [slmLines[i]] });
+    }
+
+    // Phase 5: compress narrative runs concurrently. Protected runs are never sent anywhere.
+    const protectedBlocks = segments.filter(s => s.protected).map(s => s.lines.join('\n'));
+    await Promise.all(segments.map(async (segment) => {
+      if (segment.protected) return;
+      const original = segment.lines.join('\n');
+      if (original.trim().length < MIN_COMPRESSIBLE_SEGMENT_CHARS) return;
+      try {
+        const summary = (await slm(original, task)).trim();
+        // Accept only a non-empty result that actually shrank; otherwise keep the original.
+        if (summary.length > 0 && summary.length < original.length) {
+          segment.lines = summary.split('\n');
         }
+      } catch (err) {
+        // Fail open for THIS run only — every other run still compresses.
+        console.error(`[distill] segment kept verbatim after compression failure: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
-    
-    // Strict assurance: Do NOT yield compressed text if the SLM hallucinatory-dropped guaranteed lines
-    let missingLines: string[] = [];
-    for (const originalLine of preserved.values()) {
-      if (!slmFinal.includes(originalLine)) {
-        missingLines.push(originalLine);
-      }
-    }
-    if (missingLines.length === 0) {
-      finalText = slmFinal;
+    }));
+
+    const rebuilt = segments.map(s => s.lines.join('\n')).join('\n');
+
+    // Invariant, not a discard path. Protected runs are spliced back from our own copy, so this
+    // can only trip if the segmentation is wrong — never because a model misbehaved.
+    const lost = protectedBlocks.filter(block => !rebuilt.includes(block));
+    if (lost.length === 0) {
+      finalText = rebuilt;
     } else {
-      console.warn(`distill_fallback: SLM dropped preserved lines: ${missingLines.join(', ')}`);
+      console.warn(`distill_fallback: ${lost.length} protected block(s) missing after reassembly; keeping the original text`);
     }
   }
 

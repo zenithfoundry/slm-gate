@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
 import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
-import { handleSlmError } from '../models/helpers.js';
+import { handleSlmError, withSlmTimeout } from '../models/helpers.js';
 import { SLM } from '../models/slm.js';
 import { resolveAmbiguities } from '../resolver/index.js';
 import { distillToolResult } from '../utils/elision.js';
@@ -133,7 +133,13 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   }
 
   // 1. Cache Check
-  const hash = crypto.createHash('sha256').update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '')).digest('hex');
+  // PROMPT_VERSION participates in the key. It is documented in .env.example as the lever to
+  // bump when prompt logic changes, but was read nowhere — so after any change to the prompts,
+  // the models, or the SLM call shape, identical payloads kept returning results computed by
+  // the OLD code, forever. Bumping it now genuinely invalidates every cached conditioning.
+  const hash = crypto.createHash('sha256')
+    .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION)
+    .digest('hex');
   const cacheKey = `condition_${hash}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
@@ -155,10 +161,31 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   const preserveList = await getPreserveList();
 
   // 2. Distill
+  // Compresses ONE narrative run. distillToolResult never sends protected content here, so this
+  // prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and
+  // reliably loses opaque tokens, which is why the old ⟦PRESERVE_n⟧ protocol caused every
+  // markdown compression to be discarded. An explicit word budget is what actually drives the
+  // ratio: without it the model rewords instead of condensing (measured 4-8% vs 44-60%).
   const slmFunc = async (t: string, taskDesc?: string) => {
-    // Generate text completion for compression
-    const prompt = `You are an expert prompt compression assistant. Your task is to compress and summarize the non-preserved narrative text below into concise points.\n\nRules:\n1. You MUST keep all ⟦PRESERVE_*⟧ tokens (e.g. ⟦PRESERVE_0⟧, ⟦PRESERVE_1⟧) intact and verbatim in their exact locations.\n2. Summarize and condense the surrounding text while keeping instructions clear.\n3. Never drop, remove, rename, or translate any ⟦PRESERVE_*⟧ placeholder tokens.\n\nTask Context: ${taskDesc || 'None'}\n\nText to compress:\n${t}`;
-    return slmClient.generateText(CONFIG.SLM_GATE_MODEL, [{ role: 'user', content: prompt }]);
+    const wordCount = t.trim().split(/\s+/).length;
+    const targetWords = Math.max(20, Math.ceil(wordCount * 0.35));
+    const prompt = `Compress the text below to AT MOST ${targetWords} words.\n\nKeep: every instruction, requirement, constraint, name, number, path and technical specific.\nDelete: background, history, rationale, motivation, repetition and filler.\nOutput ONLY the compressed text as terse bullet points. No preamble, no heading.\n\nTask context: ${taskDesc || 'None'}\n\n${t}`;
+    // This was the only model call in the pipeline with neither a token ceiling nor a timeout.
+    // Ollama sends HTTP response headers only AFTER generation completes, so the effective cap
+    // was Node fetch's 300s header timeout — surfacing as `fetch failed`, misclassified as a
+    // transport error, long after the MCP client had given up. SLM_TIMEOUT_MS now governs it.
+    // The ceiling is per-run and generous against the target so a summary is never cut mid-
+    // sentence; the run is discarded anyway if it comes back longer than the original.
+    return withSlmTimeout(
+      slmClient.generateText(
+        CONFIG.SLM_GATE_MODEL,
+        [{ role: 'user', content: prompt }],
+        CONFIG.TEMPERATURE,
+        Math.max(128, Math.ceil(wordCount * 0.6))
+      ),
+      'distill',
+      CONFIG.SLM_TIMEOUT_MS
+    );
   };
   
   const startDistill = Date.now();
@@ -189,7 +216,9 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     fsReadFn = async (pattern: string) => {
       try {
         const content = await fs.readFile(path.join(rootPath, pattern), 'utf-8');
-        return content.split('\\n').slice(0, 50); // limit lines
+        // Single `\n`: splitting on the two characters backslash-n never matched, so the whole
+        // file arrived as ONE element and the 50-line cap silently did nothing.
+        return content.split('\n').slice(0, 50);
       } catch {
         return [];
       }
@@ -211,22 +240,25 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   }
   console.error(`[pipeline] resolver ${((Date.now() - startResolver) / 1000).toFixed(1)}s`);
 
-  // Append findings to the conditioned output
+  // Append findings to the conditioned output.
+  // NOTE: single `\n` inside these template literals. `\\n` emits the two characters backslash-n,
+  // so every appended section used to arrive at the cloud model as one unbroken line littered
+  // with literal "\n" — markdown the model then had to read through.
   if (groundCtx) {
-    conditioned += `\\n\\n# Environment Context\\n${groundCtx}`;
+    conditioned += `\n\n# Environment Context\n${groundCtx}`;
   }
-  
+
   if (resolveOut.autoApplied.length > 0) {
-    conditioned += `\\n\\n# Auto-Resolved Decisions\\n`;
+    conditioned += `\n\n# Auto-Resolved Decisions\n`;
     for (const res of resolveOut.autoApplied) {
-      conditioned += `- **${res.question}**: ${res.answer}\\n`;
+      conditioned += `- **${res.question}**: ${res.answer}\n`;
     }
   }
 
   if (resolveOut.askUser.length > 0) {
-    conditioned += `\\n\\n# Pending Clarifications (Ask User)\\n`;
+    conditioned += `\n\n# Pending Clarifications (Ask User)\n`;
     for (const ask of resolveOut.askUser) {
-      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'})\\n`;
+      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'})\n`;
     }
   }
   
@@ -234,10 +266,10 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // class, so a model that simply could not produce valid JSON was indistinguishable from a
   // genuine timeout — the difference between raising SLM_TIMEOUT_MS and changing the model.
   if (distillErrorKind) {
-    conditioned += `\\n\\n# Note\\n[distill_${distillErrorKind}] ${SLM_ERROR_NOTES[distillErrorKind]}`;
+    conditioned += `\n\n# Note\n[distill_${distillErrorKind}] ${SLM_ERROR_NOTES[distillErrorKind]}`;
   }
   if (resolverErrorKind) {
-    conditioned += `\\n\\n# Note\\n[resolver_${resolverErrorKind}] ${SLM_ERROR_NOTES[resolverErrorKind]}`;
+    conditioned += `\n\n# Note\n[resolver_${resolverErrorKind}] ${SLM_ERROR_NOTES[resolverErrorKind]}`;
   }
 
   // 5. Ledger
