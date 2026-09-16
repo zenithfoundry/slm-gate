@@ -1,0 +1,18 @@
+# pnpm 10 reads build-script policy from this file; the `pnpm` field in package.json
+# is no longer honoured by current releases. pnpm 9 in turn ignores THIS file, so
+# `engines.pnpm` in package.json makes an older pnpm fail the install loudly instead
+# of silently compiling better-sqlite3 (or prompting for `pnpm approve-builds`).
+#
+# better-sqlite3 >= 13 is N-API and ships its prebuilt binaries inside the npm tarball
+# (prebuilds/<platform>-<arch>.node). Its implicit `node-gyp rebuild` step is therefore
+# unnecessary, and skipping it means a fresh install needs no compiler, no Python and no
+# `pnpm approve-builds` prompt on any supported Node release.
+#
+# esbuild, protobufjs and re2 were never on the old allowlist either, so their scripts were
+# already skipped; listing them here only stops the "Ignored build scripts" warning box on
+# every fresh install.
+ignoredBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+  - protobufjs
+  - re2

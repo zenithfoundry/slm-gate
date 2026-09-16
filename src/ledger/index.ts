@@ -65,7 +65,10 @@ import path from 'node:path';
 
 export function getDb(): Database.Database {
   if (!db) {
-    const ledgerPath = CONFIG.LEDGER_PATH || './output/ledger.sqlite';
+    // CONFIG.LEDGER_PATH always resolves (a blank env value is treated as unset and takes the
+    // absolute default under OUTPUT_DIR), so there is deliberately no cwd-relative fallback:
+    // MCP hosts spawn this process with a working directory that may not exist.
+    const ledgerPath = CONFIG.LEDGER_PATH;
     const dir = path.dirname(ledgerPath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });

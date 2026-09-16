@@ -44,7 +44,15 @@ async function main(): Promise<void> {
     command: 'node',
     args: [path.join(rootPath, 'dist', 'mcp-gate', 'index.js')],
     // Pass environment with OLLAMA_HOST and SLM_TIMEOUT_MS configured
-    env: getE2EEnv({ DOWNSTREAM_MCP: '' })
+    env: getE2EEnv({
+      DOWNSTREAM_MCP: '',
+      // Sized to THIS script's payloads. The large skill is ~5.2K chars (~1500 estimated
+      // tokens), under the shipped DISTILL_MAX_TOKENS default of 2000, so with a developer's
+      // real thresholds the "was compressed" assertion could never pass. The short skill
+      // (~65 tokens) stays below DISTILL_MIN_TOKENS and is never distilled.
+      DISTILL_MIN_TOKENS: '500',
+      DISTILL_MAX_TOKENS: '1000'
+    })
   });
 
   const client = new Client(

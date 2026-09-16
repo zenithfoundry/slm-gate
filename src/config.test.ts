@@ -1,4 +1,37 @@
 import { jest } from '@jest/globals';
+import path from 'node:path';
+
+describe('Config blank-value handling', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...originalEnv };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('treats a blank LEDGER_PATH as unset and resolves the absolute default under OUTPUT_DIR', async () => {
+    // Every shipped .env template carries `LEDGER_PATH=`; dotenv delivers that as ''. Before
+    // the fix this defeated the zod default and the gate fell back to a cwd-relative path.
+    process.env.LEDGER_PATH = '';
+    // @ts-ignore
+    const module = await import('./config.js?t=blank-ledger');
+    expect(path.isAbsolute(module.CONFIG.LEDGER_PATH)).toBe(true);
+    expect(module.CONFIG.LEDGER_PATH).toBe(path.join(module.CONFIG.OUTPUT_DIR, 'ledger.sqlite'));
+  });
+
+  it('treats any blank variable as unset so its default applies', async () => {
+    process.env.OLLAMA_HOST = '';
+    process.env.DOWNSTREAM_MCP = '';
+    // @ts-ignore
+    const module = await import('./config.js?t=blank-generic');
+    expect(module.CONFIG.OLLAMA_HOST).toBe('http://localhost:11434');
+    expect(module.CONFIG.DOWNSTREAM_MCP).toBeNull();
+  });
+});
 
 describe('Config Plan Precedence', () => {
   const originalEnv = process.env;

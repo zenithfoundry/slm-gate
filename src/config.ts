@@ -2,7 +2,7 @@ import { config } from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
-import { isValidPlanKey, getSubscriptionPlan, getValidPlanKeys } from './pricing/plans.js';
+import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey } from './pricing/plans.js';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -127,7 +127,13 @@ const envSchema = z.object({
   ROUTING_TUNE_EXPLORE_RATE: parseFloatNumber(0.15),
 });
 
-const parsedEnv = envSchema.parse(process.env);
+// A variable that is present but blank means "unset". dotenv and MCP-host env blocks both
+// deliver `LEDGER_PATH=` (as shipped in every .env template) as '', and zod's .default() only
+// fires on undefined — so a blank value used to defeat the absolute default and leave a
+// cwd-relative './output/ledger.sqlite', which ENOENTs when the host's cwd does not exist
+// (Claude Desktop). Dropping empties here fixes that for every variable in one place.
+const envInput = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== ''));
+const parsedEnv = envSchema.parse(envInput);
 
 const ramPresets: Record<string, { brain: string, gate: string }> = {
   'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },

@@ -1,4 +1,6 @@
 import { config } from 'dotenv';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -110,6 +112,31 @@ export async function ensureOllamaReady(
 }
 
 /**
+ * Ledger every spawned E2E gate writes to. A throwaway file per run, for the same reason
+ * tests/setup-env.ts does it for the unit suite — except the motivation here is the CACHE the
+ * ledger also holds: run against the developer's real ledger and a canned E2E payload is served
+ * from a result computed by an EARLIER BUILD. A genuine regression then passes, and a genuine fix
+ * appears to fail. Both happened while this was being verified.
+ *
+ * Exported because a test that asserts on ledger rows must open THIS database, not whatever
+ * CONFIG.LEDGER_PATH resolved to in the parent process.
+ *
+ * Created on first use rather than at import: smoke-e2e's `--fake-downstream` child imports
+ * this module too and would otherwise leave a second, empty directory behind on every run.
+ * The directory is removed when the process that created it exits.
+ */
+let e2eLedgerDir: string | undefined;
+
+export function e2eLedgerPath(): string {
+  if (!e2eLedgerDir) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-e2e-'));
+    process.on('exit', () => fs.rmSync(dir, { recursive: true, force: true }));
+    e2eLedgerDir = dir;
+  }
+  return path.join(e2eLedgerDir, 'e2e-ledger.sqlite');
+}
+
+/**
  * Constructs an environment variable map that inherits the current process environment
  * and injects necessary Ollama configuration constants. This is useful when spawning
  * child processes (like E2E tests) that need to know how to connect to the local SLM infrastructure.
@@ -134,6 +161,10 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     SLM_GATE_MODEL,
     SLM_BRAIN_MODEL,
     SELF_CONSISTENCY_K: '1', // Default setting for generation passes
+    LEDGER_PATH: e2eLedgerPath(),
+    // Distillation thresholds are deliberately NOT pinned here. A script whose canned payload
+    // is sized against particular DISTILL_MIN/MAX_TOKENS values passes them in `overrides`,
+    // next to the payload, where the coupling is visible.
     ...overrides
   };
 }
