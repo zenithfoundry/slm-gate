@@ -323,11 +323,7 @@ async function run() {
   }
 
   const arms = deriveArms(results);
-  writeReport(path.join(OUTPUT_DIR, 'leaderboard.md'), arms, hasCloud, tasksToRun.length, errorCount, {
-    cycleMinutesChatgpt: CONFIG.RESOLVED_PLAN_CHATGPT.windowMinutes,
-    cycleMinutesClaude: CONFIG.RESOLVED_PLAN_CLAUDE.windowMinutes,
-    cycleMinutesGemini: CONFIG.RESOLVED_PLAN_GEMINI.windowMinutes
-  });
+  writeReport(path.join(OUTPUT_DIR, 'leaderboard.md'), arms, hasCloud, tasksToRun.length, errorCount);
 
   if (hasCloud) {
     const svgStr = renderSvg(arms.allSlm, arms.armA, arms.armB, arms.randomAtF, arms.oracleAtF);

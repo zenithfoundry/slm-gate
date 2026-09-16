@@ -12,27 +12,21 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { CONFIG } from '../config.js';
 import { conditionPrompt } from './pipeline.js';
+import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 
 export async function createServer() {
-  const server = new Server(
-    {
-      name: "small-language-model-gate",
-      version: "1.0.0",
-    },
-    {
-      capabilities: {
-        tools: {},
-      },
-    }
-  );
-
   let rootUri: string | undefined;
   let downstreamClient: Client | undefined;
+  // Tools the connected toolbox serves. Learned at connect time and refreshed on every
+  // tools/list, so any toolbox works without toolbox-specific configuration.
+  let downstreamToolNames: string[] = [];
+  let instructions: string | undefined;
 
   // We intercept initialize via transport.onmessage below to capture rootUri without breaking SDK logic.
-  
+
   if (CONFIG.DOWNSTREAM_MCP) {
-    // Proxy mode
+    // Proxy mode. Connect to the toolbox BEFORE creating our server: the instructions we
+    // hand the editor are fixed at construction and are built from what the toolbox reports.
     downstreamClient = new Client(
       { name: "mcp-gate-proxy", version: "1.0.0" },
       { capabilities: {} }
@@ -51,15 +45,37 @@ export async function createServer() {
 
     if (transport) {
       await downstreamClient.connect(transport);
+      const { tools } = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
+      downstreamToolNames = (tools || []).map(t => t.name);
+      instructions = buildGateInstructions({
+        toolNames: downstreamToolNames,
+        downstreamInstructions: downstreamClient.getInstructions(),
+      });
     }
+  }
 
+  const server = new Server(
+    {
+      name: "small-language-model-gate",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+      instructions,
+    }
+  );
+
+  if (CONFIG.DOWNSTREAM_MCP) {
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       let tools: any[] = [];
       if (downstreamClient) {
         const res = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
         tools = res.tools || [];
+        downstreamToolNames = tools.map(t => t.name);
       }
-      
+
       // Advertise expand_elision
       tools.push({
         name: "expand_elision",
@@ -95,7 +111,7 @@ export async function createServer() {
         
         // Dynamic imports to prevent circular dependencies at boot
         const { getElision, writeElision, writeDistillFeedback, writeEvent } = await import('../ledger/index.js');
-        const { estimateTokens, formatElisionMarker, computeElisionId } = await import('../utils/elision.js');
+        const { formatElisionMarker, pageLines } = await import('../utils/elision.js');
         const { embedText, float64ArrayToBuffer } = await import('../utils/embedding.js');
         const crypto = await import('node:crypto');
         const record = getElision(elisionId);
@@ -170,48 +186,20 @@ export async function createServer() {
           }
 
           const lines = textToReturn.split('\n');
-          let startLine = 0;
-          let endLine = lines.length - 1;
+          const hasRange = range && typeof range.startLine === 'number' && typeof range.endLine === 'number';
+          // No range means the whole original, from the top.
+          const startLine = hasRange ? Math.max(0, range.startLine) : 0;
+          const endLine = hasRange ? Math.min(lines.length - 1, range.endLine) : lines.length - 1;
 
-          if (range && typeof range.startLine === 'number' && typeof range.endLine === 'number') {
-             startLine = Math.max(0, range.startLine);
-             endLine = Math.min(lines.length - 1, range.endLine);
-          } else {
-             // Try to extract first elided region if possible, else return all
-             const parsedRanges = JSON.parse(record.ranges || '{}');
-             if (parsedRanges.startLine !== undefined) {
-               startLine = parsedRanges.startLine;
-               endLine = parsedRanges.endLine;
-             }
-          }
-          
-          let expandedText = lines.slice(startLine, endLine + 1).join('\n');
-          const maxTokens = CONFIG.DISTILL_MAX_TOKENS || 2000;
-          
-          if (estimateTokens(expandedText) > maxTokens) {
-            const keepHead = Math.floor((maxTokens * 3.5) / 100);
-            const expLines = expandedText.split('\n');
-            const headLines = expLines.slice(0, keepHead);
-            const tailLines = expLines.slice(-keepHead);
-            const elidedCount = expLines.length - (keepHead * 2);
-            
-            const newId = computeElisionId(record.tool_name, JSON.parse(record.args), textToReturn); // Keep original text to allow further expansion
-            writeElision({
-              id: newId,
-              tool_name: record.tool_name,
-              args: record.args,
-              original_text: textToReturn,
-              ranges: JSON.stringify({startLine: 0, endLine: lines.length - 1}),
-              content_hash: crypto.createHash('sha256').update(textToReturn).digest('hex'),
-              size_bytes: Buffer.byteLength(textToReturn)
-            });
-            
-            expandedText = headLines.join('\n') + 
-                           formatElisionMarker(newId, elidedCount, startLine + keepHead, endLine - keepHead) + 
-                           tailLines.join('\n');
-          }
+          // The caller asked for these exact lines, so never cut out the middle of them again:
+          // that made a large region impossible to retrieve. Return them in order, one
+          // budget-sized page at a time, and say exactly which range to ask for next.
+          const page = pageLines({ lines, startLine, endLine, maxTokens: CONFIG.DISTILL_MAX_TOKENS || 2000 });
+          const expandedText = page.nextStart === undefined
+            ? page.text
+            : page.text + formatElisionMarker(elisionId, endLine - page.nextStart + 1, page.nextStart, endLine);
 
-          return { content: [{ type: "text", text: expandedText }] };
+          return { content: [{ type: "text", text: rewriteToolReferences(expandedText, downstreamToolNames) }] };
         } else {
           // Missing or expired, try to re-run if we have args
           if (!downstreamClient) throw new Error("Elision not found and no downstream client to re-run.");
@@ -244,7 +232,7 @@ export async function createServer() {
       const conditioned = await conditionPrompt(toolText, task, rootUri, name, args);
       
       return {
-        content: [{ type: "text", text: conditioned }]
+        content: [{ type: "text", text: rewriteToolReferences(conditioned, downstreamToolNames) }]
       };
     });
 

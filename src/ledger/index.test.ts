@@ -119,16 +119,20 @@ describe('computeCycleRates', () => {
 
     // Without a configured window budget there is no denominator, so no minutes can be
     // claimed. The old assertion (300 minutes freed by a single 100-token call) was the bug.
+    // Clear budgets first: a developer's .env is loaded into process.env and would leak in.
+    delete process.env.CLAUDE_WINDOW_BUDGET;
+    delete process.env.CHATGPT_WINDOW_BUDGET;
+    delete process.env.GEMINI_WINDOW_BUDGET;
     __resetProviderRegistry();
     expect(computeCycleRates(rows)).toEqual({ claude: 0, chatgpt: 0, gemini: 0 });
 
     // With budgets configured, each provider converts savings using its own metering model.
-    process.env.CLAUDE_WINDOW_BUDGET = '250';       // messages / 300 min
-    process.env.GEMINI_WINDOW_BUDGET = '1000000';   // tokens   / 300 min
+    process.env.CLAUDE_WINDOW_BUDGET = '1000000';   // tokens / 300 min
+    process.env.GEMINI_WINDOW_BUDGET = '1000000';   // tokens / 300 min
     __resetProviderRegistry();
     const rates = computeCycleRates(rows);
-    expect(rates.claude).toBeCloseTo(1.2, 2);       // 1 message avoided * 300/250
-    expect(rates.gemini).toBeCloseTo(0.06, 2);      // 200 tokens saved * 300/1e6
+    expect(rates.claude).toBeCloseTo(0.03, 4);      // 100 tokens saved * 300/1e6
+    expect(rates.gemini).toBeCloseTo(0.06, 4);      // 200 tokens saved * 300/1e6
     expect(rates.chatgpt).toBe(0);
     delete process.env.CLAUDE_WINDOW_BUDGET;
     delete process.env.GEMINI_WINDOW_BUDGET;

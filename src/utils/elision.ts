@@ -54,8 +54,43 @@ export function computeElisionId(toolName: string, args: any, originalText: stri
  * @returns A formatted string marker designed for robust parsing
  */
 export function formatElisionMarker(elisionId: string, elidedLinesCount: number, startLine?: number, endLine?: number): string {
-  const rangeStr = (startLine !== undefined && endLine !== undefined) ? `, lines ${startLine}-${endLine}` : '';
-  return `\n... ${elidedLinesCount} lines elided [id: ${elisionId}${rangeStr}] — call expand_elision to retrieve ...\n`;
+  const hasRange = startLine !== undefined && endLine !== undefined;
+  const rangeStr = hasRange ? `, lines ${startLine}-${endLine}` : '';
+  // Spell out the range argument: without it, expand_elision starts from the top of the
+  // original, which looks like the same cut text coming back.
+  const how = hasRange
+    ? `call expand_elision with this id and range {"startLine": ${startLine}, "endLine": ${endLine}} to retrieve`
+    : 'call expand_elision with this id to retrieve';
+  return `\n... ${elidedLinesCount} lines elided [id: ${elisionId}${rangeStr}] — ${how} ...\n`;
+}
+
+/**
+ * Takes as many lines from a range as fit in a token budget, never skipping any.
+ *
+ * @param params.lines All lines of the original text
+ * @param params.startLine First line wanted (inclusive)
+ * @param params.endLine Last line wanted (inclusive)
+ * @param params.maxTokens Budget for this page
+ * @returns The page text, and the first line not yet returned (undefined when done)
+ */
+export function pageLines(params: {
+  lines: readonly string[];
+  startLine: number;
+  endLine: number;
+  maxTokens: number;
+}): { text: string; nextStart?: number } {
+  const { lines, startLine, endLine, maxTokens } = params;
+  const page: string[] = [];
+  let tokens = 0;
+  let i = startLine;
+  for (; i <= endLine; i++) {
+    const lineTokens = estimateTokens(lines[i] + '\n');
+    // Always return at least one line, so paging can never stall.
+    if (page.length > 0 && tokens + lineTokens > maxTokens) break;
+    page.push(lines[i]);
+    tokens += lineTokens;
+  }
+  return { text: page.join('\n'), nextStart: i <= endLine ? i : undefined };
 }
 
 /**
@@ -549,8 +584,13 @@ export async function distillToolResult(
       const tailLines = lines.slice(-keepHead);
       
       const elidedCount = lines.length - (keepHead * 2);
-      finalText = headLines.join('\n') + 
-                  formatElisionMarker(elisionId, elidedCount, keepHead, lines.length - keepHead - 1) + 
+      // expand_elision reads the stored ORIGINAL. Line numbers are only meaningful when this
+      // text still is the original; after distillation they would point at the wrong lines.
+      const linesMatchOriginal = finalText === text;
+      finalText = headLines.join('\n') +
+                  (linesMatchOriginal
+                    ? formatElisionMarker(elisionId, elidedCount, keepHead, lines.length - keepHead - 1)
+                    : formatElisionMarker(elisionId, elidedCount)) +
                   tailLines.join('\n');
     }
   }

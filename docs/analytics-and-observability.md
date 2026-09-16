@@ -99,7 +99,7 @@ The `SUBSCRIPTION_PLAN` environment variable automatically configures your token
 | `gemini-ultra` | gemini | 300 min | 20x |
 
 **Sources (verified 2026-09-09):**
-- Claude: <https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage>
+- Claude: <https://support.claude.com/en/articles/11049741-what-is-the-max-plan>
 - ChatGPT: <https://help.openai.com>
 - Gemini: <https://support.google.com/gemini/answer/16275805>
 
@@ -309,11 +309,23 @@ pnpm run ledger:sync --limit 20
 ## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
 
 ### Cycle window model
-The dashboard provides per-provider "Cycle Extended" cards (Claude, ChatGPT, Gemini), which only populate when traffic for that specific provider is detected. 
+The dashboard provides per-provider "Cycle: Estimated Minutes Saved" cards (Claude, ChatGPT, Gemini). A card only fills in when **both** of these are true:
+1. There is traffic for that provider.
+2. That provider's window budget is set: `CLAUDE_WINDOW_BUDGET`, `CHATGPT_WINDOW_BUDGET` or `GEMINI_WINDOW_BUDGET`. Without a budget the gate has nothing to divide by, so it sends no cycle score at all and the card stays empty. `slm-gate doctor` lists any budgets that are missing.
 
-The calculation depends on the provider's underlying metering model:
-- **Message-Based (Claude / ChatGPT):** Extended runway is calculated from the share of prompts resolved locally. By tracking the number of prompts answered entirely by the local SLM vs the total number of prompts, we compute a deferral ratio. This ratio is applied directly to the window length (e.g., 5 hours for Claude). Token savings on forwarded prompts do *not* extend the cycle, because a forwarded prompt still consumes a message.
-- **Compute-Based (Gemini):** Extended runway accounts for the overall token reduction, making token savings from compression highly valuable for extending the cycle.
+Each event's value is:
+
+```text
+estimated minutes saved = units saved × (window minutes ÷ window budget)    (capped to [0, window minutes])
+```
+
+**These minutes are estimates within a margin of error.** Anthropic, OpenAI and Google don't publish their window limits, only multipliers between plans, so every budget is a best guess. The defaults in the `.env` examples, and where each comes from, are listed in the README's settings reference (`*_WINDOW_BUDGET`).
+
+What a "unit" is depends on how the provider counts usage:
+- **Per token (Claude / Gemini):** the budget is *tokens per window*. Every token saved counts, including tool results shrunk by `mcp-gate`. Claude is counted this way because its limits scale with how much text is sent, not with a flat message count.
+- **Per message (ChatGPT):** the budget is *messages per window*. Only a prompt answered entirely by the local model saves a message, and only `llm-gate` does that. A prompt that was shrunk and then sent (including every `mcp-gate` event) still costs one message, so it adds 0 minutes.
+
+The card shows the average over events.
 
 Use your analytics to make concrete engineering decisions:
 

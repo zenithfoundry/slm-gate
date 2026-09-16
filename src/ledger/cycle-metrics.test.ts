@@ -44,15 +44,12 @@ const cycleScore = (e: LedgerEvent, provider: string) =>
 describe('cycle extension requires a real denominator', () => {
   const clearBudgets = () => {
     delete process.env.CLAUDE_WINDOW_BUDGET;
+    delete process.env.CHATGPT_WINDOW_BUDGET;
     delete process.env.GEMINI_WINDOW_BUDGET;
     __resetProviderRegistry();
   };
   beforeEach(clearBudgets);
-  afterEach(() => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
-    delete process.env.GEMINI_WINDOW_BUDGET;
-    __resetProviderRegistry();
-  });
+  afterEach(clearBudgets);
 
   it('emits NOTHING when the provider window budget is unconfigured', () => {
     // Regression guard for the headline bug. With no budget there is no honest way to turn
@@ -65,7 +62,7 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('never reproduces the old ratio-times-window figure', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '250'; // messages per 5h window
+    process.env.CLAUDE_WINDOW_BUDGET = '1000000'; // tokens per 5h window
     __resetProviderRegistry();
     const e = ev({ provider: 'claude', in_tok: 4511, out_tok: 1825 });
 
@@ -73,18 +70,27 @@ describe('cycle extension requires a real denominator', () => {
     expect(perEventCycleMinutes(e, 'claude')).not.toBeCloseTo(178.63, 1);
   });
 
-  it('message metering: one locally-resolved prompt frees one message of the window', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
+  it('claude counts tokens: a distilled tool result extends the window', () => {
+    process.env.CLAUDE_WINDOW_BUDGET = '1000000';
     __resetProviderRegistry();
-    // 300 minutes / 250 messages = 1.2 minutes per message avoided.
-    expect(perEventCycleMinutes(ev({ provider: 'claude', route: 'defer_local' }), 'claude')).toBeCloseTo(1.2, 6);
+    // 2,686 tokens saved * (300 min / 1,000,000 tokens) = 0.8058 min
+    const e = ev({ provider: 'claude', route: 'condition', in_tok: 4511, out_tok: 1825 });
+    expect(perEventCycleMinutes(e, 'claude')).toBeCloseTo(0.8058, 4);
+    expect(cycleScore(e, 'claude')?.value).toBeCloseTo(0.8058, 4);
+  });
+
+  it('message metering: one locally-resolved prompt frees one message of the window', () => {
+    process.env.CHATGPT_WINDOW_BUDGET = '90';
+    __resetProviderRegistry();
+    // 180 minutes / 90 messages = 2 minutes per message avoided.
+    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(2, 6);
   });
 
   it('message metering: a distilled-but-forwarded prompt frees nothing — the message was still sent', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
+    process.env.CHATGPT_WINDOW_BUDGET = '90';
     __resetProviderRegistry();
-    expect(perEventCycleMinutes(ev({ provider: 'claude', route: 'condition' }), 'claude')).toBe(0);
-    expect(perEventCycleMinutes(ev({ provider: 'claude', route: 'forward_compressed' }), 'claude')).toBe(0);
+    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'condition' }), 'chatgpt')).toBe(0);
+    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'forward_compressed' }), 'chatgpt')).toBe(0);
   });
 
   it('compute metering: minutes scale with tokens saved against the token budget', () => {

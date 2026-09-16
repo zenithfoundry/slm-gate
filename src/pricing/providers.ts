@@ -56,7 +56,10 @@ export interface ProviderProfile {
 export const DEFAULT_PROVIDER_REGISTRY: Record<string, ProviderProfile> = {
   claude: {
     windowMinutes: 300,
-    metering: 'message',
+    // Claude's usage limits scale with how much text is sent (message length, attachments,
+    // conversation length), not with a flat message count, so tokens saved by distillation
+    // do extend the window.
+    metering: 'compute',
     windowBudget: null,
     // 'fable' and 'mythos' are current frontier families (claude-fable-5-1); they are NOT
     // covered by the opus/sonnet/haiku tier names. Verified against platform.claude.com
@@ -87,6 +90,20 @@ export const DEFAULT_PROVIDER_REGISTRY: Record<string, ProviderProfile> = {
     agentPatterns: ['antigravity', 'gemini'],
   },
 };
+
+/**
+ * Minutes of a provider's window freed by a number of saved units. The one place this
+ * formula lives, so the dashboard and the bench report can never disagree.
+ *
+ * @param profile The provider's profile
+ * @param unitsSaved Tokens saved ('compute') or requests avoided ('message')
+ * @returns Minutes freed, clamped to [0, windowMinutes], or null when no budget is set.
+ */
+export function minutesFreed(profile: ProviderProfile, unitsSaved: number): number | null {
+  if (!profile.windowBudget || profile.windowBudget <= 0) return null;
+  const minutes = unitsSaved * (profile.windowMinutes / profile.windowBudget);
+  return Math.min(profile.windowMinutes, Math.max(0, minutes));
+}
 
 let cachedRegistry: Record<string, ProviderProfile> | null = null;
 
@@ -129,8 +146,8 @@ export function getProviderRegistry(overridePath = process.env.PROVIDER_REGISTRY
   }
 
   // Window budgets are operator-supplied, per provider, via env.
-  // e.g. CLAUDE_WINDOW_BUDGET=250  (messages per 5h window)
-  //      GEMINI_WINDOW_BUDGET=2000000  (tokens per 5h window)
+  // e.g. CLAUDE_WINDOW_BUDGET=2000000  (tokens per 5h window)
+  //      CHATGPT_WINDOW_BUDGET=80        (messages per 3h window)
   for (const id of Object.keys(registry)) {
     const raw = process.env[`${id.toUpperCase()}_WINDOW_BUDGET`];
     if (raw) {

@@ -1,11 +1,12 @@
 /**
- * @fileoverview Plan registry for determining estimated token budgets and authoritative window lengths.
- * 
+ * @fileoverview Plan registry for authoritative window lengths. Window budgets are NOT
+ * derived from plans: providers publish no token counts (see providers.ts).
+ *
  * IMPORTANT MAINTAINER WARNING:
  * Providers change these limits often. Re-verify the numbers against the cited sources!
- * 
+ *
  * Sources:
- *   claude  : https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage
+ *   claude  : https://support.claude.com/en/articles/11049741-what-is-the-max-plan
  *   chatgpt : https://help.openai.com          (search "ChatGPT usage limits")
  *   gemini  : https://support.google.com/gemini/answer/16275805
  */
@@ -43,7 +44,7 @@ const RAW_PLANS: Record<string, RawPlanDef> = {
 };
 
 const SOURCES: Record<'claude' | 'chatgpt' | 'gemini', string> = {
-  claude: 'https://support.anthropic.com/en/articles/11014257-about-claude-max-plan-usage',
+  claude: 'https://support.claude.com/en/articles/11049741-what-is-the-max-plan',
   chatgpt: 'https://help.openai.com',
   gemini: 'https://support.google.com/gemini/answer/16275805'
 };

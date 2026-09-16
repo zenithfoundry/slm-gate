@@ -4,6 +4,7 @@ import { CONFIG } from '../config.js';
 import { waitWithBackoff } from '../utils/backoff.js';
 import {
   getProviderRegistry,
+  minutesFreed,
   providerFromAgentName,
   providerFromModelId,
   type MeteringModel,
@@ -357,13 +358,8 @@ export function perEventCycleMinutes(e: LedgerEvent, providerId: string): number
   const profile = getProviderRegistry()[providerId];
   if (!profile) return null;
   // No budget means no denominator. Emitting a number here is what produced the old
-  // nonsense figures, so we emit nothing instead.
-  if (!profile.windowBudget || profile.windowBudget <= 0) return null;
-
-  const unitsSaved = perEventUnitsSaved(e, profile.metering);
-  const minutesPerUnit = profile.windowMinutes / profile.windowBudget;
-  const minutes = unitsSaved * minutesPerUnit;
-  return Math.min(profile.windowMinutes, Math.max(0, minutes));
+  // nonsense figures, so minutesFreed returns null instead.
+  return minutesFreed(profile, perEventUnitsSaved(e, profile.metering));
 }
 
 export function perEventTokensSaved(e: LedgerEvent): number {

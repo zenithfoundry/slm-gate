@@ -249,10 +249,11 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
-    { Metric: `Cycle Extends (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: avgRates.chatgpt !== null ? `~${avgRates.chatgpt.toFixed(1)} min per 3-hour window` : 'n/a (no traffic)' },
-    { Metric: `Cycle Extends (Claude ${claudePlan.windowMinutes}m)`, Value: avgRates.claude !== null ? `~${avgRates.claude.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
-    { Metric: `Cycle Extends (Gemini ${geminiPlan.windowMinutes}m)`, Value: avgRates.gemini !== null ? `~${avgRates.gemini.toFixed(1)} min per 5-hour window` : 'n/a (no traffic)' },
+    { Metric: `Estimated Minutes Saved (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: avgRates.chatgpt !== null ? `~${avgRates.chatgpt.toFixed(1)} est. min per 3-hour window` : 'n/a (no traffic, or CHATGPT_WINDOW_BUDGET unset)' },
+    { Metric: `Estimated Minutes Saved (Claude ${claudePlan.windowMinutes}m)`, Value: avgRates.claude !== null ? `~${avgRates.claude.toFixed(1)} est. min per 5-hour window` : 'n/a (no traffic, or CLAUDE_WINDOW_BUDGET unset)' },
+    { Metric: `Estimated Minutes Saved (Gemini ${geminiPlan.windowMinutes}m)`, Value: avgRates.gemini !== null ? `~${avgRates.gemini.toFixed(1)} est. min per 5-hour window` : 'n/a (no traffic, or GEMINI_WINDOW_BUDGET unset)' },
   ]);
+  console.log('Minutes saved are estimates within a margin of error: providers do not publish their window limits, so the *_WINDOW_BUDGET values are best guesses.');
 
   return stats;
 }

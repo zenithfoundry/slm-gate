@@ -1,5 +1,32 @@
 import fs from 'node:fs';
+import { getProviderRegistry, minutesFreed } from '../src/pricing/providers.js';
 import { ArmStats } from './arms.js';
+
+const CYCLE_PROVIDERS = [
+  { id: 'chatgpt', label: 'ChatGPT' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'gemini', label: 'Gemini' },
+] as const;
+
+/**
+ * One report line per provider, computed exactly as the dashboard computes it.
+ *
+ * @param params.id Provider id in the registry
+ * @param params.label Display name
+ * @param params.tokensSaved Tokens Arm B saved versus Arm A
+ * @param params.localPrompts Prompts Arm B answered without the cloud
+ */
+function cycleImpactLine(params: { id: string; label: string; tokensSaved: number; localPrompts: number }): string {
+  const { id, label, tokensSaved, localPrompts } = params;
+  const profile = getProviderRegistry()[id];
+  const window = `${profile.windowMinutes / 60}-hour window`;
+  const unitsSaved = profile.metering === 'message' ? localPrompts : tokensSaved;
+  const minutes = minutesFreed(profile, unitsSaved);
+  if (minutes === null) {
+    return `**${label}** (${window}): not measured. Set \`${id.toUpperCase()}_WINDOW_BUDGET\` to see this.`;
+  }
+  return `**${label}** (${window}): estimated minutes saved **~${minutes.toFixed(1)}** over this dataset.`;
+}
 
 /**
  * Generates and writes a Markdown-formatted leaderboard report summarizing the results 
@@ -23,12 +50,7 @@ export function writeReport(
   arms: { allSlm: ArmStats, armA: ArmStats, armB: ArmStats, CIs: Record<string, [number, number]> },
   apiConfigured: boolean,
   totalTasks: number,
-  errorCount: number,
-  options: {
-    cycleMinutesChatgpt: number;
-    cycleMinutesClaude: number;
-    cycleMinutesGemini: number;
-  }
+  errorCount: number
 ) {
   const { allSlm, armA, armB, CIs } = arms;
 
@@ -84,16 +106,14 @@ export function writeReport(
       const outSavings = armA.outTokens - armB.outTokens;
       report += `At an accuracy $\\ge$ Arm A, Arm B saves **${tokenSavings.toLocaleString()} tokens** (${inSavings.toLocaleString()} in / ${outSavings.toLocaleString()} out) (**${tokenSavingsPct.toFixed(1)}% reduction**) over the evaluated dataset.\n`;
       
-      const extraMinsChatgpt = Math.round(options.cycleMinutesChatgpt * (Math.abs(tokenSavingsPct) / 100));
-      const extraMinsClaude = Math.round(options.cycleMinutesClaude * (Math.abs(tokenSavingsPct) / 100));
-      const extraMinsGemini = Math.round(options.cycleMinutesGemini * (Math.abs(tokenSavingsPct) / 100));
-      const impactWord = tokenSavingsPct >= 0 ? 'Extends' : 'Reduces';
-      
-      report += `\n> **Real-World Impact (Subscription Caps):**\n`;
-      report += `> *(Based on provider limits as of August 21, 2026)*\n`;
-      report += `> - **ChatGPT Plus** (${options.cycleMinutesChatgpt / 60}-hour window): ${impactWord} workflow by **~${extraMinsChatgpt} minutes**.\n`;
-      report += `> - **Claude Pro / Max** (${options.cycleMinutesClaude / 60}-hour window): ${impactWord} workflow by **~${extraMinsClaude} minutes**.\n`;
-      report += `> - **Gemini AI Pro / Ultra** (${options.cycleMinutesGemini / 60}-hour window): ${impactWord} workflow by **~${extraMinsGemini} minutes**.\n`;
+      // Arm B's routing rate is the share of prompts it sent to the cloud.
+      const localPrompts = Math.round(totalTasks * (1 - armB.routingRate));
+
+      report += `\n> **Real-World Impact (Subscription Windows):**\n`;
+      report += `> *(Estimates within a margin of error: providers do not publish their window limits, so the window budgets are best guesses. Same formula as the dashboard: units saved × window minutes ÷ window budget. Units are tokens for Claude and Gemini, prompts answered locally for ChatGPT.)*\n`;
+      for (const { id, label } of CYCLE_PROVIDERS) {
+        report += `> - ${cycleImpactLine({ id, label, tokensSaved: tokenSavings, localPrompts })}\n`;
+      }
     } else {
       report += `Arm B did not achieve quality $\\ge$ Arm A on this dataset.\n`;
     }

@@ -5,6 +5,17 @@
 import { CONFIG, requireKeys } from '../config.js';
 import { setTimeout } from 'timers/promises';
 
+/**
+ * Names cards used before they were renamed. Their placements must be removed too:
+ * otherwise the old card keeps its grid slot, and the renamed card placed on the same
+ * slot is silently dropped by Langfuse.
+ */
+const RETIRED_WIDGET_NAMES = [
+  'Claude Cycle Extended (min)',
+  'ChatGPT Cycle Extended (min)',
+  'Gemini Cycle Extended (min)',
+];
+
 async function apiFetch(url: string, init: RequestInit, label: string): Promise<Response> {
   let attempt = 0;
   const maxRetries = 5;
@@ -104,7 +115,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'SLM Accuracy Rate (%)',
-      description: 'Accuracy of SLM output compared to cloud model baseline (0-100%)',
+      description: 'Accuracy of SLM output compared to cloud model baseline (0-100%). Only filled by llm-gate traffic or bench runs (Env = bench); mcp-gate never answers prompts, so it never scores accuracy.',
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -112,8 +123,8 @@ async function setupDashboard(): Promise<void> {
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'accuracy_rate_pct' }],
     },
     {
-      name: 'Claude Cycle Extended (min)',
-      description: "Average extra minutes of that provider's window per prompt, bounded [0, 300]. Extra minutes of your 5-hour Claude window that slm-gate frees up by answering prompts locally. Claude uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when Claude receives traffic.",
+      name: 'Claude Cycle: Estimated Minutes Saved',
+      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 300]. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Extra minutes of your 5-hour Claude window that slm-gate frees up by saving tokens. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. This widget only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -121,8 +132,8 @@ async function setupDashboard(): Promise<void> {
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_claude' }],
     },
     {
-      name: 'ChatGPT Cycle Extended (min)',
-      description: "Average extra minutes of that provider's window per prompt, bounded [0, 180]. Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic.",
+      name: 'ChatGPT Cycle: Estimated Minutes Saved',
+      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 180]. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -130,8 +141,8 @@ async function setupDashboard(): Promise<void> {
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_chatgpt' }],
     },
     {
-      name: 'Gemini Cycle Extended (min)',
-      description: "Average extra minutes of that provider's window per prompt, bounded [0, 300]. Extra minutes of your 5-hour Gemini window that slm-gate frees up by answering prompts locally. Gemini uses compute-based metering, making token savings extremely valuable. This widget only populates when Gemini receives traffic.",
+      name: 'Gemini Cycle: Estimated Minutes Saved',
+      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 300]. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Extra minutes of your 5-hour Gemini window that slm-gate frees up by saving tokens. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. This widget only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -232,7 +243,7 @@ async function setupDashboard(): Promise<void> {
           const placementWidget = existingWidgets.find(ew => ew.id === placement.widgetId) 
                                || targetWidgets.find(tw => tw.id === placement.widgetId);
                                
-          if (placementWidget && widgets.some(w => w.name === placementWidget.name)) {
+          if (placementWidget && (widgets.some(w => w.name === placementWidget.name) || RETIRED_WIDGET_NAMES.includes(placementWidget.name))) {
             console.log(`Removing existing placement for '${placementWidget.name}'...`);
             const delRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}/placements/${placement.id}`, {
               method: 'DELETE',
@@ -261,9 +272,9 @@ async function setupDashboard(): Promise<void> {
       { x: 6, y: 0, width: 3, height: 3 }, // Tokens Saved
       { x: 9, y: 0, width: 3, height: 3 }, // Cost Saved
       { x: 6, y: 3, width: 6, height: 3 }, // SLM Accuracy Rate
-      { x: 0, y: 6, width: 4, height: 3 }, // Claude Cycle Extended
-      { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT Cycle Extended
-      { x: 8, y: 6, width: 4, height: 3 }, // Gemini Cycle Extended
+      { x: 0, y: 6, width: 4, height: 3 }, // Claude Cycle: Estimated Minutes Saved
+      { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT Cycle: Estimated Minutes Saved
+      { x: 8, y: 6, width: 4, height: 3 }, // Gemini Cycle: Estimated Minutes Saved
     ];
 
     const placements = targetWidgets.map((w, i) => ({

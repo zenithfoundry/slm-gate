@@ -17,6 +17,7 @@ import { CONFIG } from './config.js';
 import { handleSlmError } from './models/helpers.js';
 import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
 import { getModelsFootprint } from './models/footprint.js';
+import { getProviderRegistry } from './pricing/providers.js';
 
 /**
  * Checks if a given network port is available on the local machine.
@@ -247,7 +248,7 @@ async function run() {
   // Ensures that if the user explicitly enabled the TLS adapter, the downstream MCP target is physically present on disk.
   if (CONFIG.DOWNSTREAM_MCP) {
     report(true, 'DOWNSTREAM_MCP is configured');
-    
+
     if (CONFIG.DOWNSTREAM_MCP.command) {
       // For Stdio MCP servers, the first argument is conventionally the target script.
       const cmdArgs = CONFIG.DOWNSTREAM_MCP.args || [];
@@ -287,6 +288,16 @@ async function run() {
       report(true, `Ledger path is writable (${CONFIG.LEDGER_PATH})`);
     } catch (e) {
       report(false, `Ledger path is not writable (${CONFIG.LEDGER_PATH})`, 'Fix permissions for the output directory.');
+    }
+  }
+
+  // 8b. Window budgets. Without one, that provider's "Estimated Minutes Saved" card never fills in.
+  // A note, not a failure: the gate itself works fine without them.
+  const cycleCards = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' } as const;
+  const registry = getProviderRegistry();
+  for (const [id, label] of Object.entries(cycleCards)) {
+    if (!registry[id]?.windowBudget) {
+      console.log(`  Note: ${id.toUpperCase()}_WINDOW_BUDGET is not set, so the "${label} Cycle: Estimated Minutes Saved" card will stay empty.`);
     }
   }
 

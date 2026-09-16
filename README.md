@@ -62,7 +62,7 @@ On pay-per-token API plans (like `gpt-4o` or Claude Sonnet via API key), every t
 
 - How many tokens (units of text) were in the original payload
 - How many tokens remained after compression
-- Whether the request was answered locally (free) or forwarded to the cloud
+- Whether the request was answered locally (free) or forwarded to the cloud (answering locally is `llm-gate` only; see [Section 3](#3-how-it-operates-choosing-your-integration-layer))
 - How long the local processing took
 - The simulated dollar cost saved (for API key users)
 
@@ -270,6 +270,15 @@ OLLAMA_MAX_LOADED_MODELS=2       # Or set to 1 if still tight
 
 `slm-gate` has two independent operating modes — think of them as two different places where the gate can be inserted into your workflow. You can use one, the other, or both at the same time.
 
+> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. It can't answer your questions locally. `llm-gate` sits between your editor and the model, so it sees every message. It lets the small model try first and only sends the message to the cloud if the answer fails the check.
+>
+> | Dashboard card | Needs |
+> |---|---|
+> | Tokens Saved, Cost Saved, Routing Decision | either layer |
+> | SLM Accuracy Rate | `llm-gate` (or `pnpm run bench`, shown under Env = `bench`) |
+> | Claude / Gemini Cycle: Estimated Minutes Saved | either layer **and** that provider's `*_WINDOW_BUDGET` |
+> | ChatGPT Cycle: Estimated Minutes Saved | `llm-gate` **and** `CHATGPT_WINDOW_BUDGET` |
+
 ### Layer 1: `mcp-gate` — The Tool & Skill Payload Compressor
 
 **Best for:** Subscription users (Claude Pro, Cursor Pro, Gemini Advanced, ChatGPT Plus, etc.) who want to protect their turn and message quotas.
@@ -299,7 +308,7 @@ To use Tech-Lead-Stack as your downstream:
 1. Install and build Tech-Lead-Stack (`pnpm run mcp:build` in the TLS directory).
 2. In your `slm-gate` config, set `DOWNSTREAM_MCP` to point at the TLS build path and set `TLS_ADAPTER=on`.
 
-**Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Any MCP server — or a combination — can sit behind it. Popular options include:
+**Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Keep the gate registered as `slm-gate` whatever sits behind it. When a toolbox's own commands or docs call its tools by another server name (TLS's commands say `mcp__tech-lead-stack__get_skills`), the gate handles that for you: it reads the toolbox's tool list when it starts, tells your editor those tools live on `slm-gate`, and rewrites those names in what it returns. Swapping toolboxes needs no config change. Any MCP server — or a combination — can sit behind it. Popular options include:
 
 | MCP Server | What It Does |
 | :--- | :--- |
@@ -712,6 +721,12 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 # ── Subscription Plan (for quota metrics display) ─────────────────────────
 SUBSCRIPTION_PLAN=claude-pro            # Set this to match your actual plan
 
+# ── ⚠️ Window Budgets (REQUIRED for the Estimated Minutes Saved cards — set all three) ──
+# Estimates within a margin of error: providers don't publish these. See the reference below.
+CLAUDE_WINDOW_BUDGET=460000             # tokens per 5-hour window (Claude Pro, estimate)
+CHATGPT_WINDOW_BUDGET=160               # messages per 3-hour window (ChatGPT Plus, estimate)
+GEMINI_WINDOW_BUDGET=500000             # tokens per 5-hour window (Gemini AI Pro, estimate)
+
 # ── RAM Preset ────────────────────────────────────────────────────────────
 RAM_PRESET=ram-16
 TLS_ADAPTER=off                         # Set to 'on' only if using Tech-Lead-Stack downstream
@@ -798,7 +813,16 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 - **`LEDGER_PATH`** — Where the local database file is stored. This is what `pnpm run slm-gate metrics` reads from. Blank = `output/ledger.sqlite` under the install folder (already a full path). If you set it, it **must be a full path on your machine**, never one relative to the repository — see [Ledger Path Must Be a Full Path on Your Machine](#ledger-path-must-be-a-full-path-on-your-machine). `doctor` reports an issue for a relative value.
 - **`PROVIDER`** — The cloud provider your IDE sends traffic to (`gemini`, `claude`, or `chatgpt`). Used for per-provider cycle extension metrics when the inbound request carries no recognizable model string. Not the same as `SLM_PROVIDER`. Default: `gemini`.
 - **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** — Optional Langfuse connection. Fill these in only if you're using Langfuse for visual dashboards. Leave blank otherwise.
-- **`SUBSCRIPTION_PLAN`** — Tells the metrics dashboard which plan you're on, so it can calculate how much subscription runway you've reclaimed. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`.
+- **`SUBSCRIPTION_PLAN`** — Tells the metrics dashboard which plan you're on, so it can calculate how much subscription runway you've reclaimed. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`. It sets the window *length* only, not the budgets below.
+- **`CLAUDE_WINDOW_BUDGET`**, **`CHATGPT_WINDOW_BUDGET`**, **`GEMINI_WINDOW_BUDGET`** — ⚠️ **Required for the "Cycle: Estimated Minutes Saved" dashboard cards.** How much your plan allows per usage window: *tokens* for Claude and Gemini, *messages* for ChatGPT. Set all three, whichever provider you use. If one is blank, that provider's card stays empty. **These values, and the minutes they produce, are estimates within a margin of error:** Anthropic, OpenAI and Google don't publish them, only multipliers such as "Max 5x = 5× Pro".
+
+  | Provider | Unit | Estimates by plan | Where the number comes from |
+  |---|---|---|---|
+  | Claude | tokens / 5 h | Pro ~460,000 · Max 5x ~2,300,000 · Max 20x ~9,200,000 | Max 5x measured 2026-09-16 (tokens sent ÷ `/usage` session share); Pro and 20x scaled by Anthropic's multipliers |
+  | ChatGPT | messages / 3 h | Plus ~160 | Third-party reports, 2026 |
+  | Gemini | tokens / 5 h | AI Pro ~500,000 · Ultra ~10,000,000 | Best guess: AI Pro assumed close to Claude Pro; Ultra is 20× AI Pro per Google |
+
+  For a better number for your own account, divide the tokens you sent in a window by the share of the window used (Claude Code shows it in `/usage`). For Claude and Gemini, every token saved counts, including tool results shrunk by the MCP server. ChatGPT caps messages, so its window is only extended by prompts answered fully by the local model (`llm-gate`). Restart the gate after changing these. `slm-gate doctor` lists any that are missing.
 
 #### Context Trimming & Safe Recovery
 
