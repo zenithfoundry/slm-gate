@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { getProviderRegistry, minutesFreed } from '../src/pricing/providers.js';
+import { formatDuration } from '../src/utils/duration.js';
 import { ArmStats } from './arms.js';
 
 const CYCLE_PROVIDERS = [
@@ -25,7 +26,7 @@ function cycleImpactLine(params: { id: string; label: string; tokensSaved: numbe
   if (minutes === null) {
     return `**${label}** (${window}): not measured. Set \`${id.toUpperCase()}_WINDOW_BUDGET\` to see this.`;
   }
-  return `**${label}** (${window}): estimated minutes saved **~${minutes.toFixed(1)}** over this dataset.`;
+  return `**${label}** (${window}): estimated **~${formatDuration(minutes * 60)}** of window time saved over this dataset.`;
 }
 
 /**

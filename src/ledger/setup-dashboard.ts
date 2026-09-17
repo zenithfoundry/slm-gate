@@ -14,6 +14,12 @@ const RETIRED_WIDGET_NAMES = [
   'Claude Cycle Extended (min)',
   'ChatGPT Cycle Extended (min)',
   'Gemini Cycle Extended (min)',
+  // Retired because they read in decimal minutes: a typical prompt showed '0.18934',
+  // which the reader had to multiply by 60 to understand. Replaced by a seconds card
+  // (per prompt) and a minutes card (range total) per provider.
+  'Claude Cycle: Estimated Minutes Saved',
+  'ChatGPT Cycle: Estimated Minutes Saved',
+  'Gemini Cycle: Estimated Minutes Saved',
 ];
 
 async function apiFetch(url: string, init: RequestInit, label: string): Promise<Response> {
@@ -123,31 +129,58 @@ async function setupDashboard(): Promise<void> {
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'accuracy_rate_pct' }],
     },
     {
-      name: 'Claude Cycle: Estimated Minutes Saved',
-      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 300]. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Extra minutes of your 5-hour Claude window that slm-gate frees up by saving tokens. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. This widget only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
+      name: 'Claude Cycle: Est. Seconds Saved (per prompt)',
+      description: "SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. Only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
-      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_claude' }],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_seconds_claude' }],
     },
     {
-      name: 'ChatGPT Cycle: Estimated Minutes Saved',
-      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 180]. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. Extra minutes of your 3-hour ChatGPT window that slm-gate frees up by answering prompts locally. ChatGPT uses message-based metering, so token savings on forwarded prompts do not extend the cycle. This widget only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
+      name: 'ChatGPT Cycle: Est. Seconds Saved (per prompt)',
+      description: "SECONDS of your 3-hour ChatGPT window freed per prompt, averaged — bounded [0, 10800]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. ChatGPT uses message-based metering, so only a prompt answered entirely locally frees anything; a distilled-but-forwarded prompt still costs a message and scores 0. Only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
-      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_chatgpt' }],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_seconds_chatgpt' }],
     },
     {
-      name: 'Gemini Cycle: Estimated Minutes Saved',
-      description: "Estimated average extra minutes of that provider's window per prompt, bounded [0, 300]. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Extra minutes of your 5-hour Gemini window that slm-gate frees up by saving tokens. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. This widget only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
+      name: 'Gemini Cycle: Est. Seconds Saved (per prompt)',
+      description: "SECONDS of your 5-hour Gemini window freed per prompt, averaged — bounded [0, 18000]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. Only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
       dimensions: [],
-      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_per_window_gemini' }],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_seconds_gemini' }],
+    },
+    {
+      name: 'Claude Cycle: Est. Minutes Saved (total)',
+      description: "Total MINUTES of your 5-hour Claude window freed across every prompt in the selected date range. This is the companion to the per-prompt seconds card above it: same quantity, summed instead of averaged, so it grows as you use the gate. An estimate within a margin of error — CLAUDE_WINDOW_BUDGET is a measured best guess. Only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'sum' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_minutes_claude' }],
+    },
+    {
+      name: 'ChatGPT Cycle: Est. Minutes Saved (total)',
+      description: "Total MINUTES of your 3-hour ChatGPT window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — CHATGPT_WINDOW_BUDGET is a best guess. Only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'sum' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_minutes_chatgpt' }],
+    },
+    {
+      name: 'Gemini Cycle: Est. Minutes Saved (total)',
+      description: "Total MINUTES of your 5-hour Gemini window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — GEMINI_WINDOW_BUDGET is a best guess. Only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
+      view: 'scores-numeric',
+      chartType: 'NUMBER',
+      metrics: [{ measure: 'value', agg: 'sum' }],
+      dimensions: [],
+      filters: [{ type: 'string', column: 'name', operator: '=', value: 'cycle_extended_minutes_gemini' }],
     }
   ];
 
@@ -267,14 +300,19 @@ async function setupDashboard(): Promise<void> {
     // Explicit 12-column grid. Omitting x/y/width/height makes Langfuse auto-place each
     // widget, and colliding auto-placements overwrite each other server-side — the POST
     // still returns 200, so four of seven cards silently vanished from the definition.
+    // Rows 6 and 9 are column-aligned by provider, so each provider's per-prompt seconds
+    // card sits directly above its range-total minutes card.
     const layout = [
       { x: 0, y: 0, width: 6, height: 6 }, // Routing Decision (pie)
       { x: 6, y: 0, width: 3, height: 3 }, // Tokens Saved
       { x: 9, y: 0, width: 3, height: 3 }, // Cost Saved
       { x: 6, y: 3, width: 6, height: 3 }, // SLM Accuracy Rate
-      { x: 0, y: 6, width: 4, height: 3 }, // Claude Cycle: Estimated Minutes Saved
-      { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT Cycle: Estimated Minutes Saved
-      { x: 8, y: 6, width: 4, height: 3 }, // Gemini Cycle: Estimated Minutes Saved
+      { x: 0, y: 6, width: 4, height: 3 }, // Claude  — seconds per prompt
+      { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT — seconds per prompt
+      { x: 8, y: 6, width: 4, height: 3 }, // Gemini  — seconds per prompt
+      { x: 0, y: 9, width: 4, height: 3 }, // Claude  — minutes total
+      { x: 4, y: 9, width: 4, height: 3 }, // ChatGPT — minutes total
+      { x: 8, y: 9, width: 4, height: 3 }, // Gemini  — minutes total
     ];
 
     const placements = targetWidgets.map((w, i) => ({

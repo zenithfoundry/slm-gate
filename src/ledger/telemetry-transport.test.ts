@@ -81,15 +81,15 @@ describe('provider attribution is carried, not re-derived', () => {
     process.env.CLAUDE_WINDOW_BUDGET = '250';
     __resetProviderRegistry();
     const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: undefined, agent: undefined }));
-    const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_per_window_'));
-    expect(cycle?.name).toBe('cycle_extended_per_window_claude');
+    const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_'));
+    expect(cycle?.name).toBe('cycle_extended_minutes_claude');
   });
 
   it('prefers an explicit provider over what the model string would imply', () => {
     process.env.CLAUDE_WINDOW_BUDGET = '250';
     __resetProviderRegistry();
     const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: 'gemini-2.5-flash' }));
-    const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_per_window_'));
-    expect(cycle?.name).toBe('cycle_extended_per_window_claude');
+    const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_'));
+    expect(cycle?.name).toBe('cycle_extended_minutes_claude');
   });
 });

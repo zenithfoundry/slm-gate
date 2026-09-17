@@ -39,7 +39,10 @@ const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
 });
 
 const cycleScore = (e: LedgerEvent, provider: string) =>
-  formatEventForLangfuse(e).scores?.find(s => s.name === `cycle_extended_per_window_${provider}`);
+  formatEventForLangfuse(e).scores?.find(s => s.name === `cycle_extended_minutes_${provider}`);
+
+const cycleSecondsScore = (e: LedgerEvent, provider: string) =>
+  formatEventForLangfuse(e).scores?.find(s => s.name === `cycle_extended_seconds_${provider}`);
 
 describe('cycle extension requires a real denominator', () => {
   const clearBudgets = () => {
@@ -59,6 +62,7 @@ describe('cycle extension requires a real denominator', () => {
 
     expect(perEventCycleMinutes(e, 'claude')).toBeNull();
     expect(cycleScore(e, 'claude')).toBeUndefined();
+    expect(cycleSecondsScore(e, 'claude')).toBeUndefined();
   });
 
   it('never reproduces the old ratio-times-window figure', () => {
@@ -77,6 +81,25 @@ describe('cycle extension requires a real denominator', () => {
     const e = ev({ provider: 'claude', route: 'condition', in_tok: 4511, out_tok: 1825 });
     expect(perEventCycleMinutes(e, 'claude')).toBeCloseTo(0.8058, 4);
     expect(cycleScore(e, 'claude')?.value).toBeCloseTo(0.8058, 4);
+  });
+
+  it('publishes the same saving in seconds, so the card does not read 0.8058', () => {
+    process.env.CLAUDE_WINDOW_BUDGET = '1000000';
+    __resetProviderRegistry();
+    const e = ev({ provider: 'claude', route: 'condition', in_tok: 4511, out_tok: 1825 });
+
+    // 0.8058 min x 60 = 48.348s, rounded to one decimal for display.
+    expect(cycleSecondsScore(e, 'claude')?.value).toBe(48.3);
+  });
+
+  it('keeps the two units in agreement for every provider', () => {
+    process.env.GEMINI_WINDOW_BUDGET = '1000000';
+    __resetProviderRegistry();
+    const e = ev({ provider: 'gemini', route: 'condition', in_tok: 4511, out_tok: 1825 });
+
+    const minutes = cycleScore(e, 'gemini')!.value as number;
+    const seconds = cycleSecondsScore(e, 'gemini')!.value as number;
+    expect(seconds).toBeCloseTo(minutes * 60, 1);
   });
 
   it('message metering: one locally-resolved prompt frees one message of the window', () => {

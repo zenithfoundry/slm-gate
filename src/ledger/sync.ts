@@ -8,7 +8,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { CONFIG, requireKeys } from '../config.js';
-import { computeCycleRateAvg, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
+import { formatDuration } from '../utils/duration.js';
+import { computeCycleRateAvg, computeCycleRates, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
 
 export { computeCycleRateAvg };
@@ -225,7 +226,23 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
   }
 
   const avgRates = computeCycleRateAvg(rows);
-  
+  const totalRates = computeCycleRates(rows);
+
+  /**
+   * One summary row per provider, rendered as real durations so the reader never has to
+   * convert a decimal fraction of a minute in their head.
+   *
+   * @param id Provider id as used by computeCycleRateAvg / computeCycleRates
+   * @param budgetVar Name of the env var that supplies the denominator
+   */
+  const cycleRow = (id: 'claude' | 'chatgpt' | 'gemini', budgetVar: string) => {
+    const avgMinutes = avgRates[id];
+    if (avgMinutes === null) {
+      return `n/a (no traffic, or ${budgetVar} unset)`;
+    }
+    return `~${formatDuration(avgMinutes * 60)} per prompt · ~${formatDuration(totalRates[id] * 60)} total`;
+  };
+
   const claudePlan = CONFIG.RESOLVED_PLAN_CLAUDE;
   const chatgptPlan = CONFIG.RESOLVED_PLAN_CHATGPT;
   const geminiPlan = CONFIG.RESOLVED_PLAN_GEMINI;
@@ -249,11 +266,11 @@ export async function syncLedgerToLangfuse(options: { limit?: number; dryRun?: b
     { Metric: 'Net Dollars Saved', Value: `$${stats.costSavedUsd.toFixed(4)}` },
     { Metric: 'Net Tokens Saved', Value: stats.tokensSaved.toLocaleString() },
     { Metric: 'Sync Errors', Value: stats.errors },
-    { Metric: `Estimated Minutes Saved (ChatGPT ${chatgptPlan.windowMinutes}m)`, Value: avgRates.chatgpt !== null ? `~${avgRates.chatgpt.toFixed(1)} est. min per 3-hour window` : 'n/a (no traffic, or CHATGPT_WINDOW_BUDGET unset)' },
-    { Metric: `Estimated Minutes Saved (Claude ${claudePlan.windowMinutes}m)`, Value: avgRates.claude !== null ? `~${avgRates.claude.toFixed(1)} est. min per 5-hour window` : 'n/a (no traffic, or CLAUDE_WINDOW_BUDGET unset)' },
-    { Metric: `Estimated Minutes Saved (Gemini ${geminiPlan.windowMinutes}m)`, Value: avgRates.gemini !== null ? `~${avgRates.gemini.toFixed(1)} est. min per 5-hour window` : 'n/a (no traffic, or GEMINI_WINDOW_BUDGET unset)' },
+    { Metric: `Window Time Saved (ChatGPT ${chatgptPlan.windowMinutes}m window)`, Value: cycleRow('chatgpt', 'CHATGPT_WINDOW_BUDGET') },
+    { Metric: `Window Time Saved (Claude ${claudePlan.windowMinutes}m window)`, Value: cycleRow('claude', 'CLAUDE_WINDOW_BUDGET') },
+    { Metric: `Window Time Saved (Gemini ${geminiPlan.windowMinutes}m window)`, Value: cycleRow('gemini', 'GEMINI_WINDOW_BUDGET') },
   ]);
-  console.log('Minutes saved are estimates within a margin of error: providers do not publish their window limits, so the *_WINDOW_BUDGET values are best guesses.');
+  console.log('Window time saved is an estimate within a margin of error: providers do not publish their window limits, so the *_WINDOW_BUDGET values are best guesses.');
 
   return stats;
 }

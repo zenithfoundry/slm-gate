@@ -53,20 +53,38 @@ export async function syncScoreConfigs(): Promise<void> {
       minValue: 0,
       description: 'Accuracy of the SLM gate output against the expected cloud model standard (%)'
     },
+    // Each provider is registered twice: the same quantity in minutes and in seconds.
+    // A score row carries a number and no unit, and a dashboard widget cannot convert
+    // between units, so a card that reads in seconds needs a score already in seconds.
     {
-      name: 'cycle_extended_per_window_chatgpt',
+      name: 'cycle_extended_minutes_chatgpt',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 3h ChatGPT window freed by this single request'
+      description: 'Extra MINUTES of a 3h ChatGPT window freed by this single request (summed for the range total)'
     },
     {
-      name: 'cycle_extended_per_window_claude',
+      name: 'cycle_extended_seconds_chatgpt',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 5h Claude window freed by this single request'
+      description: 'Extra SECONDS of a 3h ChatGPT window freed by this single request (averaged for the per-prompt figure)'
     },
     {
-      name: 'cycle_extended_per_window_gemini',
+      name: 'cycle_extended_minutes_claude',
       dataType: 'NUMERIC',
-      description: 'Extra minutes of a 5h Gemini window freed by this single request'
+      description: 'Extra MINUTES of a 5h Claude window freed by this single request (summed for the range total)'
+    },
+    {
+      name: 'cycle_extended_seconds_claude',
+      dataType: 'NUMERIC',
+      description: 'Extra SECONDS of a 5h Claude window freed by this single request (averaged for the per-prompt figure)'
+    },
+    {
+      name: 'cycle_extended_minutes_gemini',
+      dataType: 'NUMERIC',
+      description: 'Extra MINUTES of a 5h Gemini window freed by this single request (summed for the range total)'
+    },
+    {
+      name: 'cycle_extended_seconds_gemini',
+      dataType: 'NUMERIC',
+      description: 'Extra SECONDS of a 5h Gemini window freed by this single request (averaged for the per-prompt figure)'
     }
   ];
 

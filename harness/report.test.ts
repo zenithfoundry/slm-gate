@@ -31,8 +31,9 @@ describe('leaderboard window impact', () => {
     process.env.CHATGPT_WINDOW_BUDGET = '90';     // 6 local prompts * 180 / 90 = 12 min
     __resetProviderRegistry();
     const report = renderReport();
-    expect(report).toContain('**Claude** (5-hour window): estimated minutes saved **~1.8**');
-    expect(report).toContain('**ChatGPT** (3-hour window): estimated minutes saved **~12.0**');
+    // Rendered as real durations: 1.8 min and 12 min, not decimals the reader must convert.
+    expect(report).toContain('**Claude** (5-hour window): estimated **~1m 48s** of window time saved');
+    expect(report).toContain('**ChatGPT** (3-hour window): estimated **~12m 00s** of window time saved');
     expect(report).toContain('margin of error');
   });
 

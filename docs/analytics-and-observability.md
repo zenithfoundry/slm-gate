@@ -309,7 +309,14 @@ pnpm run ledger:sync --limit 20
 ## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
 
 ### Cycle window model
-The dashboard provides per-provider "Cycle: Estimated Minutes Saved" cards (Claude, ChatGPT, Gemini). A card only fills in when **both** of these are true:
+The dashboard provides **two** cycle cards per provider (Claude, ChatGPT, Gemini), stacked in the same column:
+
+- **Est. Seconds Saved (per prompt)** — the average event, in seconds. Seconds rather than minutes because a typical prompt frees a fraction of a minute, and `0.18934` is not a number anyone can read.
+- **Est. Minutes Saved (total)** — the same quantity summed across the dashboard's date range, so it grows with use.
+
+Both are published as separate scores (`cycle_extended_seconds_*` and `cycle_extended_minutes_*`) carrying the same underlying value in different units. That duplication is deliberate: a Langfuse score row carries a number and no unit, and a widget can only choose a measure and an aggregation — it cannot divide by 60. A card that reads in seconds therefore needs a score already in seconds.
+
+A card only fills in when **both** of these are true:
 1. There is traffic for that provider.
 2. That provider's window budget is set: `CLAUDE_WINDOW_BUDGET`, `CHATGPT_WINDOW_BUDGET` or `GEMINI_WINDOW_BUDGET`. Without a budget the gate has nothing to divide by, so it sends no cycle score at all and the card stays empty. `slm-gate doctor` lists any budgets that are missing.
 
@@ -325,7 +332,7 @@ What a "unit" is depends on how the provider counts usage:
 - **Per token (Claude / Gemini):** the budget is *tokens per window*. Every token saved counts, including tool results shrunk by `mcp-gate`. Claude is counted this way because its limits scale with how much text is sent, not with a flat message count.
 - **Per message (ChatGPT):** the budget is *messages per window*. Only a prompt answered entirely by the local model saves a message, and only `llm-gate` does that. A prompt that was shrunk and then sent (including every `mcp-gate` event) still costs one message, so it adds 0 minutes.
 
-The card shows the average over events.
+The seconds card averages over events; the minutes card sums them. `pnpm run ledger:sync` prints the same two figures in the terminal as readable durations, e.g. `~11.4s per prompt · ~4m 12s total`.
 
 Use your analytics to make concrete engineering decisions:
 

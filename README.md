@@ -276,8 +276,8 @@ OLLAMA_MAX_LOADED_MODELS=2       # Or set to 1 if still tight
 > |---|---|
 > | Tokens Saved, Cost Saved, Routing Decision | either layer |
 > | SLM Accuracy Rate | `llm-gate` (or `pnpm run bench`, shown under Env = `bench`) |
-> | Claude / Gemini Cycle: Estimated Minutes Saved | either layer **and** that provider's `*_WINDOW_BUDGET` |
-> | ChatGPT Cycle: Estimated Minutes Saved | `llm-gate` **and** `CHATGPT_WINDOW_BUDGET` |
+> | Claude / Gemini Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | either layer **and** that provider's `*_WINDOW_BUDGET` |
+> | ChatGPT Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | `llm-gate` **and** `CHATGPT_WINDOW_BUDGET` |
 
 ### Layer 1: `mcp-gate` — The Tool & Skill Payload Compressor
 
@@ -721,7 +721,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 # ── Subscription Plan (for quota metrics display) ─────────────────────────
 SUBSCRIPTION_PLAN=claude-pro            # Set this to match your actual plan
 
-# ── ⚠️ Window Budgets (REQUIRED for the Estimated Minutes Saved cards — set all three) ──
+# ── ⚠️ Window Budgets (REQUIRED for the Cycle cards — set all three) ──
 # Estimates within a margin of error: providers don't publish these. See the reference below.
 CLAUDE_WINDOW_BUDGET=460000             # tokens per 5-hour window (Claude Pro, estimate)
 CHATGPT_WINDOW_BUDGET=160               # messages per 3-hour window (ChatGPT Plus, estimate)
@@ -814,7 +814,7 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 - **`PROVIDER`** — The cloud provider your IDE sends traffic to (`gemini`, `claude`, or `chatgpt`). Used for per-provider cycle extension metrics when the inbound request carries no recognizable model string. Not the same as `SLM_PROVIDER`. Default: `gemini`.
 - **`LANGFUSE_PUBLIC_KEY`**, **`LANGFUSE_SECRET_KEY`**, **`LANGFUSE_HOST`** — Optional Langfuse connection. Fill these in only if you're using Langfuse for visual dashboards. Leave blank otherwise.
 - **`SUBSCRIPTION_PLAN`** — Tells the metrics dashboard which plan you're on, so it can calculate how much subscription runway you've reclaimed. Valid values: `claude-pro`, `claude-max-5x`, `claude-max-20x`, `chatgpt-go`, `chatgpt-plus`, `chatgpt-pro-5x`, `chatgpt-pro-20x`, `gemini-plus`, `gemini-pro`, `gemini-ultra`. It sets the window *length* only, not the budgets below.
-- **`CLAUDE_WINDOW_BUDGET`**, **`CHATGPT_WINDOW_BUDGET`**, **`GEMINI_WINDOW_BUDGET`** — ⚠️ **Required for the "Cycle: Estimated Minutes Saved" dashboard cards.** How much your plan allows per usage window: *tokens* for Claude and Gemini, *messages* for ChatGPT. Set all three, whichever provider you use. If one is blank, that provider's card stays empty. **These values, and the minutes they produce, are estimates within a margin of error:** Anthropic, OpenAI and Google don't publish them, only multipliers such as "Max 5x = 5× Pro".
+- **`CLAUDE_WINDOW_BUDGET`**, **`CHATGPT_WINDOW_BUDGET`**, **`GEMINI_WINDOW_BUDGET`** — ⚠️ **Required for the per-provider "Cycle" dashboard cards** (each provider has two: *Est. Seconds Saved (per prompt)* and *Est. Minutes Saved (total)*). How much your plan allows per usage window: *tokens* for Claude and Gemini, *messages* for ChatGPT. Set all three, whichever provider you use. If one is blank, both of that provider's cards stay empty. **These values, and the minutes they produce, are estimates within a margin of error:** Anthropic, OpenAI and Google don't publish them, only multipliers such as "Max 5x = 5× Pro".
 
   | Provider | Unit | Estimates by plan | Where the number comes from |
   |---|---|---|---|

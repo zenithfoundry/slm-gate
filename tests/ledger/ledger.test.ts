@@ -132,7 +132,7 @@ describe('Ledger', () => {
       api_in_tok: 0, api_out_tok: 0, cost_usd: 0, slm_latency_s: 0.1, api_latency_s: 0,
       slm_gate: 'on' as const, api_model: 'gemini-2.5-flash',
     };
-    const scores = (formatEventForLangfuse(event).scores || []).filter(sc => sc.name.startsWith('cycle_extended_per_window_'));
+    const scores = (formatEventForLangfuse(event).scores || []).filter(sc => sc.name.startsWith('cycle_extended_'));
     expect(scores).toHaveLength(0);
   });
 
@@ -156,13 +156,18 @@ describe('Ledger', () => {
 
     withGeminiBudget(() => {
       const payload = formatEventForLangfuse(event);
-      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_'));
 
-      expect(cycleScores).toHaveLength(1);
-      expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
+      // Two scores: the same saving in minutes and in seconds, for the resolved provider
+      // only. Langfuse cards cannot convert units, so each unit needs its own score.
+      expect(cycleScores.map(s => s.name).sort()).toEqual([
+        'cycle_extended_minutes_gemini',
+        'cycle_extended_seconds_gemini',
+      ]);
       // 50 tokens saved * (300 min / 1,000,000 tokens) = 0.015 min.
       // The old assertion was 150 — half a 5-hour window from one 100-token call.
-      expect(cycleScores[0].value).toBeCloseTo(0.015, 6);
+      expect(cycleScores.find(s => s.name === 'cycle_extended_minutes_gemini')?.value).toBeCloseTo(0.015, 6);
+      expect(cycleScores.find(s => s.name === 'cycle_extended_seconds_gemini')?.value).toBe(0.9);
     });
   });
 
@@ -185,7 +190,7 @@ describe('Ledger', () => {
     };
 
     const payload = formatEventForLangfuse(event);
-    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+    const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_'));
     expect(cycleScores).toHaveLength(0);
   });
 
@@ -209,11 +214,13 @@ describe('Ledger', () => {
 
     withGeminiBudget(() => {
       const payload = formatEventForLangfuse(event);
-      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_per_window_'));
+      const cycleScores = (payload.scores || []).filter(s => s.name.startsWith('cycle_extended_'));
 
-      expect(cycleScores).toHaveLength(1);
-      expect(cycleScores[0].name).toBe('cycle_extended_per_window_gemini');
-      expect(cycleScores[0].value).toBe(0);
+      expect(cycleScores.map(s => s.name).sort()).toEqual([
+        'cycle_extended_minutes_gemini',
+        'cycle_extended_seconds_gemini',
+      ]);
+      expect(cycleScores.every(s => s.value === 0)).toBe(true);
     });
   });
 
@@ -273,9 +280,9 @@ describe('Ledger', () => {
     process.env.CLAUDE_WINDOW_BUDGET = '250';
     __resetProviderRegistry();
     try {
-      const v1 = formatEventForLangfuse(rows[0]).scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
-      const v2 = formatEventForLangfuse(rows[1]).scores?.find(s => s.name === 'cycle_extended_per_window_gemini')?.value as number;
-      const v3 = formatEventForLangfuse(rows[2]).scores?.find(s => s.name === 'cycle_extended_per_window_claude')?.value as number;
+      const v1 = formatEventForLangfuse(rows[0]).scores?.find(s => s.name === 'cycle_extended_minutes_gemini')?.value as number;
+      const v2 = formatEventForLangfuse(rows[1]).scores?.find(s => s.name === 'cycle_extended_minutes_gemini')?.value as number;
+      const v3 = formatEventForLangfuse(rows[2]).scores?.find(s => s.name === 'cycle_extended_minutes_claude')?.value as number;
 
       // The invariant that matters: the aggregate is exactly the mean of what was emitted
       // per event, so the dashboard average can never drift from the underlying scores.

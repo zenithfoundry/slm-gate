@@ -428,7 +428,9 @@ export function computeTotalsByProvider(
 
 export function computeCycleRates(
   rows: LedgerEvent[],
-  fallbackProvider?: 'claude' | 'chatgpt' | 'gemini' | null
+  // Same default as computeCycleRateAvg. Without it, an event carrying no provider was
+  // attributed by the average but not by the total, so the two disagreed on the same data.
+  fallbackProvider: 'claude' | 'chatgpt' | 'gemini' | null = CONFIG.PROVIDER ?? null
 ): Record<'claude'|'chatgpt'|'gemini', number> {
   // Aggregate minutes freed across all of a provider's traffic. Uses the same rate-based
   // definition as the per-event score, so the two can never disagree.
@@ -777,10 +779,21 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     // there is no honest way to express savings as minutes, so we stay silent rather than
     // publishing the old ratio-times-window figure.
     if (cycleMinutes !== null) {
+      // The same quantity in two units. A Langfuse widget picks a measure and an
+      // aggregation and cannot convert, so a card that reads in minutes needs a score in
+      // minutes. Minutes carry the raw value and are summed into a per-range total;
+      // seconds are averaged into a per-prompt figure, where minutes render as an
+      // unreadable 0.18934.
       scores.push({
-        id: `${e.request_id}_score_cycle_${resolvedProvider}`,
-        name: `cycle_extended_per_window_${resolvedProvider}`,
+        id: `${e.request_id}_score_cycle_min_${resolvedProvider}`,
+        name: `cycle_extended_minutes_${resolvedProvider}`,
         value: cycleMinutes,
+        dataType: 'NUMERIC'
+      });
+      scores.push({
+        id: `${e.request_id}_score_cycle_sec_${resolvedProvider}`,
+        name: `cycle_extended_seconds_${resolvedProvider}`,
+        value: Number((cycleMinutes * 60).toFixed(1)),
         dataType: 'NUMERIC'
       });
     }

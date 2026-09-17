@@ -291,13 +291,13 @@ async function run() {
     }
   }
 
-  // 8b. Window budgets. Without one, that provider's "Estimated Minutes Saved" card never fills in.
+  // 8b. Window budgets. Without one, that provider's cycle cards never fill in.
   // A note, not a failure: the gate itself works fine without them.
   const cycleCards = { claude: 'Claude', chatgpt: 'ChatGPT', gemini: 'Gemini' } as const;
   const registry = getProviderRegistry();
   for (const [id, label] of Object.entries(cycleCards)) {
     if (!registry[id]?.windowBudget) {
-      console.log(`  Note: ${id.toUpperCase()}_WINDOW_BUDGET is not set, so the "${label} Cycle: Estimated Minutes Saved" card will stay empty.`);
+      console.log(`  Note: ${id.toUpperCase()}_WINDOW_BUDGET is not set, so both "${label} Cycle" cards (Est. Seconds Saved / Est. Minutes Saved) will stay empty.`);
     }
   }
 
