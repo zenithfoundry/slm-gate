@@ -37,14 +37,23 @@ export function rewriteToolReferences(text: string, toolNames: readonly string[]
  *
  * @param params.toolNames Tool names served by the connected toolbox
  * @param params.downstreamInstructions The toolbox's own instructions, passed through
+ * @param params.notices Set-up problems found at start-up (src/setup/startup.ts), passed on to the user
  * @returns Instructions text, or undefined when there is nothing to say
  */
 export function buildGateInstructions(params: {
   toolNames: readonly string[];
   downstreamInstructions?: string;
+  notices?: readonly { message: string; fix: string }[];
 }): string | undefined {
-  const { toolNames, downstreamInstructions } = params;
+  const { toolNames, downstreamInstructions, notices = [] } = params;
   const parts: string[] = [];
+  if (notices.length > 0) {
+    parts.push(
+      `${GATE_MCP_NAME} notice — tell the user about this at the start of your next reply, word for word:`,
+      ...notices.map(notice => `- ${notice.message} Fix: ${notice.fix}`),
+      '',
+    );
+  }
   if (toolNames.length > 0) {
     parts.push(
       `This server (${GATE_MCP_NAME}) serves the tools of the toolbox connected behind it: ${toolNames.join(', ')}.`,

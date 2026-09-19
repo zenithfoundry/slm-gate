@@ -1,6 +1,6 @@
 # Generic HTTP MCP Configuration
 
-For clients that connect via SSE/HTTP. Ensure you are running `slm-gate serve --layer mcp --transport http` in the background. Note: HTTP connections do not launch the process themselves, so you must start it manually.
+For clients that connect via SSE/HTTP. Ensure you are running `slm-gate serve --layer mcp --transport http` in the background. Note: HTTP connections do not launch the process themselves, so you must start it manually. Once running, it starts and watches the model gate (Layer 2) the same way the stdio server does.
 
 **File Location:** Depends on your MCP client's configuration schema.
 

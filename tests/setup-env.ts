@@ -23,4 +23,8 @@ process.env.LEDGER_PATH = path.join(dir, `ledger-${process.env.JEST_WORKER_ID ??
 process.env.LANGFUSE_PUBLIC_KEY = '';
 process.env.LANGFUSE_SECRET_KEY = '';
 process.env.LANGFUSE_HOST = '';
+
+// Never start the real model gate on the developer's port from a test; tests that need a gate start
+// their own on a free port.
+process.env.LLM_GATE_AUTOSTART = 'off';
 process.env.LANGFUSE_ENVIRONMENT = 'test';

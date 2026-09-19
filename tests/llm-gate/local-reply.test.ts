@@ -16,6 +16,26 @@ function sse(body: string): [string | null, any][] {
   });
 }
 
+describe('firstRequestPrompt and slash commands', () => {
+  const claude = (...texts: string[]) => ({ messages: [{ role: 'user', content: texts.map(text => ({ type: 'text', text })) }] });
+  const tags = '<command-message>tls:plan</command-message>\n<command-name>/tls:plan</command-name>\n<command-args>add a login page</command-args>';
+
+  it('never offers a slash command to the local model, however it arrives', () => {
+    expect(anthropic.firstRequestPrompt(claude(`${tags}\n# Plan workflow\nSay hi`))).toBeNull();
+    expect(anthropic.firstRequestPrompt(claude(tags))).toBeNull();
+    expect(anthropic.firstRequestPrompt(claude(tags, 'Expanded command text without any tags'))).toBeNull();
+    expect(chatCompletions.firstRequestPrompt({ messages: [{ role: 'user', content: '/tls:plan add a login page' }] })).toBeNull();
+    expect(responses.firstRequestPrompt({ input: '/help' })).toBeNull();
+    expect(gemini.firstRequestPrompt({ contents: [{ role: 'user', parts: [{ text: '/review' }] }] })).toBeNull();
+  });
+
+  it('does not mistake a leading path or number for a command', () => {
+    for (const text of ['/Users/me/a.ts is broken', '/etc/hosts', '/2 is half']) {
+      expect(chatCompletions.firstRequestPrompt({ messages: [{ role: 'user', content: text }] })).toEqual({ text, toolsListed: false });
+    }
+  });
+});
+
 describe('firstRequestPrompt', () => {
   it('Anthropic: the typed prompt after injected context blocks, only on a first request', () => {
     const body = {

@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
 import { writeEvent } from '../ledger/index.js';
 import { estimateTokens } from '../utils/elision.js';
@@ -10,12 +12,28 @@ import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
 import { answerFirstRequestLocally } from './local-first.js';
+import { HEALTH_PATH } from '../setup/model-gate.js';
+import { requiredModels } from '../setup/local-models.js';
 
 const FORMATS: Record<WireFormat, WireFormatModule> = {
   anthropic,
   'chat-completions': chatCompletions,
   responses,
   gemini,
+};
+
+// The answer to "is the model gate running, and which one?" (HEALTH_PATH) — answered here, never
+// forwarded. Read once at start and frozen: when this file on disk later has another modification time,
+// the running gate is older than the installed build (see src/setup/model-gate.ts).
+const SERVER_FILE = fileURLToPath(import.meta.url);
+const HEALTH = {
+  service: 'slm-gate',
+  pid: process.pid,
+  entry: SERVER_FILE,
+  build: String(Math.round(fs.statSync(SERVER_FILE).mtimeMs)),
+  startedAt: new Date().toISOString(),
+  // So the MCP servers also check the models the gate's own settings (slm-gate's .env) name.
+  models: requiredModels(),
 };
 
 function generateId(): string {
@@ -224,6 +242,13 @@ async function handleRequest(params: {
   const path = new URL(req.url || '/', 'http://gate.local').pathname;
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('x-correlation-id', reqId);
+
+  if (req.method === 'GET' && path === HEALTH_PATH) {
+    const address = req.socket.localPort;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ...HEALTH, port: address }));
+    return;
+  }
 
   const route = resolveUpstream({ pathAndQuery: req.url || '/', headers: req.headers });
   if (!route) {

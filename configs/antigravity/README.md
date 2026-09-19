@@ -15,7 +15,6 @@ Antigravity requires you to configure MCP servers in its global configuration fi
       "env": {
         "TLS_ADAPTER": "on",
         "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}",
-        "CLOUD_API_KEY": "${CLOUD_API_KEY}",
         "SLM_BRAIN_MODEL": "qwen2.5:7b",
         "SLM_GATE_MODEL": "qwen2.5-coder:3b",
         "OLLAMA_MAX_LOADED_MODELS": "2",
@@ -27,6 +26,19 @@ Antigravity requires you to configure MCP servers in its global configuration fi
 ```
 
 > **IMPORTANT:** Antigravity reads its configuration directly from the `"env"` JSON block in `mcp_config.json` shown above. The template files (`.env.16gb.example`, `.env.24gb.example`, `.env.32gb.example`) in this directory are reference templates. Setting variables in a template file does not affect Antigravity unless you add them to the `slm-gate` -> `env` block in `mcp_config.json`.
+>
+> The `env` block configures this MCP server only. The model gate (Layer 2), which this MCP server starts for your other coding tools, is shared by all of them and reads its settings only from `slm-gate`'s own `.env`. The MCP server checks that the models named in both places are downloaded.
+
+## Model gate (Layer 2)
+
+- **Antigravity IDE / Antigravity 2:** not possible. There is no setting for the model's address. Use the MCP server above (Layer 1).
+- **Antigravity CLI (`agy`), with a Gemini API key only:** set `{ "modelProvider": "gemini" }` in `~/.gemini/antigravity-cli/settings.json`, then
+  ```bash
+  export GOOGLE_GEMINI_BASE_URL=http://localhost:8787
+  export GEMINI_API_KEY=<your key>
+  ```
+  A Google-account login ignores the address setting, and Google's terms say using that login through other tools may get the account suspended.
+- Changed `LLM_GATE_PORT`? `slm-gate doctor` prints these lines with the new port.
 
 ---
 

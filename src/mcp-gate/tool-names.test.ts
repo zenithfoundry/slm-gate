@@ -51,4 +51,13 @@ describe('buildGateInstructions', () => {
   it('returns undefined when there is nothing to say', () => {
     expect(buildGateInstructions({ toolNames: [] })).toBeUndefined();
   });
+
+  it('puts set-up problems first and asks the AI to pass them on, also without a toolbox', () => {
+    const notice = { message: 'Port 8787 is used by another program.', fix: 'Run `slm-gate doctor`.' };
+    const text = buildGateInstructions({ toolNames: [], notices: [notice] }) ?? '';
+    expect(text.split('\n')[0]).toContain('tell the user about this at the start of your next reply');
+    expect(text).toContain('- Port 8787 is used by another program. Fix: Run `slm-gate doctor`.');
+    const withToolbox = buildGateInstructions({ toolNames: tools, notices: [notice] }) ?? '';
+    expect(withToolbox.indexOf('Port 8787')).toBeLessThan(withToolbox.indexOf('get_skill'));
+  });
 });

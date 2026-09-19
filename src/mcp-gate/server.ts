@@ -14,13 +14,17 @@ import { CONFIG } from '../config.js';
 import { conditionPrompt } from './pipeline.js';
 import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 
-export async function createServer() {
+/**
+ * @param options.notices Set-up problems from the start-up checks, passed to the AI in the instructions
+ */
+export async function createServer(options: { notices?: readonly { message: string; fix: string }[] } = {}) {
   let rootUri: string | undefined;
   let downstreamClient: Client | undefined;
   // Tools the connected toolbox serves. Learned at connect time and refreshed on every
   // tools/list, so any toolbox works without toolbox-specific configuration.
   let downstreamToolNames: string[] = [];
-  let instructions: string | undefined;
+  // Standalone mode has no toolbox to describe, but still passes on set-up notices.
+  let instructions = buildGateInstructions({ toolNames: [], notices: options.notices });
 
   // We intercept initialize via transport.onmessage below to capture rootUri without breaking SDK logic.
 
@@ -50,6 +54,7 @@ export async function createServer() {
       instructions = buildGateInstructions({
         toolNames: downstreamToolNames,
         downstreamInstructions: downstreamClient.getInstructions(),
+        notices: options.notices,
       });
     }
   }

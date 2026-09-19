@@ -52,14 +52,22 @@ export interface WireFormatModule<L = any> {
 // <ide_opened_file>…</ide_opened_file>, <environment_context>…</environment_context>).
 const INJECTED_BLOCK = /^\s*<([A-Za-z][\w-]*)[^>]*>[\s\S]*<\/\1>\s*$/;
 
+// A slash command runs the tool's own workflow, which only the tool's model can do. Claude Code marks the
+// expanded command with these tags; a client that sends the command literally starts with a bare token
+// (`/review add x`, `/plugin:plan`, `/help`) — never a path (`/Users/me/a.ts`) or a number (`/2`).
+const COMMAND_MARKER = /<command-(?:name|message)>/;
+const LITERAL_COMMAND = /^\/[A-Za-z][\w-]*(?::[\w-]+)?(?:\s|$)/;
+
 /**
  * What the person typed, from the text parts of the latest user entry: the last part that is not one
- * injected tag-wrapped block. Shared by the format modules.
+ * injected tag-wrapped block. Null for a slash command, which is never answered locally. Shared by the
+ * format modules.
  */
 export function typedText(texts: string[]): string | null {
+  if (texts.some(text => COMMAND_MARKER.test(text))) return null;
   for (let i = texts.length - 1; i >= 0; i--) {
     const text = texts[i].trim();
-    if (text && !INJECTED_BLOCK.test(text)) return text;
+    if (text && !INJECTED_BLOCK.test(text)) return LITERAL_COMMAND.test(text) ? null : text;
   }
   return null;
 }

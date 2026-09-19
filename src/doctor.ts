@@ -14,10 +14,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { CONFIG } from './config.js';
-import { handleSlmError } from './models/helpers.js';
 import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
 import { getModelsFootprint } from './models/footprint.js';
 import { getProviderRegistry } from './pricing/providers.js';
+import { checkLocalModels } from './setup/local-models.js';
+import { cliCommand, GATE_LOG_FILE, isStoppedByUser, portOwner, probeGate } from './setup/model-gate.js';
+import { toolSettings, UNROUTABLE_TOOLS } from './setup/tool-settings.js';
 
 /**
  * Checks if a given network port is available on the local machine.
@@ -52,8 +54,9 @@ async function checkPortFree(port: number): Promise<boolean> {
 
 /**
  * Main execution flow for the doctor command.
- * Sequentially tests critical dependencies: Hardware capabilities, Node version, Environment vars, SLM availability,
- * Cloud model API keys, Downstream MCP config, Ledger write-permissions, and Ports.
+ * Sequentially tests critical dependencies: Hardware capabilities, Node version, Environment vars, Ollama and
+ * the configured local models, Downstream MCP config, Ledger write-permissions, and the model gate (running,
+ * or what holds its port). Then prints the setting that points each coding tool at the gate.
  * 
  * This function will force a process.exit(1) if any issues are detected, preventing the application
  * from starting in a broken state.
@@ -153,96 +156,19 @@ async function run() {
   report(envExists, '.env file is present', 'Copy .env.example to .env and configure it.');
   report(true, 'Configuration parses successfully'); // If we reached here without throwing, CONFIG parsed correctly.
 
-  // 3. Local Model (SLM) / Ollama Reachability
-  let ollamaTags: any[] = [];
+  // 3. Ollama and the local models the settings name (the same check the MCP server runs at start-up).
   if (CONFIG.SLM_PROVIDER === 'ollama') {
-    try {
-      const res = await fetch(`${CONFIG.OLLAMA_HOST}/api/tags`);
-      if (res.ok) {
-        report(true, `Ollama reachable at ${CONFIG.OLLAMA_HOST}`);
-        const data = await res.json();
-        ollamaTags = data.models || [];
-      } else {
-        report(false, `Ollama returned status ${res.status}`, `Ensure Ollama is running at ${CONFIG.OLLAMA_HOST}`);
-      }
-    } catch (e: any) {
-      report(false, `Ollama unreachable at ${CONFIG.OLLAMA_HOST} (${e.message})`, `See detailed SLM error below.`);
-      handleSlmError(e, 'doctor', 'unknown (fetching tags)');
-    }
-
-    // 4. Verify Local Models are actually pulled
-    // Prevents runtime errors where the SLM model string exists in config but not on disk.
-    if (ollamaTags.length > 0) {
-      const tags = ollamaTags.map(m => m.name);
-      
-      const brainPresent = tags.includes(CONFIG.SLM_BRAIN_MODEL) || tags.includes(`${CONFIG.SLM_BRAIN_MODEL}:latest`);
-      report(brainPresent, `SLM_BRAIN_MODEL '${CONFIG.SLM_BRAIN_MODEL}' is pulled`, `ollama pull ${CONFIG.SLM_BRAIN_MODEL}`);
-
-      const gatePresent = tags.includes(CONFIG.SLM_GATE_MODEL) || tags.includes(`${CONFIG.SLM_GATE_MODEL}:latest`);
-      report(gatePresent, `SLM_GATE_MODEL '${CONFIG.SLM_GATE_MODEL}' is pulled`, `ollama pull ${CONFIG.SLM_GATE_MODEL}`);
+    const models = await checkLocalModels();
+    for (const problem of models.problems) report(false, problem.message, problem.fix);
+    if (models.problems.length === 0) {
+      report(true, `Ollama is running at ${CONFIG.OLLAMA_HOST} and has every local model the settings name`);
     }
   } else {
-    // If the provider is OpenAI-compatible instead of Ollama, we assume it's reachable or check via Cloud model logic
     report(true, `SLM_PROVIDER is openai; assuming SLM endpoint is reachable.`);
   }
 
-  // 5. Cloud Model API Verification
-  // If the user has configured an upstream cloud model, we attempt to list its models to verify the API key and model string.
-  if (CONFIG.CLOUD_BASE_URL && CONFIG.CLOUD_API_KEY && CONFIG.CLOUD_MODEL) {
-    try {
-      let modelsUrl = '';
-      let headers: Record<string, string> = {};
-      let headerHint = '';
-
-      if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
-        modelsUrl = CONFIG.CLOUD_BASE_URL
-          ? CONFIG.CLOUD_BASE_URL.replace(/\/messages\/?$/, '/models')
-          : 'https://api.anthropic.com/v1/models';
-        headers = {
-          'x-api-key': CONFIG.CLOUD_API_KEY,
-          'anthropic-version': '2023-06-01'
-        };
-        headerHint = `-H "x-api-key: $CLOUD_API_KEY"`;
-      } else if (CONFIG.CLOUD_BASE_URL?.includes('generativelanguage.googleapis.com')) {
-        modelsUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
-        headers = {
-          'x-goog-api-key': CONFIG.CLOUD_API_KEY
-        };
-        headerHint = `-H "x-goog-api-key: $CLOUD_API_KEY"`;
-      } else {
-        modelsUrl = CONFIG.CLOUD_BASE_URL
-          ? CONFIG.CLOUD_BASE_URL.replace(/\/chat\/completions\/?$/, '/models')
-          : 'https://api.openai.com/v1/models';
-        headers = {
-          'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}`
-        };
-        headerHint = `-H "Authorization: Bearer $CLOUD_API_KEY"`;
-      }
-      
-      const res = await fetch(modelsUrl, { headers });
-      
-      if (res.ok) {
-        const data = await res.json();
-        const models = data.data || data.models || [];
-        // Google's API sometimes prepends "models/" to the model IDs (e.g., "models/gemini-3.1-pro-preview")
-        // We strip it here to match the user's config which might just be "gemini-3.1-pro-preview"
-        const modelNames = models.map((m: any) => (m.id || m.name || '').replace(/^models\//, ''));
-        const configModelStripped = CONFIG.CLOUD_MODEL.replace(/^models\//, '');
-        const cloudModelFound = modelNames.includes(configModelStripped);
-        
-        if (cloudModelFound) {
-          report(true, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`);
-        } else {
-          report(false, `CLOUD_MODEL '${CONFIG.CLOUD_MODEL}' exists in API`, 
-            `Model not found. (Check available models: curl -s "${modelsUrl}" ${headerHint})`);
-        }
-      } else {
-        console.log(`⚠️  Could not fetch cloud models list to verify ${CONFIG.CLOUD_MODEL} (status ${res.status})`);
-      }
-    } catch (e: any) {
-      console.log(`⚠️  Could not fetch cloud models list to verify ${CONFIG.CLOUD_MODEL} (${e.message})`);
-    }
-  }
+  // No cloud key is checked: the model gate forwards each coding tool's own login. CLOUD_* is read only by
+  // the benchmark, the optional resolver cloud tier and an OpenAI-compatible SLM_PROVIDER.
 
   // 6 & 7. Downstream MCP Configuration & TLS Adapter rules
   // Ensures that if the user explicitly enabled the TLS adapter, the downstream MCP target is physically present on disk.
@@ -301,15 +227,46 @@ async function run() {
     }
   }
 
-  // 9. Port Availability
-  // Prevents EADDRINUSE crashes on server boot.
-  const llmPortFree = await checkPortFree(CONFIG.LLM_GATE_PORT);
-  report(llmPortFree, `LLM_GATE_PORT (${CONFIG.LLM_GATE_PORT}) is free`, `Kill the process using port ${CONFIG.LLM_GATE_PORT}`);
-  
+  // 9. The model gate: every coding tool pointed at it fails while it is down, so this warns loudly.
+  const gatePort = CONFIG.MODEL_GATE_PORT;
+  const gateAddress = `http://localhost:${gatePort}`;
+  const toolsFail = `EVERY CODING TOOL POINTED AT ${gateAddress} CANNOT REACH ITS AI PROVIDER.`;
+  const [start, restart, doctor] = [cliCommand('start'), cliCommand('restart'), cliCommand('doctor')];
+  const reinstall = `If it still does not start, see ${GATE_LOG_FILE}; a broken install is repaired with \`cd ${CONFIG.ROOT_DIR} && pnpm install && pnpm run build\`, then \`${restart}\`.`;
+  const gate = await probeGate({ port: gatePort });
+  if (gate.kind === 'slm-gate') {
+    report(true, `Model gate is running on ${gateAddress} (pid ${gate.health.pid}, started ${gate.health.startedAt})`);
+    if (gate.stale) {
+      report(false, 'The running model gate is an older slm-gate build than the one installed',
+        `\`${restart}\` when no coding tool is in the middle of an answer.`);
+    }
+  } else if (gate.kind === 'other') {
+    const owner = portOwner(gatePort) ?? 'another program';
+    report(false, `MODEL GATE CANNOT RUN: port ${gatePort} is taken by ${owner}. ${toolsFail}`,
+      `Either quit ${owner}, then run \`${start}\`. Or move the gate to a free port: set LLM_GATE_PORT=<new port> in ${path.join(CONFIG.ROOT_DIR, '.env')}, run \`${restart}\`, then run \`${doctor}\` again, paste the new lines below into each coding tool and restart them.`);
+  } else if (isStoppedByUser()) {
+    report(false, `MODEL GATE IS STOPPED (you ran \`slm-gate stop\`). ${toolsFail}`,
+      `\`${start}\` (it also starts again by itself after a reboot). ${reinstall}`);
+  } else {
+    const startsItself = CONFIG.LLM_GATE_AUTOSTART
+      ? `It starts by itself when a coding tool starts slm-gate's MCP server; to start it now run \`${start}\`.`
+      : `LLM_GATE_AUTOSTART is off, so nothing starts it for you: run \`${start}\`.`;
+    report(false, `MODEL GATE IS NOT RUNNING on ${gateAddress}. ${toolsFail}`, `${startsItself} ${reinstall}`);
+  }
+
   if (CONFIG.MCP_GATE_TRANSPORT === 'http') {
     const mcpPortFree = await checkPortFree(CONFIG.MCP_GATE_PORT);
     report(mcpPortFree, `MCP_GATE_PORT (${CONFIG.MCP_GATE_PORT}) is free`, `Kill the process using port ${CONFIG.MCP_GATE_PORT}`);
   }
+
+  // 10. The setting that sends each coding tool's model requests through the gate (on the current port).
+  console.log(`\n--- Coding tool settings: paste these to send a tool's model requests through ${gateAddress} ---`);
+  for (const setting of toolSettings(gatePort)) {
+    console.log(`\n${setting.tool}  (works with: ${setting.login})`);
+    for (const line of setting.lines) console.log(`  ${line}`);
+  }
+  console.log('\nThese cannot send their model requests through the gate (slm-gate\'s MCP tools still work in them):');
+  for (const unroutable of UNROUTABLE_TOOLS) console.log(`  ${unroutable.tool}: ${unroutable.reason}`);
 
   console.log('\n=============================================');
   if (issues === 0) {

@@ -79,11 +79,15 @@ async function main() {
 Usage: slm-gate <command> [options]
 
 Commands:
-  serve          Start the SLM Gate layer(s)
+  serve          Run the model gate in this terminal (normally not needed: it starts by itself
+                 whenever a coding tool starts slm-gate's MCP server)
                  Options:
-                   --layer mcp|llm|both     (required)
-                   --transport stdio|http   (default: stdio)
+                   --layer llm|mcp|both     (default: llm; your coding tools start the MCP server)
+                   --transport stdio|http   (MCP server transport, default: stdio)
                    --preset <preset>        (override RAM preset, e.g., ram-24)
+  start          Start the model gate in the background (if it is not running)
+  stop           Stop the model gate; it stays stopped until start, restart or a reboot
+  restart        Stop and start the model gate (e.g. after updating slm-gate)
   bench          Run the offline evaluation harness
                  Options:
                    --n <number>             (number of tasks to run)
@@ -103,7 +107,8 @@ Commands:
   }
 
   if (command === 'serve') {
-    let layer = '';
+    // The MCP server is started by the coding tools themselves; by hand you usually want the model gate.
+    let layer = 'llm';
     let transport = 'stdio';
     let preset = '';
 
@@ -169,6 +174,9 @@ Commands:
   } else if (command === 'doctor') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/doctor.ts');
     runCommand(cmd, cmdArgs);
+  } else if (command === 'start' || command === 'stop' || command === 'restart') {
+    const { command: cmd, args: cmdArgs } = getRunPath('src/setup/gate-command.ts');
+    runCommand(cmd, [...cmdArgs, command]);
   } else {
     console.error(`Unknown command: ${command}`);
     process.exit(1);

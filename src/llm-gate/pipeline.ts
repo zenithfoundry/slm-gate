@@ -222,23 +222,8 @@ export async function processPipeline(
     result.route = 'forward_raw';
   }
 
-  // --- BEGIN INJECTION: SLM Gate & Architecture Context ---
-  let slmGateNotice = `\n\n[ARCHITECTURE CONTEXT: You are operating as the cloud-tier engine behind the Small Language Model (SLM) Gate. `;
-  
-  if (routePolicy !== 'raw') {
-     slmGateNotice += `Your prompt context has already been intercepted, reviewed, and potentially restructured or compressed by local SLM models. Some parts of the original request may have already been handled locally. Focus strictly on fulfilling the remaining objectives presented in your context. `;
-  } else {
-     slmGateNotice += `The SLM Gate has forwarded this request to you in a raw state. `;
-  }
-
-  slmGateNotice += `You MUST acknowledge your position behind the SLM Gate in your initial thinking.]`;
-
-  if (CONFIG.TLS_ADAPTER) {
-    slmGateNotice += `\n[TECH LEAD STACK (TLS): You have access to the TLS MCP. The SLM Gate may have already loaded certain workflows or skills into your context. Review your current context thoroughly. If a loaded workflow explicitly instructs you to fetch a specific skill via the TLS MCP, you MUST fetch it, UNLESS you can see the full text of that specific skill already present in your prompt. Do not redundantly fetch skills that are already loaded, but do not ignore explicit workflow instructions to fetch missing skills.]`;
-  }
-
-  compressedReq.system = (compressedReq.system || '') + slmGateNotice;
-  // --- END INJECTION ---
+  // The system prompt goes out as the client sent it: the gate adds nothing to the model's instructions
+  // and names no toolbox (toolboxes are plug-and-play behind the MCP layer).
 
   // Format the request for the cloud provider
   let fetchUrl = CONFIG.CLOUD_BASE_URL;

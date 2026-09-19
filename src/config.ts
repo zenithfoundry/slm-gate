@@ -18,7 +18,7 @@ const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 // The caller's cwd .env is deliberately NOT loaded as a fallback: it would pull an
 // unrelated project's PROVIDER, CLOUD_API_KEY and CLOUD_MODEL into this process.
 // Host-supplied process.env still wins, because dotenv never overrides an existing var.
-config({ path: path.join(ROOT_DIR, '.env') });
+const envFile = config({ path: path.join(ROOT_DIR, '.env') });
 
 // Zod pre-processors for env strings
 const parseInteger = (fallback: number) => z.string().optional().transform(v => v ? parseInt(v, 10) : fallback);
@@ -28,7 +28,6 @@ const parseBoolean = (fallback: boolean) => z.string().optional().transform(v =>
   return v.toLowerCase() === 'on' || v.toLowerCase() === 'true' || v === '1';
 });
 const parseNumberArray = (fallback: number[]) => z.string().optional().transform(v => v ? v.split(',').map(n => parseInt(n.trim(), 10)) : fallback);
-const parseStringArray = (fallback: string[]) => z.string().optional().transform(v => v ? v.split(',').map(s => s.trim()) : fallback);
 const parseDownstreamMcp = () => z.string().optional().transform(v => {
   if (!v) return null;
   try {
@@ -76,7 +75,9 @@ const envSchema = z.object({
 
   // STEP 4
   LLM_GATE_PORT: parseInteger(8787),
-  LLM_GATE_EXPOSE: parseStringArray(['openai', 'anthropic']),
+  // When a coding tool starts slm-gate's MCP server, also start the model gate (in the background) if it
+  // is not running, and keep it running while tools are open. Off = you start it yourself (`slm-gate start`).
+  LLM_GATE_AUTOSTART: parseBoolean(true),
   // Distil large command, search and listing tool results before requests leave the machine. Off makes
   // the gate a plain pass-through; ongoing conversations then resend their distilled history in full
   // once (one prompt-cache miss, and Claude drops its earlier thinking once).
@@ -151,6 +152,13 @@ const envSchema = z.object({
 // cwd-relative './output/ledger.sqlite', which ENOENTs when the host's cwd does not exist
 // (Claude Desktop). Dropping empties here fixes that for every variable in one place.
 const envInput = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== ''));
+
+/**
+ * Every environment variable slm-gate's configuration reads. The automatically started model gate is
+ * launched without these, so it takes its settings only from slm-gate's own .env — never from the MCP env
+ * block of whichever coding tool happened to start it (src/setup/model-gate.ts).
+ */
+export const CONFIG_ENV_KEYS: readonly string[] = Object.keys(envSchema.shape);
 const parsedEnv = envSchema.parse(envInput);
 
 const ramPresets: Record<string, { brain: string, gate: string }> = {
@@ -210,6 +218,10 @@ export const CONFIG = Object.freeze({
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
   SLM_GATE_TESTING_MODEL: parsedEnv.SLM_GATE_TESTING_MODEL || parsedEnv.SLM_GATE_MODEL || preset.gate,
+  // Where every session looks for, and starts, the one shared model gate: LLM_GATE_PORT as slm-gate's own
+  // .env sets it. LLM_GATE_PORT above prefers the process environment, so a value in one coding tool's MCP
+  // env block (or the shell) would send that session to another port, where it would start a second gate.
+  MODEL_GATE_PORT: envSchema.shape.LLM_GATE_PORT.parse(envFile.parsed?.LLM_GATE_PORT || undefined),
   RESOLVED_PLAN_CLAUDE: claudePlan,
   RESOLVED_PLAN_CHATGPT: chatgptPlan,
   RESOLVED_PLAN_GEMINI: geminiPlan,

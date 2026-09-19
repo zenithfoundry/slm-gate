@@ -36,7 +36,7 @@
 
 **It compresses the noise.** Your editor constantly packages up huge files, long logs, and sprawling system instructions and sends them to the cloud AI with every single message. Most of that is content the AI skims past. `slm-gate` intercepts this, runs a small, fast, free AI on your own computer, and strips it down to what actually matters — sending a fraction of the original text to the cloud.
 
-**It answers easy questions locally.** Many routine requests — checking a value, summarising a short snippet, classifying intent — don't need a powerful cloud model. `slm-gate` handles those locally for free, so they never reach your paid plan at all.
+**It answers easy questions locally.** Many conversations open with something a small model can answer — a quick fact, a short explanation, a greeting. `slm-gate` lets your local model try the first message of each conversation; if its answer passes a check, that request never reaches your paid plan at all. Anything else, and every slash command, goes to the cloud as normal.
 
 The result: your paid AI plan lasts dramatically longer. Whether you're on a subscription (Claude Pro, Cursor Pro, Gemini Advanced, ChatGPT Plus) or paying per-token via an API key, you spend far less on the same amount of real work.
 
@@ -270,7 +270,7 @@ OLLAMA_MAX_LOADED_MODELS=2       # Or set to 1 if still tight
 
 `slm-gate` has two independent operating modes — think of them as two different places where the gate can be inserted into your workflow. You can use one, the other, or both at the same time.
 
-> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. It can't answer your questions locally. `llm-gate` sits between your editor and the model, so it sees every message. It lets the small model try first and only sends the message to the cloud if the answer fails the check.
+> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. It can't answer your questions locally. `llm-gate` sits between your coding tool and the model, so it sees every request. It lets the small model try the first message of a conversation, and shrinks large command, search and listing output in every later request before it leaves your machine.
 >
 > | Dashboard card | Needs |
 > |---|---|
@@ -328,60 +328,63 @@ To use Tech-Lead-Stack as your downstream:
 
 ### Layer 2: `llm-gate` — The Model Endpoint Proxy
 
-**Best for:** Users with cloud API keys (pay-per-token), or editors that let you override the AI model base URL (Cursor, Cline, Continue, Claude Code).
+**Best for:** Anyone whose coding tool has a setting for the model's address: Claude Code, Codex, Gemini CLI (with an API key), Cline, Roo Code, Kilo Code, Continue, OpenCode, Zed, Copilot's Custom Endpoint, Junie CLI and Aider. It works with a subscription login and with an API key.
 
-**How it works:** Some editors let you point their AI at a custom endpoint URL instead of the standard cloud provider. `llm-gate` is an HTTP server that listens on `http://localhost:8787` and pretends to be that cloud provider (it speaks both OpenAI and Anthropic API formats). Your editor thinks it's talking to Claude or GPT — but it's actually talking to `llm-gate` first. `llm-gate` answers simple requests locally for free, and only forwards genuinely complex tasks to your real cloud API.
+**How it works:** `llm-gate` (the "model gate") is a small server on your machine at `http://localhost:8787`. You change one setting in your coding tool so it sends its model requests there instead of straight to Anthropic, OpenAI or Google. For each request the gate:
+
+1. **First message of a conversation:** lets your local model try to answer. If it can't, or its answer fails the check, the request carries on as below. Slash commands and coding tasks that need the tool's own tools always carry on.
+2. **Every other request, tool steps included:** shrinks large command, search and listing output (tool results) before the request leaves your machine. Each result is shrunk once and the same shorter text is resent every later turn, so the provider's prompt cache keeps working. Nothing else in the request is changed.
+3. **Sends the request to the provider the tool would have used anyway, with the tool's own login** (your Claude Pro/Max or ChatGPT login, or your API key). You are billed exactly as without the gate; there are just fewer, smaller requests.
 
 ```
-Your Editor
+Your coding tool
     │
     ▼
-slm-gate (llm-gate)       ← Local proxy on http://localhost:8787
-    │ answers locally      → returns response for easy tasks
-    │ forwards to cloud    → complex tasks go to your cloud API
+slm-gate (llm-gate)       ← on http://localhost:8787, started for you
+    │ first message        → local model tries to answer
+    │ everything else      → large tool output shrunk
     ▼
-Your Cloud AI (Claude, GPT, Gemini)
+The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 ```
+
+**You never start it yourself.** When any coding tool starts `slm-gate`'s MCP server (Layer 1), the MCP server also starts the model gate in the background if it isn't running, and brings it back within a minute if it stops. It keeps running until you log out or restart. At the same moment it checks that Ollama is running and that every model your settings name is downloaded. Any problem shows up as a desktop notification and is passed to your AI assistant, which tells you about it with the fix. Nothing is started or downloaded for you. `slm-gate start`, `slm-gate stop` and `slm-gate restart` are there for when you want to control it by hand.
+
+> **Where the model gate takes its settings from.** One model gate serves all your coding tools, so it reads its settings only from `slm-gate`'s own `.env` file. Values in a tool's MCP `"env"` block apply to that tool's MCP server only, never to the model gate.
+
+`slm-gate doctor` prints the exact line to paste into each coding tool, using your current port.
 
 ---
 
-### The Two Cloud Models: Understanding What You're Paying For
+### Who Pays for What
 
-This distinction is important and affects which settings you need in your config:
+Neither layer needs an API key of its own. Every request that reaches the cloud is billed exactly as it would be without `slm-gate`: to the subscription or API key your coding tool is logged in with. `slm-gate` only makes those requests fewer and smaller.
 
-**1. Subscription Model (Flat Monthly Fee)**
-
-This is the AI built into your editor — the one you pay a fixed monthly fee for. Examples:
-- Claude Pro / Max / Team in **Claude Code** or **Claude Desktop**
-- Gemini Advanced / Antigravity in **Google Antigravity**
-- Cursor Pro in **Cursor**
-- Copilot in **GitHub Copilot**
-- ChatGPT Plus / Pro in **Cline** or **Continue**
-
-When using Layer 1 (`mcp-gate`) with a subscription model, `slm-gate` compresses what goes into the editor's context. You don't need a `CLOUD_API_KEY` for this — the subscription handles the AI side. The `CLOUD_*` environment variables are **not needed for Layer 1 subscription users**.
-
-**2. Metered API Model (Pay-Per-Token)**
-
-This is an endpoint you access directly with an API key — billed per-token, to the cent. Examples: `gpt-4o` via `OPENAI_API_KEY`, Claude Sonnet via `ANTHROPIC_API_KEY`.
-
-Layer 2 (`llm-gate`) uses this as its cloud fallback. When a request is too complex for the local model, it forwards to this endpoint. The cost of each forwarded request is logged in the ledger.
+The `CLOUD_*` settings are optional and separate. They are read only by the benchmark (`slm-gate bench`), the resolver's optional cloud tier (`RESOLVER_CLOUD_TIER`) and a hosted small model (`SLM_PROVIDER=openai`). Most people leave them blank.
 
 ---
 
 ### Client Compatibility Matrix
 
-| Client | Layer 1 (`mcp-gate`) | Layer 2 (`llm-gate`) |
-| :--- | :---: | :---: |
-| **Google Antigravity / Antigravity 2 / `agy` CLI** | ✅ | ❌ |
-| **Claude Code** | ✅ | ✅ |
-| **Claude Desktop** | ✅ | ❌ |
-| **Cursor** | ✅ | ✅ |
-| **Cline (VS Code)** | ✅ | ✅ |
-| **Continue (VS Code)** | ✅ | ✅ |
-| **ChatGPT / OpenAI-compatible clients** | ✅ | ✅ |
+| Client | Layer 1 (`mcp-gate`) | Layer 2 (`llm-gate`) | Login that works through Layer 2 |
+| :--- | :---: | :---: | :--- |
+| **Claude Code** (CLI, VS Code and JetBrains extensions) | ✅ | ✅ | claude.ai Pro/Max login or API key |
+| **Codex** (CLI and IDE extension) | ✅ | ✅ | ChatGPT login or API key |
+| **Gemini CLI**, **Antigravity CLI (`agy`)** | ✅ | ✅ | Gemini API key only |
+| **Cline, Roo Code, Kilo Code, Continue, OpenCode, Zed, Junie CLI, Aider** | ✅ | ✅ | your own API key |
+| **GitHub Copilot Chat** (Custom Endpoint) | ✅ | ✅ | your own API key |
+| **Cursor, Windsurf** | ✅ | ❌ | — |
+| **Claude Desktop** (chat and its Code tab), **claude.ai** | ✅ | ❌ | — |
+| **Antigravity IDE / Antigravity 2** | ✅ | ❌ | — |
+| **Gemini Code Assist, ChatGPT and Gemini apps** | not covered here | ❌ | — |
 
-> **Why does Antigravity not support Layer 2?** Antigravity uses an internal Gemini routing pipeline with no user-configurable base URL override — there's no setting to redirect its chat completions to a local proxy. Layer 1 (MCP-based compression) works perfectly.
-> **Why does Claude Desktop not support Layer 2?** Claude Desktop is strictly wired to Anthropic's hosted infrastructure. There is no setting or environment variable to redirect its chat stream to a local endpoint.
+Why some tools can't use Layer 2:
+
+- **Cursor and Windsurf** send every model request through the vendor's own servers first, and those servers can't reach a server on your machine.
+- **Claude Desktop, claude.ai, Antigravity IDE, Gemini Code Assist, and the ChatGPT and Gemini apps** have no setting for the model's address.
+- **Gemini CLI and `agy` with a Google-account login** ignore the address setting, and Google's terms say using that login through other tools may get the account suspended. Use a Gemini API key for Layer 2.
+- **Models bundled in a tool's own subscription** (Cline, Kilo, Copilot and others) can't be redirected; only your own API key can.
+
+> **Claude Pro/Max login through the gate.** Claude Code keeps using your claude.ai login when only its address is changed; Anthropic documents this. Anthropic's legal terms also say developers may not "intermediate Claude.ai credentials or session tokens". `slm-gate` only passes your own login from your own tool to Anthropic, on your own machine, but check the terms yourself before relying on it.
 
 ---
 
@@ -414,6 +417,8 @@ pnpm run build
 `pnpm install` downloads all the code libraries `slm-gate` needs. `pnpm run build` compiles the TypeScript source into runnable JavaScript files in the `dist/` folder. You should see no errors.
 
 > _If you later modify any `.ts` source files, run `pnpm run build` again to pick up changes._
+
+**The `slm-gate` command.** This README writes commands as `slm-gate doctor`, `slm-gate restart` and so on. To have that short command everywhere, run `pnpm link --global` in this folder once (it needs `pnpm setup` to have been run once on your machine). Without it, use `node dist/cli.js doctor` from this folder. `slm-gate`'s own warnings always print the full command, e.g. `node /Users/yourname/projects/small-language-model-gate/dist/cli.js restart`, so they work either way.
 
 ---
 
@@ -531,12 +536,17 @@ Alternatively, create or edit `.mcp.json` in your project root:
 }
 ```
 
-**Layer 2 (optional — model endpoint override):** To route all model calls through `llm-gate`:
-```bash
-export ANTHROPIC_BASE_URL="http://localhost:8787"
+**Layer 2 (optional — send Claude Code's model requests through `llm-gate`):** add the address to `~/.claude/settings.json`. Note there is **no `/v1`** at the end; Claude Code adds it itself.
+```json
+{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787" } }
 ```
+In the VS Code extension, set it in your VS Code user settings instead:
+```json
+"claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8787" }]
+```
+Your claude.ai login or API key keeps working. The model gate starts by itself the next time Claude Code starts `slm-gate`'s MCP server.
 
-> _Note: Setting this causes Claude Code to inline tool schemas instead of using server-side Tool Search. Everything still works; the behaviour is slightly different._
+> _Note: behind any address other than Anthropic's, Claude Code stops using server-side MCP tool search (set `ENABLE_TOOL_SEARCH=true` to turn it back on), and Remote Control and server-managed settings are not available. The Claude desktop app's Code tab ignores this setting._
 
 See the full config reference: [`configs/claude-code/README.md`](configs/claude-code/README.md)
 
@@ -592,7 +602,7 @@ Create or edit the file `.cursor/mcp.json` in your project workspace root:
 }
 ```
 
-**Layer 2 (optional — model endpoint override):** In Cursor, go to **Settings → Models**, enable **"Override OpenAI Base URL"**, and enter `http://localhost:8787/v1`. All Chat and Composer requests will now route through `llm-gate`.
+**Layer 2 is not possible in Cursor.** Cursor sends every model request through its own servers first, even with "Override OpenAI Base URL" set, and those servers can't reach `localhost`. Layer 1 works as above.
 
 See the full config reference: [`configs/cursor/README.md`](configs/cursor/README.md)
 
@@ -634,21 +644,39 @@ mcpServers:
       NUM_CTX: "4096"
 ```
 
-**Layer 2 (optional — model endpoint override):** In Cline or Continue settings, select **OpenAI-Compatible** as the provider and enter `http://localhost:8787/v1` as the base URL (often labelled `apiBase`).
+**Layer 2 (optional — send their model requests through `llm-gate`, with your own API key):**
+- **Cline / Roo Code:** Settings → API Provider **Anthropic** → tick **Use custom base URL** → `http://localhost:8787`.
+- **Continue:** in `config.yaml`, on the model: `provider: anthropic` and `apiBase: http://localhost:8787/v1/` (for OpenAI models: `provider: openai`, `apiBase: http://localhost:8787/v1`).
+
+Models bundled with Cline's or Continue's own subscription can't be redirected. `slm-gate doctor` prints these lines with your current port.
 
 See the full config reference: [`configs/cline-continue-opencode/README.md`](configs/cline-continue-opencode/README.md)
 
 ---
 
-#### ChatGPT & OpenAI-Compatible Clients
+#### Codex, Gemini CLI & Other Tools (Layer 2)
 
-Any client that supports a custom OpenAI-compatible base URL can use `llm-gate` (Layer 2):
+Add `slm-gate` as an MCP server in the tool (see its MCP documentation; the JSON is the same as above), so the model gate starts with the tool. Then point the tool's model address at the gate:
 
-1. Start the LLM gate layer: `pnpm run dev --layer llm` (or `node dist/cli.js serve --layer llm`)
-2. In your client settings, set the base URL to `http://localhost:8787/v1`
-3. Use any model name — `llm-gate` will route locally or forward to your configured `CLOUD_MODEL`
+**Codex** (CLI and IDE extension share `~/.codex/config.toml`). Your ChatGPT login or API key keeps working:
+```toml
+model_provider = "slm-gate"
 
-For MCP (Layer 1) support, check your specific client's MCP documentation and add the same JSON MCP server config shown in the other examples above.
+[model_providers.slm-gate]
+name = "slm-gate"
+base_url = "http://localhost:8787/v1"
+requires_openai_auth = true
+```
+Don't set `supports_websockets`: over a WebSocket Codex sends only the newest part of the conversation, so the gate can't see or shrink the rest.
+
+**Gemini CLI** (API key only; a Google-account login ignores the address setting):
+```bash
+export GOOGLE_GEMINI_BASE_URL=http://localhost:8787
+export GEMINI_API_KEY=<your key>
+```
+and in `~/.gemini/settings.json`: `{ "security": { "auth": { "selectedType": "gemini-api-key" } } }`. For the Antigravity CLI (`agy`), set the same two variables and `{ "modelProvider": "gemini" }` in `~/.gemini/antigravity-cli/settings.json`.
+
+**OpenCode, Kilo Code, Zed, Copilot Custom Endpoint, Junie CLI, Aider:** run `slm-gate doctor`. It prints the exact setting for each tool with your current port. Copy it from there rather than guessing: each tool wants the address in a slightly different form (with or without `/v1`, or the full `/v1/messages` path).
 
 ---
 
@@ -701,14 +729,15 @@ TEMPERATURE=0
 STRICTNESS_LEVELS=0,1,2,3,4,5
 HEADLINE_STRICTNESS=4
 
-# ── Cloud Fallback (only needed for Layer 2 or benchmarking) ──────────────
+# ── API model (optional: benchmark and resolver cloud tier only) ──────────
 CLOUD_API_STYLE=anthropic               # or: openai
-CLOUD_BASE_URL=https://api.anthropic.com
-CLOUD_API_KEY=                          # Leave blank for Layer 1 subscription use
-CLOUD_MODEL=claude-sonnet-4-5           # The cloud model to fall back to
+CLOUD_BASE_URL=
+CLOUD_API_KEY=                          # Leave blank unless you run `slm-gate bench`
+CLOUD_MODEL=
 
 # ── Servers ────────────────────────────────────────────────────────────────
 LLM_GATE_PORT=8787
+LLM_GATE_AUTOSTART=on                   # The MCP server starts the model gate for you
 MCP_GATE_TRANSPORT=stdio
 DOWNSTREAM_MCP=                         # Leave blank for standalone; set to TLS config for downstream
 
@@ -790,20 +819,41 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 - **`STRICTNESS_LEVELS`** — The available grading levels, from `0` (very lenient) to `5` (extremely strict). Leave this as-is. Default: `0,1,2,3,4,5`
 - **`HEADLINE_STRICTNESS`** — The grading level actually in use. Higher means more local answers get escalated to the cloud (safer, higher quality, but costs more quota). Lower means more trust in local answers (saves more, but higher risk of lower quality). Default: `4`
 
-#### Cloud Fallback & Semantic Cache
+#### API Model (Optional) & Semantic Cache
 
-- **`CLOUD_API_STYLE`** — Which API format your cloud provider uses: `openai` or `anthropic`.
-- **`CLOUD_BASE_URL`** — The address of your cloud AI provider's API.
-- **`CLOUD_API_KEY`** — Your API key for the cloud provider. **Leave blank** if you are using Layer 1 with a subscription-based editor.
-- **`CLOUD_MODEL`** — The exact model name to use for cloud fallback.
+The model gate doesn't use the `CLOUD_*` settings: it sends each request on with your coding tool's own login. They are read only by the benchmark (`slm-gate bench`), the resolver's cloud tier (`RESOLVER_CLOUD_TIER`) and `SLM_PROVIDER=openai`.
+
+- **`CLOUD_API_STYLE`** — Which API format that provider uses: `openai` or `anthropic`.
+- **`CLOUD_BASE_URL`** — The address of that provider's API.
+- **`CLOUD_API_KEY`** — The API key for it. Leave blank unless you use one of the three features above.
+- **`CLOUD_MODEL`** — The exact model name.
 - **`SEMCACHE`** — Turns on "answer reuse." When enabled, identical read-only questions are answered from memory instead of making a new cloud call. Off by default. (`on` / `off`)
 - **`SEMCACHE_THRESHOLD`** — How similar two questions must be before the old answer is reused. `0.95` is very strict. Default: `0.95`
 - **`EMBED_MODEL`** — The local model used to measure question similarity. Default: `nomic-embed-text`
 
 #### Server Ports & Downstream MCP
 
-- **`LLM_GATE_PORT`** — The port `llm-gate` listens on. Only change if something else is using this port. Default: `8787`
-- **`LLM_GATE_EXPOSE`** — Which API formats `llm-gate` accepts. Default: `openai,anthropic`
+- **`LLM_GATE_PORT`** — The port the model gate (`llm-gate`) listens on. Only change it if another program uses this port; then run `slm-gate restart`, and `slm-gate doctor` to get the new line for each coding tool. Set it only in `slm-gate`'s `.env`: a value in a tool's MCP `env` block or your shell is ignored when finding and starting the model gate. Default: `8787`
+- **`LLM_GATE_AUTOSTART`** — When a coding tool starts `slm-gate`'s MCP server, also start the model gate in the background if it isn't running, and bring it back within a minute if it stops. `off` means you start it yourself with `slm-gate start`. Default: `on`
+- **`LLM_GATE_DISTILL`** — Shrink large command, search and listing output before a request leaves your machine. `off` makes the gate pass requests on unchanged. Default: `on`
+- **`LLM_GATE_LOCAL_FIRST`** — Let the local model try the first message of each conversation (never slash commands, never coding tasks that need the tool's own tools). Default: `on`
+- **`LOCAL_ATTEMPT_BUDGET_MS`** — How long that first message may wait for a local answer before it goes on to your provider. Default: `6000`
+- **`UPSTREAM_ANTHROPIC_URL`**, **`UPSTREAM_OPENAI_URL`**, **`UPSTREAM_CHATGPT_URL`**, **`UPSTREAM_GEMINI_URL`** (optional) — Where the model gate sends each kind of request.
+
+  You don't need to fill any of these, whether you use a subscription or an API key. Leave all four blank. The gate already knows where each request goes and uses the correct address automatically.
+
+  The only reason to set one: your company makes all AI traffic go through its own proxy server. Then you would put that proxy's address in the matching line. Everyone else leaves them blank.
+
+  These four are split by provider, not by subscription vs API. Here is which one each login uses:
+
+  | Setting | Subscription login | API key | Default address |
+  |---|---|---|---|
+  | `UPSTREAM_ANTHROPIC_URL` | Claude Pro/Max in Claude Code | Anthropic API key (Claude Code, Cline and others) | `https://api.anthropic.com` |
+  | `UPSTREAM_OPENAI_URL` | — | OpenAI API key (Codex, Cline and others) | `https://api.openai.com/v1` |
+  | `UPSTREAM_CHATGPT_URL` | ChatGPT login in Codex | — | `https://chatgpt.com/backend-api/codex` |
+  | `UPSTREAM_GEMINI_URL` | — (a Google-account login can't go through the gate) | Gemini API key (Gemini CLI, `agy`) | `https://generativelanguage.googleapis.com` |
+
+  Your coding tool's own login (subscription or API key) is sent either way.
 - **`DOWNSTREAM_MCP`** — If you want `mcp-gate` to sit in front of another MCP server (like Tech-Lead-Stack), put that server's launch command here as a JSON string. Ships blank, which is standalone mode; any file path inside the JSON must also be a full path on your machine.
 - **`MCP_GATE_TRANSPORT`** — How `mcp-gate` communicates with your editor: `stdio` (your editor launches it directly) or `http` (network connection). Most setups use `stdio`. Default: `stdio`
 - **`MCP_GATE_PORT`** — The port for HTTP mode only. Default: `8788`
@@ -829,6 +879,7 @@ After the local AI answers, a "verifier" grades whether the answer is good enoug
 When a tool response is very large, `slm-gate` compresses it and keeps only the essential parts. The original is stashed locally so the AI can retrieve any trimmed content cheaply on demand.
 
 - **`DISTILL_MIN_TOKENS`** — Responses smaller than this (in tokens) are passed through untouched — they're too small to be worth compressing. **500 tokens ≈ ~50 lines of code.** Default: `500`
+- **`DISTILL_BUDGET_MS`** — How long the model gate may hold one request while it shrinks that request's new tool output. Past it, the output is sent as it was (and stays that way for the rest of the conversation). Default: `3000`
 - **`DISTILL_MAX_TOKENS`** — The maximum size a response can be after compression. Anything still over this limit after compression gets trimmed, and a retrieval marker is inserted so the AI can ask for the trimmed content. It is also the threshold at which the local model is asked to summarise at all, which in standalone mode is the only compression trigger there is. **2000 tokens ≈ ~200 lines of code.** Default: `2000`
 - **`DISTILL_PRESERVE_PATH`** — Path to a file listing text patterns that must never be compressed or altered (e.g., specific code markers). Optional.
 - **`DISTILL_PRESERVE_MODE`** — Whether your custom patterns are added to (`extend`) or replace (`replace`) the built-in protection list. Use `extend`. Default: `extend`
@@ -864,12 +915,28 @@ pnpm run dev doctor
 
 This checks:
 - Node.js version
-- Ollama is reachable and responding
-- Your configured models are downloaded and their sizes fit in your available RAM
-- `NUM_CTX` fits within your memory budget
-- Layer 1 / Layer 2 config is valid
+- Ollama is running, and every model your settings name is downloaded (each missing one with its `ollama pull` command)
+- Your hardware and `NUM_CTX` fit the models
+- Layer 1 config is valid
+- **The model gate is running.** If it isn't, it says so loudly (every coding tool pointed at it can't reach its AI provider), names the program holding the port if there is one, and gives the fix
+
+It then prints the exact line to paste into each coding tool, using your current port, and lists the tools that can't use Layer 2 and why.
 
 Fix any warnings it flags before proceeding.
+
+### The Model Gate: Starts by Itself, and What to Do When It Can't
+
+You don't need to run anything each day. The first coding tool you open starts `slm-gate`'s MCP server, which starts the model gate and checks Ollama and your models. If something is wrong you get a desktop notification, and your AI assistant tells you at the start of its next reply.
+
+| What you see | What to do |
+| :--- | :--- |
+| **Port 8787 is used by another program** | Quit that program (`slm-gate doctor` names it), then run `slm-gate start`. Or move the gate: set `LLM_GATE_PORT` to a free port in `slm-gate`'s `.env`, run `slm-gate restart`, then run `slm-gate doctor` and paste the new lines into each coding tool. |
+| **The model gate is not running and did not start** | Run `slm-gate start`. If it still fails, read `output/llm-gate.log` in the `slm-gate` folder. After updating `slm-gate`, or if the log shows a missing file, repair the install with `pnpm install && pnpm run build` in the `slm-gate` folder, then `slm-gate restart`. |
+| **The model gate is running an older build** | Run `slm-gate restart` when no coding tool is in the middle of an answer. |
+| **Ollama is not running** | Open the Ollama app, or run `ollama serve`. Requests still reach the cloud meanwhile; nothing is answered or shrunk locally. |
+| **A local model is not downloaded** | Run the `ollama pull …` command shown. |
+
+`slm-gate stop` stops the model gate and keeps it stopped until `slm-gate start`, `slm-gate restart` or your next restart; coding tools pointed at it can't reach their provider meanwhile. `slm-gate serve` runs the model gate in the terminal instead (useful for watching its log).
 
 ### Check Your Savings (Any Time)
 
@@ -894,11 +961,11 @@ To see `slm-gate` working in real-time, check your editor's MCP logs for the str
 | **Cline / VS Code** | VS Code Output panel → select "Cline" or your MCP server |
 | **Claude Code** | Start with `--mcp-debug` flag for detailed terminal output |
 
-### Cloud API Keys for Layer 1 Subscription Users
+### Cloud API Keys
 
-When using `mcp-gate` (Layer 1) with your editor's built-in subscription model, you **do not need** a `CLOUD_API_KEY`. The `CLOUD_*` variables are only required if:
-- You use Layer 2 (`llm-gate`) with a cloud fallback endpoint, or
-- You run the offline testing harness (`slm-gate bench`)
+Neither layer needs a `CLOUD_API_KEY`: the model gate sends each request on with your coding tool's own login. The `CLOUD_*` variables are only required if:
+- You run the offline testing harness (`slm-gate bench`), or
+- You turn on the resolver's cloud tier (`RESOLVER_CLOUD_TIER`), or use `SLM_PROVIDER=openai`
 
 ---
 

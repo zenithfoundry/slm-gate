@@ -17,8 +17,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     CLOUD_MODEL: 'gpt-5.6-sol',
     CLOUD_API_STYLE: 'openai',
     HEADLINE_STRICTNESS: 1,
-    TEMPERATURE: 0,
-    LLM_GATE_EXPOSE: ['openai']
+    TEMPERATURE: 0
   }
 }));
 

@@ -1,109 +1,102 @@
-# Walkthrough: Using the LLM Gate with your Chat Client
+# Walkthrough: Sending Your Coding Tool's Requests Through the Model Gate
 
 > [!NOTE]
 > **Is this guide for me?**
-> This guide is **ONLY** for people who:
-> 1. Have a paid API key set in their `.env` file under the `CLOUD_*` values.
-> 2. Use a chat client that allows you to point it at a custom model address (such as Claude Code, Cursor, or Cline).
+> Yes, if your coding tool has a setting for the model's address: Claude Code, Codex, Gemini CLI or `agy` (with a Gemini API key), Cline, Roo Code, Kilo Code, Continue, OpenCode, Zed, Copilot's Custom Endpoint, Junie CLI or Aider.
+> You don't need an API key in `slm-gate`: your tool's own login (subscription or API key) is used.
 >
-> If you only use a subscription model inside an editor like Antigravity, **skip this guide**. You already get the benefit from Layer 1 (the MCP gate) and should refer to the main README instead.
+> Cursor, Windsurf, the Claude desktop app and Antigravity IDE can't send their requests through a local gate. For them, use Layer 1 (the MCP server) only; see the main README.
 
-### What is `llm-gate`?
-The `llm-gate` is a small program that runs on your own computer. Instead of sending every request straight to an expensive paid API model, your chat client sends requests to `llm-gate` first. It answers the easy questions locally for free using your local model, and only forwards the hard ones to the paid model — saving you money.
+### What is the model gate?
+The model gate (`llm-gate`) is a small server on your computer at `http://localhost:8787`. Your coding tool sends its model requests there instead of straight to Anthropic, OpenAI or Google. The gate:
+
+1. lets your local model try to answer the **first message** of each conversation (never slash commands, never coding tasks that need the tool's own tools);
+2. shrinks large command, search and listing output in **every later request** before it leaves your machine;
+3. sends everything it didn't answer to the provider your tool would have used anyway, **with your tool's own login**.
+
+You never start it yourself: `slm-gate`'s MCP server starts it when your coding tool starts.
 
 ### What you'll need before starting
-- [x] Ollama is installed and running on your machine. *(macOS/Homebrew users: See the [Best Practices for macOS/Homebrew Users](../README.md#best-practices-for-macoshomebrew-users) section in the main README to avoid memory issues and silent config overwrites.)*
-- [x] The models specified in your `.env` (like `qwen3:14b` and `qwen3:1.7b`) are already pulled in Ollama.
-- [x] The `CLOUD_*` values are filled out in your `.env` file with a valid API key.
-- [x] The project is built (you have run `pnpm run build`).
-- [x] `npx slm-gate doctor` shows all green.
+- [x] `slm-gate` is built (`pnpm run build`).
+- [x] `slm-gate` is added as an MCP server in your coding tool (README, Section 4). This is what starts the model gate.
+- [x] Ollama is running and has your models. `node dist/cli.js doctor` checks both and prints the `ollama pull` command for anything missing.
 
 ---
 
-## Step 1: Start the LLM Gate
+## Step 1: Point your coding tool at the gate
 
-**Terminal 1**
-Open a terminal and run the following command to start the gate server:
+Run the doctor from the `slm-gate` folder:
 
 ```bash
-npx slm-gate serve --layer llm
+node dist/cli.js doctor
 ```
 
-**What you should see:**
-The server will start up and print a message indicating it is listening on a port.
-```text
-Starting llm-gate...
-Listening on http://0.0.0.0:8787
+At the end it prints the exact line for each coding tool, with your current port. For **Claude Code**, it is this, in `~/.claude/settings.json`:
+
+```json
+{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787" } }
 ```
 
-**If it didn't work:**
-Run `npx slm-gate doctor` to diagnose configuration or missing dependencies.
+There is **no `/v1`** at the end. Claude Code adds `/v1/messages` itself; with `/v1` in the setting its requests would go to `/v1/v1/messages` and fail.
 
-*What just happened: You launched a local HTTP server on port `8787` (the "route"). This server is now waiting to intercept messages from your chat client before they reach the cloud.*
+*What just happened: you told your tool where to send its model requests. Your login stays the same.*
 
 ---
 
-## Step 2: Connect your Chat Client
+## Step 2: Start your coding tool
 
-Leave Terminal 1 running. Open a second terminal window (**Terminal 2**) or open your chat client's settings. 
-The custom address you need to provide is called an **endpoint override** or **Base URL**. We will use `http://localhost:8787/v1`.
+Start it as you normally would, for example `claude` in a terminal. When it starts `slm-gate`'s MCP server, the MCP server starts the model gate in the background.
 
-### Option A: Claude Code
-Claude Code uses environment variables to configure its endpoint. 
-
-In Terminal 2, set the environment variable and run Claude Code:
-```bash
-export ANTHROPIC_BASE_URL="http://localhost:8787/v1"
-claude
-```
-*Now, try asking Claude Code a simple question like "What is 2+2?"*
-
-### Option B: Cursor
-1. Open Cursor Settings.
-2. Navigate to the **Models** section.
-3. Find the **Override Base URL** or **OpenAI Base URL** setting.
-4. Paste the local address exactly as: `http://localhost:8787/v1`
-
-*Now, open the chat panel in Cursor and ask it to write a simple "Hello World" function.*
-
-### Option C: Cline
-1. Open Cline Settings.
-2. Select your API Provider (e.g., OpenAI Compatible).
-3. Paste the local address into the **Base URL** field: `http://localhost:8787/v1`
-
-*Now, ask Cline to perform a simple task in your codebase.*
-
-*What just happened: You told your chat client to stop talking directly to the paid cloud API. Instead, it sent its latest request to the local `llm-gate` you started in Step 1.*
-
----
-
-## Step 3: Verify the Ledger
-
-Every request that passes through the gate is logged in a local logbook called the **ledger**. Let's check it.
-
-**Terminal 2**
-Run the following SQLite command to read the ledger and see what happened to your requests:
+To confirm it is running:
 
 ```bash
-sqlite3 ./output/ledger.sqlite "SELECT route, cost_usd, in_tok, out_tok FROM events;"
+node dist/cli.js doctor
 ```
 
 **What you should see:**
 ```text
-defer_local|0.0|45|12
-forward_raw|0.024|1200|450
+✓ Model gate is running on http://localhost:8787 (pid 12345, started 2026-09-19T09:00:00.000Z)
+```
+
+If something is wrong (port taken, Ollama not running, a model missing), you also get a desktop notification, and your AI assistant tells you about it with the fix at the start of its next reply.
+
+---
+
+## Step 3: Try it
+
+1. Start a **new conversation** and type `Say hi`. The local model answers; this request never reaches your provider.
+2. Now ask for real work, such as "list the files in this folder and tell me what they do". It goes to your provider as normal. When the tool runs commands, their large output is shrunk before the next request leaves your machine.
+
+---
+
+## Step 4: Check the ledger
+
+Every request through the gate is logged in a local file called the **ledger**. From the `slm-gate` folder:
+
+```bash
+sqlite3 ./output/ledger.sqlite "SELECT route, api_in_tok FROM events WHERE layer = 'llm' ORDER BY ts DESC LIMIT 5;"
+```
+
+**What you should see** (newest first; the number is roughly how many tokens were sent to your provider):
+```text
+forward_compressed|8200
+forward_raw|1450
+defer_local|0
 ```
 
 **How to read this:**
-- `defer_local`: The local `llm-gate` decided the question was easy, answered it using your free local model, and charged you $0.00.
-- `forward_raw`: The question was too hard, so `llm-gate` decided to **escalate** it and forwarded the exact original text to the paid API model. This cost you money, which is shown in the `cost_usd` column.
+- `defer_local`: answered by your local model. Nothing was sent to your provider (0).
+- `forward_compressed`: sent to your provider with some tool output shrunk.
+- `forward_raw`: sent to your provider unchanged (nothing large enough to shrink).
 
-*What just happened: You verified that the local gate is successfully intercepting requests, grading their difficulty, and saving you API costs by handling simple questions locally.*
+`pnpm run slm-gate metrics` shows the totals.
 
 ---
 
 ## Troubleshooting
 
-- **Connection Refused:** Ensure `npx slm-gate serve --layer llm` is still running in Terminal 1 without errors.
-- **No rows appearing in the ledger:** Your chat client is still bypassing the gate. Double-check that your Base URL is exactly `http://localhost:8787/v1`.
-- **"It went to the paid model every time!":** Your questions might have been genuinely complex. Try asking a trivially simple question like "Say hi." If it still forwards, check if your local Ollama server is running out of memory.
+- **The tool says it can't connect / connection refused:** the model gate isn't running. Run `node dist/cli.js doctor`; it tells you why and how to fix it. To start it by hand: `node dist/cli.js start`.
+- **Port 8787 is used by another program:** quit that program (doctor names it), or set `LLM_GATE_PORT` to a free port in `slm-gate`'s `.env`, run `node dist/cli.js restart`, then paste the new lines doctor prints into each coding tool and restart them.
+- **Claude Code gets 404 errors:** remove `/v1` from the end of `ANTHROPIC_BASE_URL`.
+- **No rows appear in the ledger:** your tool isn't using the gate yet. Check the setting from Step 1, and restart the tool after changing it.
+- **"Nothing was answered locally":** only the first message of a conversation is tried, and only when it's something a small model can answer. Slash commands and coding tasks always go to your provider. Check that Ollama is running (`node dist/cli.js doctor`).

@@ -162,6 +162,8 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     SLM_BRAIN_MODEL,
     SELF_CONSISTENCY_K: '1', // Default setting for generation passes
     LEDGER_PATH: e2eLedgerPath(),
+    // The MCP server would otherwise start the real model gate on the developer's port.
+    LLM_GATE_AUTOSTART: 'off',
     // Distillation thresholds are deliberately NOT pinned here. A script whose canned payload
     // is sized against particular DISTILL_MIN/MAX_TOKENS values passes them in `overrides`,
     // next to the payload, where the coupling is visible.

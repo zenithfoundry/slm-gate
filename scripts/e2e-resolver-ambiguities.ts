@@ -39,6 +39,13 @@ async function main() {
   // Mock Ollama API Server
   const mockOllama = http.createServer((req, res) => {
     console.log(`[mockOllama] Incoming request: ${req.url}`);
+    // The MCP server's start-up check lists the models; answering it keeps a "model not downloaded"
+    // desktop notification from appearing during the test.
+    if (req.url === '/api/tags') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ models: [{ name: 'mock-model' }] }));
+      return;
+    }
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -104,6 +111,7 @@ async function main() {
     env: {
       ...process.env,
       DOWNSTREAM_MCP: '', // Standalone mode
+      LLM_GATE_AUTOSTART: 'off', // never start the real model gate from a test
       OLLAMA_HOST: `http://127.0.0.1:${ollamaPort}`,
       SLM_BRAIN_MODEL: 'mock-model',
       SLM_GATE_MODEL: 'mock-model'
