@@ -119,3 +119,33 @@ describe('launching and stopping a real gate', () => {
     expect(fs.readFileSync(gate.GATE_LOG_FILE, 'utf8')).toContain(`LLM Gate running on port ${port}`);
   }, 40_000);
 });
+
+describe('the "stopped by you" marker', () => {
+  const marker = path.join(outputDir, '.gate-stopped');
+  const bootMinute = () => Math.round((Date.now() - os.uptime() * 1000) / 60_000);
+  const hasOsBootId = process.platform === 'darwin' || process.platform === 'linux';
+
+  afterAll(() => fs.rmSync(marker, { force: true }));
+
+  (hasOsBootId ? it : it.skip)('keeps a stop in force when the clock jumps (keyed to the OS boot ID)', async () => {
+    await gate.stopModelGate({ port: await freePort() });
+    expect(fs.readFileSync(marker, 'utf8')).not.toMatch(/^\d+$/);
+    const now = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(now + 5 * 60_000);
+    try {
+      expect(gate.isStoppedByUser()).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('ends a stop recorded in an earlier boot', () => {
+    fs.writeFileSync(marker, '00000000-0000-0000-0000-000000000000');
+    expect(gate.isStoppedByUser()).toBe(false);
+  });
+
+  it('still honours a stop written by an older slm-gate (a boot minute)', () => {
+    fs.writeFileSync(marker, String(bootMinute()));
+    expect(gate.isStoppedByUser()).toBe(true);
+  });
+});

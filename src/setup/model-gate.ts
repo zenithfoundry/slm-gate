@@ -83,26 +83,54 @@ export function probeGate(params: { port?: number; timeoutMs?: number } = {}): P
   });
 }
 
-/** Minutes since the epoch at which this machine booted: a new value means a reboot. */
+/**
+ * Minutes since the epoch at which this machine booted, computed from the clock: a new value means a reboot,
+ * but a clock change shifts it too. Used only where the OS gives no boot ID.
+ */
 function bootMinute(): number {
   return Math.round((Date.now() - os.uptime() * 1000) / 60_000);
 }
 
+let cachedBootId: string | undefined;
+
+/**
+ * The ID the OS gives this boot (macOS kern.bootsessionuuid, Linux boot_id); a clock change cannot alter it.
+ * Null on other systems, or when it cannot be read right now (not remembered, so the next call retries).
+ */
+function osBootId(): string | null {
+  if (cachedBootId) return cachedBootId;
+  try {
+    const id = process.platform === 'darwin'
+      ? execFileSync('sysctl', ['-n', 'kern.bootsessionuuid'], { encoding: 'utf8', timeout: 2000 }).trim()
+      : process.platform === 'linux'
+        ? fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
+        : '';
+    if (id) cachedBootId = id;
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
 /** `slm-gate stop` was run since the last boot, and no `slm-gate start` since. */
 export function isStoppedByUser(): boolean {
+  let marker: string;
   try {
-    const stoppedAtBoot = Number(fs.readFileSync(STOPPED_MARKER, 'utf8'));
-    // Allow a minute of drift in the computed boot time.
-    return Math.abs(stoppedAtBoot - bootMinute()) <= 1;
+    marker = fs.readFileSync(STOPPED_MARKER, 'utf8').trim();
   } catch {
     return false;
   }
+  // A number is a boot minute (no OS boot ID, or written by an older slm-gate): allow a minute of drift.
+  if (/^\d+$/.test(marker)) return Math.abs(Number(marker) - bootMinute()) <= 1;
+  // A boot ID. If this boot's ID cannot be read right now, keep the stop rather than end it by mistake.
+  const current = osBootId();
+  return current === null || marker === current;
 }
 
 function setStoppedByUser(stopped: boolean): void {
   if (stopped) {
     fs.mkdirSync(path.dirname(STOPPED_MARKER), { recursive: true });
-    fs.writeFileSync(STOPPED_MARKER, String(bootMinute()));
+    fs.writeFileSync(STOPPED_MARKER, osBootId() ?? String(bootMinute()));
   } else {
     fs.rmSync(STOPPED_MARKER, { force: true });
   }

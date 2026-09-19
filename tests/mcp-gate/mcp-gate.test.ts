@@ -104,4 +104,53 @@ describe('mcp-gate server (proxy mode)', () => {
     expect(result.content[0].text).toContain('`mcp__slm-gate__get_skill`');
     expect(result.content[0].text).not.toContain('mcp__tech-lead-stack__');
   });
+
+  describe('returns toolbox results whole, conditioning only their text', () => {
+    const image = { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' };
+    const call = async (server: any) => callToolHandler(server)(
+      { method: 'tools/call', params: { name: 'get_skill', arguments: { task: 't' } } } as any,
+      {} as any
+    );
+
+    it('conditions every text block once, together, and keeps the picture', async () => {
+      const { server } = await createServer();
+      mockRequest.mockResolvedValueOnce({ content: [{ type: 'text', text: 'first' }, image, { type: 'text', text: 'second' }] });
+      const result = await call(server);
+      expect(conditionPrompt).toHaveBeenCalledTimes(1);
+      expect(conditionPrompt).toHaveBeenCalledWith('first\n\nsecond', 't', undefined, 'get_skill', { task: 't' });
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0].text).toContain('first\n\nsecond');
+      expect(result.content[1]).toEqual(image);
+    });
+
+    it('returns a picture-only result untouched, without conditioning anything', async () => {
+      const { server } = await createServer();
+      const original = { content: [image] };
+      mockRequest.mockResolvedValueOnce(original);
+      expect(await call(server)).toEqual(original);
+      expect(conditionPrompt).not.toHaveBeenCalled();
+    });
+
+    it('keeps the error flag and structured data next to the conditioned text', async () => {
+      const { server } = await createServer();
+      mockRequest.mockResolvedValueOnce({ content: [{ type: 'text', text: 'boom' }], isError: true, structuredContent: { code: 42 } });
+      const result = await call(server);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toEqual({ code: 42 });
+      expect(result.content[0].text).toContain('boom');
+    });
+
+    it('passes on results as the MCP client parses them: no content, or extra fields', async () => {
+      const { server } = await createServer();
+      const errorOnly = CallToolResultSchema.parse({ isError: true });
+      mockRequest.mockResolvedValueOnce(errorOnly);
+      expect(await call(server)).toEqual(errorOnly);
+
+      const withTask = CallToolResultSchema.parse({ content: [{ type: 'text', text: 'done' }], task: { taskId: 't1' }, _meta: { m: 1 } });
+      mockRequest.mockResolvedValueOnce(withTask);
+      const result = await call(server);
+      expect(result).toMatchObject({ task: { taskId: 't1' }, _meta: { m: 1 } });
+      expect(result.content[0].text).toContain('done');
+    });
+  });
 });

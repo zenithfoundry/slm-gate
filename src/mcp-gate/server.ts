@@ -223,24 +223,20 @@ export async function createServer(options: { notices?: readonly { message: stri
         params: request.params
       }, CallToolResultSchema);
       
-      // Extract text from result content
-      let toolText = '';
-      if (result.content && Array.isArray(result.content)) {
-        const textBlock = result.content.find((c: any) => c.type === 'text');
-        if (textBlock && typeof (textBlock as any).text === 'string') {
-          toolText = (textBlock as any).text;
-        }
-      }
-      if (!toolText) {
-        toolText = JSON.stringify(result.content);
-      }
-      
-      // Intercept and distill ALL tool calls
-      const conditioned = await conditionPrompt(toolText, task, rootUri, name, args);
-      
-      return {
-        content: [{ type: "text", text: rewriteToolReferences(conditioned, downstreamToolNames) }]
-      };
+      // Only the text is conditioned, and once per call: conditionPrompt also grounds, resolves and records.
+      // Everything else — pictures and other blocks, the error flag, structured data — goes back as the
+      // toolbox sent it, so any toolbox works unchanged.
+      type Block = (typeof result.content)[number];
+      const textBlocks = result.content.filter((block): block is Extract<Block, { type: 'text' }> => block.type === 'text');
+      if (textBlocks.length === 0) return result;
+
+      const conditioned = await conditionPrompt(textBlocks.map(block => block.text).join('\n\n'), task, rootUri, name, args);
+      // The conditioned text takes the first text block's place; later text blocks are part of it.
+      const content = result.content.flatMap((block): Block[] => {
+        if (block === textBlocks[0]) return [{ ...block, text: rewriteToolReferences(conditioned, downstreamToolNames) }];
+        return block.type === 'text' ? [] : [block];
+      });
+      return { ...result, content };
     });
 
   } else {

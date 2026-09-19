@@ -308,7 +308,7 @@ To use Tech-Lead-Stack as your downstream:
 1. Install and build Tech-Lead-Stack (`pnpm run mcp:build` in the TLS directory).
 2. In your `slm-gate` config, set `DOWNSTREAM_MCP` to point at the TLS build path and set `TLS_ADAPTER=on`.
 
-**Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Keep the gate registered as `slm-gate` whatever sits behind it. When a toolbox's own commands or docs call its tools by another server name (TLS's commands say `mcp__tech-lead-stack__get_skills`), the gate handles that for you: it reads the toolbox's tool list when it starts, tells your editor those tools live on `slm-gate`, and rewrites those names in what it returns. Swapping toolboxes needs no config change. Any MCP server — or a combination — can sit behind it. Popular options include:
+**Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Keep the gate registered as `slm-gate` whatever sits behind it. When a toolbox's own commands or docs call its tools by another server name (TLS's commands say `mcp__tech-lead-stack__get_skills`), the gate handles that for you: it reads the toolbox's tool list when it starts, tells your editor those tools live on `slm-gate`, and rewrites those names in what it returns. Swapping toolboxes needs no config change. Whatever a tool returns reaches your editor whole (pictures, several blocks of text, error flags, structured data); only large text is shrunk. Any MCP server — or a combination — can sit behind it. Popular options include:
 
 | MCP Server | What It Does |
 | :--- | :--- |
