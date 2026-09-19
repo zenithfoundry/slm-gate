@@ -63,6 +63,15 @@ Coding tools start `slm-gate`'s MCP server themselves; nothing starts the model 
 - **Settings:** the gate is launched with every variable `src/config.ts` reads removed from its environment, so the one shared gate takes its settings only from `slm-gate`'s `.env`, never from the MCP `env` block of whichever tool started it first.
 - The gate's health answer carries its pid, port, entry file and that file's modification time at start-up; a mismatch with the installed file marks the running gate as an older build.
 
+## Only Programs on This Computer
+
+Both HTTP servers (the model gate, and the MCP server when `MCP_GATE_TRANSPORT=http`) apply one rule, `src/utils/local-only.ts`:
+
+- **Bind:** 127.0.0.1 and ::1 only (two servers, one handler), so other machines can't connect and `localhost` works whichever address a client tries first. If 127.0.0.1 is taken, or ::1 is held by another program, the server doesn't start (a half-bound gate would let `localhost` clients reach the other program).
+- **Host:** must be `localhost`, `127.0.0.1` or `::1` (any port). Stops DNS rebinding, where a web page reaches 127.0.0.1 under its own domain name. Other spellings are refused (fail closed).
+- **Origin:** absent (programs), or a page served from one of those names. Stops cross-site requests from any web page open in the browser.
+- Refused requests get 403 and are neither forwarded nor recorded. `slm-gate doctor`'s port check makes the same binds, since a plain `listen(port)` succeeds next to a loopback-only server on macOS.
+
 ## Decoupling Contract
 
 1. **Zero build-time dependency on `tech-lead-stack` (TLS).** All TLS knowledge resides exclusively in `src/adapters/tech-lead-stack.ts`, gated by `TLS_ADAPTER=on` + `DOWNSTREAM_MCP`, imported only via guarded dynamic import. Deleting this file leaves everything else compiling and passing tests.

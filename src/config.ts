@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey } from './pricing/plans.js';
+import { isEntryPoint } from './utils/entry-point.js';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -239,7 +240,7 @@ export function requireKeys(keys: Array<keyof typeof CONFIG>) {
 }
 
 // Config test script executed via `pnpm run config`
-if (process.argv[1] && (import.meta.url === `file://${process.argv[1]}` || import.meta.url === `file://${path.resolve(process.argv[1])}`)) {
+if (isEntryPoint(import.meta.url)) {
   console.log('=== SMALL-LANGUAGE-MODEL-GATE CONFIGURATION ===');
   
   const redactedConfig = { ...CONFIG } as any;

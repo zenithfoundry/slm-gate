@@ -351,6 +351,8 @@ The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 
 > **Where the model gate takes its settings from.** One model gate serves all your coding tools, so it reads its settings only from `slm-gate`'s own `.env` file. Values in a tool's MCP `"env"` block apply to that tool's MCP server only, never to the model gate.
 
+> **Who can reach it.** Only programs on this computer. Other computers on your network can't connect, and a web page from another site is refused, even in your own browser. A coding tool running inside a Docker container or a virtual machine can't reach it either.
+
 `slm-gate doctor` prints the exact line to paste into each coding tool, using your current port.
 
 ---
@@ -937,6 +939,20 @@ You don't need to run anything each day. The first coding tool you open starts `
 | **A local model is not downloaded** | Run the `ollama pull …` command shown. |
 
 `slm-gate stop` stops the model gate and keeps it stopped until `slm-gate start`, `slm-gate restart` or your next restart; coding tools pointed at it can't reach their provider meanwhile. `slm-gate serve` runs the model gate in the terminal instead (useful for watching its log).
+
+### Checking a Coding Tool Through the Gate (Run Later)
+
+`slm-gate` ships a live check for each coding tool. Each check makes the tool read `package.json` through the gate and reply with its name, which proves a full back-and-forth including a tool step. Run them whenever you install a tool or get an account:
+
+```bash
+pnpm exec tsx scripts/spike-check.ts --list                          # every check and its id
+pnpm exec tsx scripts/spike-check.ts codex-chatgpt-login --gate      # one check, through the real model gate
+pnpm exec tsx scripts/spike-check.ts --manual --gate                 # the IDE extensions: you send the prompt, it checks the result
+```
+
+- `--gate` runs the check through a separate, temporary model gate (its own port and throwaway ledger), so your running gate and your ledger are not touched.
+- A check shows **SKIPPED**, not failed, when the tool isn't installed or the key it needs isn't set.
+- **Codex with a ChatGPT login** (`codex-chatgpt-login`) matters most: how the gate recognises that login was worked out from Codex's source code and has never been run against a real ChatGPT login.
 
 ### Check Your Savings (Any Time)
 

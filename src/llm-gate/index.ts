@@ -1,7 +1,9 @@
-import { server } from './server.js';
+import { requestListener, server } from './server.js';
+import { listenOnThisComputer } from '../utils/local-only.js';
 import { CONFIG } from '../config.js';
 import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
 import { getDb, logLedgerInfo } from '../ledger/index.js';
+import { isEntryPoint } from '../utils/entry-point.js';
 import { warmUpLocalModel } from './distill.js';
 import { warmUpAnsweringModel } from './local-first.js';
 
@@ -17,7 +19,7 @@ const LEDGER_BUSY_TIMEOUT_MS = 100;
  * or executed directly via CLI to boot the standalone HTTP proxy server.
  */
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   const sinks = ['sqlite'];
   if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
     sinks.push('langfuse');
@@ -27,8 +29,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   getDb().pragma(`busy_timeout = ${LEDGER_BUSY_TIMEOUT_MS}`);
   if (CONFIG.LLM_GATE_DISTILL) warmUpLocalModel();
   if (CONFIG.LLM_GATE_LOCAL_FIRST) warmUpAnsweringModel();
-  server.listen(CONFIG.LLM_GATE_PORT, () => {
-    console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (pass-through: anthropic, chat-completions, responses, gemini). sinks: [${sinks.join(', ')}]`);
+  listenOnThisComputer({
+    handler: requestListener,
+    port: CONFIG.LLM_GATE_PORT,
+    onListening: () => console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT}, for programs on this computer only (pass-through: anthropic, chat-completions, responses, gemini). sinks: [${sinks.join(', ')}]`),
+  }).catch(err => {
+    console.error(`LLM Gate could not listen on port ${CONFIG.LLM_GATE_PORT}: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
   });
 
   installLangfuseFlushLifecycle('llm-gate');

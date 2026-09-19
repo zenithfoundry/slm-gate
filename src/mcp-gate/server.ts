@@ -10,7 +10,9 @@ import {
   ListToolsResultSchema,
   CallToolResultSchema
 } from "@modelcontextprotocol/sdk/types.js";
+import type { Server as HttpServer } from 'node:http';
 import { CONFIG } from '../config.js';
+import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { conditionPrompt } from './pipeline.js';
 import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 
@@ -275,7 +277,8 @@ export async function createServer(options: { notices?: readonly { message: stri
     });
   }
 
-  const start = async () => {
+  /** Resolves once serving; in HTTP mode with the listening servers (tests close them), else with none. */
+  const start = async (): Promise<HttpServer[]> => {
     const sinks = ['sqlite'];
     if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
       sinks.push('langfuse');
@@ -313,22 +316,28 @@ export async function createServer(options: { notices?: readonly { message: stri
       };
       
       await server.connect(transport);
-      
+
       process.stdout.write = originalStdoutWrite;
+      return [];
     } else {
-      const http = await import('node:http');
       const { randomUUID } = await import('node:crypto');
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID()
       });
       await server.connect(transport);
-      
-      const httpServer = http.createServer((req, res) => {
-        transport.handleRequest(req, res);
-      });
-      
-      httpServer.listen(CONFIG.MCP_GATE_PORT, () => {
-        console.error(`[mcp-gate] HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}. ${sinksStr}`);
+
+      // This server's tools can read and patch files: only programs on this computer may call them.
+      return listenOnThisComputer({
+        handler: (req, res) => {
+          if (!isLocalRequest(req.headers)) {
+            res.writeHead(403, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'slm-gate only accepts requests from programs on this computer' }, id: null }));
+            return;
+          }
+          transport.handleRequest(req, res);
+        },
+        port: CONFIG.MCP_GATE_PORT,
+        onListening: () => console.error(`[mcp-gate] HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}, for programs on this computer only. ${sinksStr}`),
       });
     }
   };

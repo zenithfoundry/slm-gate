@@ -98,5 +98,6 @@ defer_local|0
 - **The tool says it can't connect / connection refused:** the model gate isn't running. Run `node dist/cli.js doctor`; it tells you why and how to fix it. To start it by hand: `node dist/cli.js start`.
 - **Port 8787 is used by another program:** quit that program (doctor names it), or set `LLM_GATE_PORT` to a free port in `slm-gate`'s `.env`, run `node dist/cli.js restart`, then paste the new lines doctor prints into each coding tool and restart them.
 - **Claude Code gets 404 errors:** remove `/v1` from the end of `ANTHROPIC_BASE_URL`.
+- **"slm-gate only accepts requests from programs on this computer" (403):** the address isn't `localhost` or `127.0.0.1`, or the tool runs in a Docker container, a virtual machine or a web page from another site. Only programs on this computer can use the gate.
 - **No rows appear in the ledger:** your tool isn't using the gate yet. Check the setting from Step 1, and restart the tool after changing it.
 - **"Nothing was answered locally":** only the first message of a conversation is tried, and only when it's something a small model can answer. Slash commands and coding tasks always go to your provider. Check that Ollama is running (`node dist/cli.js doctor`).

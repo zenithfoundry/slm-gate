@@ -12,7 +12,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import net from 'node:net';
 import { CONFIG } from './config.js';
 import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
 import { getModelsFootprint } from './models/footprint.js';
@@ -20,36 +19,24 @@ import { getProviderRegistry } from './pricing/providers.js';
 import { checkLocalModels } from './setup/local-models.js';
 import { cliCommand, GATE_LOG_FILE, isStoppedByUser, portOwner, probeGate } from './setup/model-gate.js';
 import { toolSettings, UNROUTABLE_TOOLS } from './setup/tool-settings.js';
+import { listenOnThisComputer } from './utils/local-only.js';
 
 /**
- * Checks if a given network port is available on the local machine.
- * 
- * It works by attempting to start a temporary TCP server on the port. If it succeeds, the port is free.
- * If it throws an EADDRINUSE error, the port is taken.
- * 
- * @param port - The network port number to check (e.g., 8787).
+ * Checks whether slm-gate's HTTP server could start on a port, by making exactly the binds it makes
+ * (127.0.0.1 and ::1) and closing them again. A plain `listen(port)` would bind every interface, which
+ * macOS allows next to a server bound to 127.0.0.1 only, so a busy port would look free.
+ *
+ * @param port - The network port number to check (e.g., 8788).
  * @returns A promise resolving to true if the port is free, false otherwise.
- * 
- * @example
- * const isFree = await checkPortFree(8080);
- * if (!isFree) console.error('Port 8080 is already in use!');
  */
 async function checkPortFree(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once('error', (err: any) => {
-      if (err.code === 'EADDRINUSE') {
-        resolve(false);
-      } else {
-        resolve(false); // Other errors also mean it's not simply "free"
-      }
-    });
-    server.once('listening', () => {
-      server.close();
-      resolve(true);
-    });
-    server.listen(port);
-  });
+  try {
+    const servers = await listenOnThisComputer({ handler: () => {}, port });
+    await Promise.all(servers.map(server => new Promise(resolve => server.close(resolve))));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -14,6 +14,7 @@ import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, Upstr
 import { answerFirstRequestLocally } from './local-first.js';
 import { HEALTH_PATH } from '../setup/model-gate.js';
 import { requiredModels } from '../setup/local-models.js';
+import { isLocalRequest } from '../utils/local-only.js';
 
 const FORMATS: Record<WireFormat, WireFormatModule> = {
   anthropic,
@@ -282,13 +283,20 @@ async function handleRequest(params: {
 }
 
 /**
- * Native HTTP server for the `llm-gate`.
+ * Handles every request to the `llm-gate`.
  *
- * Every supported request is forwarded, unchanged and with the tool's own login, to the provider its
- * wire format belongs to (see forward.ts), and the response is streamed back unchanged. Answers CORS
- * preflights itself so web-based clients can reach it.
+ * Only programs on this computer are served (src/utils/local-only.ts); anything else gets a 403 and is
+ * neither forwarded nor recorded. Every supported request is forwarded, unchanged and with the tool's own
+ * login, to the provider its wire format belongs to (see forward.ts), and the response is streamed back
+ * unchanged. Answers CORS preflights itself so web pages served from this computer can reach it.
  */
-export const server = http.createServer((req, res) => {
+export function requestListener(req: http.IncomingMessage, res: http.ServerResponse): void {
+  if (!isLocalRequest(req.headers)) {
+    res.writeHead(403, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { type: 'slm_gate_error', message: 'slm-gate only accepts requests from programs on this computer' } }));
+    return;
+  }
+
   const reqId = generateId();
 
   if (req.method === 'OPTIONS') {
@@ -315,4 +323,7 @@ export const server = http.createServer((req, res) => {
   });
   // The client dropped while still sending: nothing was forwarded, so there is nothing to record.
   req.on('error', () => res.destroy());
-});
+}
+
+/** A server for tests; the gate itself listens through listenOnThisComputer (index.ts). */
+export const server = http.createServer(requestListener);

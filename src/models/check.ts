@@ -1,5 +1,6 @@
 import { footprintReport, warmup } from './footprint.js';
 import { handleSlmError } from './helpers.js';
+import { isEntryPoint } from '../utils/entry-point.js';
 
 async function check() {
   try {
@@ -19,6 +20,6 @@ async function check() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   check();
 }
