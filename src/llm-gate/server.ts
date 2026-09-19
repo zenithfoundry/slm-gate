@@ -1,218 +1,133 @@
 import http from 'node:http';
-import { CONFIG } from '../config.js';
-import { LedgerEvent, writeEvent } from '../ledger/index.js';
-import { formatAnthropicStreamChunk, parseAnthropicRequest } from './formats/anthropic.js';
-import { formatOpenAIStreamChunk, OPENAI_STREAM_DONE, parseOpenAIRequest } from './formats/openai.js';
-import { processPipeline } from './pipeline.js';
-
-function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', chunk => data += chunk);
-    req.on('end', () => resolve(data));
-    req.on('error', reject);
-  });
-}
+import { writeEvent } from '../ledger/index.js';
+import { estimateTokens } from '../utils/elision.js';
+import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute } from './forward.js';
 
 function generateId(): string {
   return 'req_' + Math.random().toString(36).substring(2, 15);
 }
 
+/** The model a request is for: Gemini names it in the path, the other formats in the body. */
+function requestModel(route: UpstreamRoute, body: Buffer): string | undefined {
+  if (route.pathModel) return route.pathModel;
+  try {
+    const model = JSON.parse(body.toString('utf8'))?.model;
+    return typeof model === 'string' ? model : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * High-performance native HTTP server for the `llm-gate`.
- * 
- * Intercepts incoming client API requests, normalizes them to an internal shape,
- * runs the interception/deferral pipeline, and streams/returns the response
- * precisely wrapped in the format the client originally requested.
- * Includes CORS headers to seamlessly support web-based IDEs and extensions.
+ * Writes the ledger row for a forwarded generation request or a rejected path. Hello pings, model
+ * lists and token counts get no row, so they never count as model work in the metrics.
  */
-export const server = http.createServer(async (req, res) => {
+function recordRequest(params: {
+  reqId: string;
+  path: string;
+  body: Buffer;
+  route: UpstreamRoute | null;
+  outcome: Pick<ForwardOutcome, 'status'> & Partial<ForwardOutcome>;
+}): void {
+  const { reqId, path, body, route, outcome } = params;
+  try {
+    writeLedgerRow({ reqId, path, body, route, outcome });
+  } catch (err) {
+    // Telemetry must never hold up model traffic: the row is lost, the request is not.
+    console.error(`LLM Gate: ledger row for ${reqId} (${path}) not written: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
+  const { reqId, path, body, route, outcome } = params;
+  writeEvent({
+    ts: new Date().toISOString(),
+    layer: 'llm',
+    request_id: reqId,
+    route: 'forward_raw',
+    is_local_call: 0,
+    api_model: route ? requestModel(route, body) : undefined,
+    in_tok: 0,
+    out_tok: 0,
+    // Estimated from the request body until provider usage is read from responses (Slice 2).
+    api_in_tok: route ? estimateTokens(body.toString('utf8')) : 0,
+    api_out_tok: 0,
+    cost_usd: 0,
+    slm_latency_s: 0,
+    api_latency_s: (outcome.durationMs ?? 0) / 1000,
+    slm_gate: 'on',
+    meta: JSON.stringify({
+      format: route?.format ?? null,
+      path,
+      status: outcome.status,
+      bytes_in: body.length,
+      bytes_out: outcome.bytesOut ?? 0,
+      client_aborted: outcome.clientAborted ? 1 : 0,
+      upstream_error: outcome.error ?? null,
+      tokens_estimated: 1,
+    }),
+  });
+}
+
+async function handleRequest(params: {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  reqId: string;
+  body: Buffer;
+}): Promise<void> {
+  const { req, res, reqId, body } = params;
+  const path = new URL(req.url || '/', 'http://gate.local').pathname;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('x-correlation-id', reqId);
+
+  const route = resolveUpstream({ pathAndQuery: req.url || '/', headers: req.headers });
+  if (!route) {
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      error: { type: 'slm_gate_unsupported_path', message: `slm-gate does not handle ${req.method} ${path}`, supported: SUPPORTED_PATHS },
+    }));
+    console.info(`LLM Gate: ${req.method} ${path} -> 404 (unsupported path)`);
+    recordRequest({ reqId, path, body, route, outcome: { status: 404 } });
+    return;
+  }
+
+  const outcome = await forwardRequest({ req, res, body, route });
+  console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${outcome.clientAborted ? ' (client aborted)' : ''}`);
+  if (route.generation) recordRequest({ reqId, path, body, route, outcome });
+}
+
+/**
+ * Native HTTP server for the `llm-gate`.
+ *
+ * Every supported request is forwarded, unchanged and with the tool's own login, to the provider its
+ * wire format belongs to (see forward.ts), and the response is streamed back unchanged. Answers CORS
+ * preflights itself so web-based clients can reach it.
+ */
+export const server = http.createServer((req, res) => {
   const reqId = generateId();
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
       'Access-Control-Allow-Headers': '*'
     });
     res.end();
     return;
   }
 
-  if (req.method !== 'POST') {
-    res.writeHead(405).end('Method Not Allowed');
-    return;
-  }
-
-  const url = new URL(req.url || '/', `http://${req.headers.host}`);
-  const path = url.pathname;
-
-  let inboundFormat: 'openai' | 'anthropic' | null = null;
-  if (path === '/v1/chat/completions' && CONFIG.LLM_GATE_EXPOSE.includes('openai')) {
-    inboundFormat = 'openai';
-  } else if (path === '/v1/messages' && CONFIG.LLM_GATE_EXPOSE.includes('anthropic')) {
-    inboundFormat = 'anthropic';
-  }
-
-  if (!inboundFormat) {
-    res.writeHead(404).end('Not Found');
-    return;
-  }
-
-  try {
-    console.info('LLM Gate Server: Request started', path);
-    const rawBody = await readBody(req);
-    console.info('LLM Gate Server: Body read');
-    const body = JSON.parse(rawBody);
-
-    const internalReq = inboundFormat === 'openai' 
-      ? parseOpenAIRequest(body, CONFIG.SLM_BRAIN_MODEL)
-      : parseAnthropicRequest(body, CONFIG.SLM_BRAIN_MODEL);
-
-    /** Capture the client's model string for attribution (e.g. 'gemini-2.5-pro') */
-    const inboundModel = typeof body?.model === 'string' ? body.model : undefined;
-
-    const routePolicy = (req.headers['x-slm-route'] as string) || 'auto';
-    if (!['raw', 'auto', 'force-local'].includes(routePolicy)) {
-      res.writeHead(400).end('Invalid x-slm-route header');
-      return;
-    }
-
-    const result = await processPipeline(reqId, internalReq, { routePolicy: routePolicy as any });
-
-    // Ledger Event
-    const event: LedgerEvent = {
-      ts: new Date().toISOString(),
-      layer: 'llm',
-      request_id: reqId,
-      route: result.route,
-      is_local_call: result.isLocal ? 1 : 0,
-      slm_model: result.isLocal ? result.model : undefined,
-      api_model: result.isLocal ? undefined
-        : (result.model && result.model !== 'unknown' ? result.model : inboundModel),
-      in_tok: result.isLocal ? result.inTok : 0,
-      out_tok: result.isLocal ? result.outTok : 0,
-      api_in_tok: result.apiInTok,
-      api_out_tok: result.apiOutTok,
-      cost_usd: result.costUsd,
-      slm_latency_s: result.slmLatency,
-      api_latency_s: result.apiLatency,
-      verifier_flags: JSON.stringify(result.verifierFlags),
-      slm_gate: 'on',
-      meta: JSON.stringify({ 
-        raw_in_tok: result.inTok,
-        category: result.category,
-        local_attempted: result.localAttempted ? 1 : 0,
-        local_accepted: result.localAccepted ? 1 : 0,
-        prompt_chars: result.promptChars,
-        prompt_tok_est: result.promptTokEst,
-        has_code_fence: result.hasCodeFence ? 1 : 0
-      })
-    };
-    writeEvent(event);
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('x-correlation-id', reqId);
-
-    if (internalReq.stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      if (result.isLocal) {
-        // Stream the locally buffered answer
-        const localAnswer = result.body.choices[0].message.content;
-        
-        if (inboundFormat === 'openai') {
-          res.write(formatOpenAIStreamChunk(reqId, result.model, localAnswer));
-          res.write(formatOpenAIStreamChunk(reqId, result.model, '', 'stop', {
-            prompt_tokens: result.inTok,
-            completion_tokens: result.outTok,
-            total_tokens: result.inTok + result.outTok
-          }));
-          res.write(OPENAI_STREAM_DONE);
-        } else {
-          res.write(formatAnthropicStreamChunk('', true, false));
-          res.write(formatAnthropicStreamChunk(localAnswer, false, false));
-          res.write(formatAnthropicStreamChunk('', false, true, {
-            input_tokens: result.inTok,
-            output_tokens: result.outTok
-          }));
-        }
-        res.end();
-      } else {
-        // Forward cloud stream
-        if (result.body && typeof result.body.pipeTo === 'function') {
-          // It's a web stream (from fetch)
-          const reader = result.body.getReader();
-          const decoder = new TextDecoder();
-          
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunkText = decoder.decode(value, { stream: true });
-            
-            // If the inbound format matches the outbound format, we can just pipe directly.
-            // If they differ, we theoretically need a full SSE parser and translator.
-            // The plan specified keeping inbound and outbound decoupled. 
-            // For simplicity, we assume matching formats or direct pass-through for now,
-            // as cross-provider streaming translation requires a stateful SSE parser.
-            // A full implementation would parse chunk events and re-emit them.
-            res.write(chunkText);
-          }
-          res.end();
-        } else {
-          // Unexpected non-stream response body
-          res.end();
-        }
+  const chunks: Buffer[] = [];
+  req.on('data', (chunk: Buffer) => chunks.push(chunk));
+  req.on('end', () => {
+    handleRequest({ req, res, reqId, body: Buffer.concat(chunks) }).catch(err => {
+      // Only a ledger or programming error reaches here; the response may already be complete.
+      console.error('LLM Gate Error:', err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { type: 'slm_gate_error', message: err instanceof Error ? err.message : String(err) } }));
       }
-    } else {
-      res.setHeader('Content-Type', 'application/json');
-      if (result.isLocal) {
-        // Convert the generic body to the appropriate inbound format
-        if (inboundFormat === 'anthropic') {
-          res.end(JSON.stringify({
-            id: reqId,
-            type: 'message',
-            role: 'assistant',
-            model: result.model,
-            content: [{ type: 'text', text: result.body.choices[0].message.content }],
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            usage: {
-              input_tokens: result.inTok,
-              output_tokens: result.outTok
-            }
-          }));
-        } else {
-          // Return OpenAI standard
-          res.end(JSON.stringify({
-            id: reqId,
-            object: 'chat.completion',
-            created: Math.floor(Date.now() / 1000),
-            model: result.model,
-            choices: [{
-              index: 0,
-              message: result.body.choices[0].message,
-              finish_reason: 'stop'
-            }],
-            usage: {
-              prompt_tokens: result.inTok,
-              completion_tokens: result.outTok,
-              total_tokens: result.inTok + result.outTok
-            }
-          }));
-        }
-      } else {
-        // Just forward the API response JSON directly since we used CLOUD_API_STYLE matching INBOUND,
-        // or we expect the user to configure matching styles, OR we need to translate.
-        // For MVP, if it's already an object, send it.
-        res.end(JSON.stringify(result.body));
-      }
-    }
-
-  } catch (err: any) {
-    console.error('LLM Gate Error:', err);
-    res.writeHead(500).end(JSON.stringify({ error: err.message }));
-  }
+    });
+  });
+  // The client dropped while still sending: nothing was forwarded, so there is nothing to record.
+  req.on('error', () => res.destroy());
 });

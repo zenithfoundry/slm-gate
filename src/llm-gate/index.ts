@@ -1,7 +1,12 @@
 import { server } from './server.js';
 import { CONFIG } from '../config.js';
 import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
-import { logLedgerInfo } from '../ledger/index.js';
+import { getDb, logLedgerInfo } from '../ledger/index.js';
+
+// Ledger writes are synchronous. With better-sqlite3's default 5 s busy wait, another process
+// holding the ledger's write lock would freeze every stream through the gate. Wait briefly instead;
+// a row that still cannot be written is logged and dropped (see recordRequest in server.ts).
+const LEDGER_BUSY_TIMEOUT_MS = 100;
 
 /**
  * Entry point for the `llm-gate` layer.
@@ -17,8 +22,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
 
   logLedgerInfo('llm-gate');
+  getDb().pragma(`busy_timeout = ${LEDGER_BUSY_TIMEOUT_MS}`);
   server.listen(CONFIG.LLM_GATE_PORT, () => {
-    console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (inbound: ${CONFIG.LLM_GATE_EXPOSE.join(', ')}). sinks: [${sinks.join(', ')}]`);
+    console.error(`LLM Gate running on port ${CONFIG.LLM_GATE_PORT} (pass-through: anthropic, chat-completions, responses, gemini). sinks: [${sinks.join(', ')}]`);
   });
 
   installLangfuseFlushLifecycle('llm-gate');

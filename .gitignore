@@ -36,3 +36,4 @@ harness/.venv/
 .ai
 .agents
 .loop-out/
+.dev-team

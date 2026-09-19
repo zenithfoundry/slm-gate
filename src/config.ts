@@ -77,6 +77,12 @@ const envSchema = z.object({
   // STEP 4
   LLM_GATE_PORT: parseInteger(8787),
   LLM_GATE_EXPOSE: parseStringArray(['openai', 'anthropic']),
+  // Where the model gate forwards each wire format. Built in; override only when your requests
+  // must already go through a company gateway. The tool's own login is forwarded either way.
+  UPSTREAM_ANTHROPIC_URL: z.string().url().default('https://api.anthropic.com'),
+  UPSTREAM_OPENAI_URL: z.string().url().default('https://api.openai.com/v1'),
+  UPSTREAM_CHATGPT_URL: z.string().url().default('https://chatgpt.com/backend-api/codex'),
+  UPSTREAM_GEMINI_URL: z.string().url().default('https://generativelanguage.googleapis.com'),
   DOWNSTREAM_MCP: parseDownstreamMcp(),
   MCP_GATE_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
   MCP_GATE_PORT: parseInteger(8788),
