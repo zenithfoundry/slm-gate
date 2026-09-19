@@ -25,6 +25,7 @@
 import Database from 'better-sqlite3';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -57,6 +58,11 @@ interface Expectation {
    * may be rejected with 400 (Anthropic's answer to changed history under earlier thinking).
    */
   distillCheck?: boolean;
+  /**
+   * A Step A check (runs only with --gate): the first request must be answered by the local model. Every
+   * other check fails if any of its requests was answered locally — they all need the provider.
+   */
+  localAnswerCheck?: boolean;
 }
 
 interface AutoCheck extends Expectation {
@@ -252,6 +258,34 @@ const CHECKS: Check[] = [
       '-p', 'Step 1: search the src directory for the text "import" with your search tool and look at every match. Step 2: after you have those results, read the first file they mention. Step 3: after that, read ./package.json. Reply with only the value of its "name" field.',
       '--approval-mode', 'plan', '--skip-trust',
     ],
+    env: { GOOGLE_GEMINI_BASE_URL: BASE_URL },
+    requiredEnv: ['GEMINI_API_KEY'],
+    skipReason: () => geminiAuthType() === 'gemini-api-key'
+      ? null
+      : 'Gemini CLI is not on API-key auth; set security.auth.selectedType to "gemini-api-key" in ~/.gemini/settings.json',
+  },
+  {
+    kind: 'auto',
+    id: 'claude-code-local-first',
+    title: 'Claude Code through Step A: "Say hi" answered by the local model',
+    pathPrefix: '/v1/messages',
+    credential: 'anthropic-oauth',
+    toolStep: false,
+    localAnswerCheck: true,
+    findBinary: findClaude,
+    args: ['-p', 'Say hi', '--model', 'sonnet', '--strict-mcp-config', '--no-session-persistence'],
+    env: { ...OUTER_CLAUDE_SESSION, ANTHROPIC_BASE_URL: BASE_URL, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
+  },
+  {
+    kind: 'auto',
+    id: 'gemini-cli-local-first',
+    title: 'Gemini CLI through Step A: "Say hi" answered by the local model',
+    pathPrefix: '/v1beta/',
+    credential: 'any',
+    toolStep: false,
+    localAnswerCheck: true,
+    findBinary: () => onPath('gemini'),
+    args: ['-p', 'Say hi', '--approval-mode', 'plan', '--skip-trust'],
     env: { GOOGLE_GEMINI_BASE_URL: BASE_URL },
     requiredEnv: ['GEMINI_API_KEY'],
     skipReason: () => geminiAuthType() === 'gemini-api-key'
@@ -539,6 +573,13 @@ function judge(params: { check: Check; entries: LogEntry[]; run?: { exitCode: nu
       const succeeded = mine.filter(e => statusOf(e) >= 200 && statusOf(e) < 300).length;
       const needed = check.toolStep === false ? 1 : 2;
       if (succeeded < needed) notes.push(`FAIL: ${succeeded} successful model request(s); a tool step needs at least ${needed}`);
+      const answeredLocally = mine.filter(e => e.route === 'defer_local').length;
+      if (check.localAnswerCheck) {
+        notes.push(`${answeredLocally} request(s) answered by the local model`);
+        if (answeredLocally === 0) notes.push('FAIL: the first request was not answered locally');
+      } else if (answeredLocally > 0) {
+        notes.push('FAIL: a request that needed the provider was answered locally');
+      }
       if (check.distillCheck) {
         const distilled = mine.filter(e => e.route === 'forward_compressed').length;
         notes.push(`${distilled} request(s) went out distilled`);
@@ -560,7 +601,12 @@ function judge(params: { check: Check; entries: LogEntry[]; run?: { exitCode: nu
 
   if (run) {
     if (run.exitCode !== 0) notes.push(`FAIL: tool exited with code ${run.exitCode}`);
-    if (!run.output.includes(EXPECTED_ANSWER)) notes.push(`FAIL: answer did not contain "${EXPECTED_ANSWER}"`);
+    if (check.localAnswerCheck) {
+      if (!run.output.trim()) notes.push('FAIL: the tool printed no answer');
+      else notes.push(`answer: ${scrub(run.output).trim().slice(0, 80)}`);
+    } else if (!run.output.includes(EXPECTED_ANSWER)) {
+      notes.push(`FAIL: answer did not contain "${EXPECTED_ANSWER}"`);
+    }
     const problem = check.kind === 'auto' ? check.outputCheck?.(run.output) : null;
     if (problem) notes.push(problem);
   }
@@ -621,7 +667,10 @@ async function runCheck(check: Check, prompt: readline.Interface): Promise<Outco
   if (!binary) return { result: 'SKIP', notes: ['tool not installed'] };
   const missing = (check.requiredEnv ?? []).filter(name => !process.env[name]);
   if (missing.length > 0) return { result: 'SKIP', notes: [`not set: ${missing.join(', ')}`] };
-  if (check.distillCheck && !THROUGH_GATE) return { result: 'SKIP', notes: ['a distillation check; runs only with --gate'] };
+  if ((check.distillCheck || check.localAnswerCheck) && !THROUGH_GATE) return { result: 'SKIP', notes: ['a gate check; runs only with --gate'] };
+  if (check.localAnswerCheck && !(await waitForLocalModel())) {
+    return { result: 'FAIL', notes: ['FAIL: the gate never answered a probe locally within 60 s (is Ollama running with SLM_BRAIN_MODEL?)'] };
+  }
   const reason = check.skipReason?.();
   if (reason) return { result: 'SKIP', notes: [reason] };
 
@@ -633,6 +682,28 @@ async function runCheck(check: Check, prompt: readline.Interface): Promise<Outco
   const outcome = judge({ check, entries: entriesSince(mark), run });
   if (outcome.result === 'FAIL') outcome.notes.push(`tool output (tail): ${scrub(run.output).trim().slice(-400)}`);
   return outcome;
+}
+
+/**
+ * Waits until the gate answers a first request locally, i.e. the local model is loaded (a cold model
+ * takes longer than LOCAL_ATTEMPT_BUDGET_MS, and the gate then rightly forwards). Until then the probe is
+ * forwarded like any request (no key: the provider refuses it).
+ */
+async function waitForLocalModel(timeoutMs = 60_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const answeredLocally = await new Promise<boolean>(resolve => {
+      const req = http.request({ host: '127.0.0.1', port: PORT, method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json' } }, res => {
+        res.resume();
+        res.on('end', () => resolve(res.headers['x-slm-gate-route'] === 'defer_local'));
+      });
+      req.on('error', () => resolve(false));
+      req.end(JSON.stringify({ model: 'probe', messages: [{ role: 'user', content: 'Say hi' }] }));
+    });
+    if (answeredLocally) return true;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  return false;
 }
 
 /** Starts the spike, or with --gate the real llm-gate, and resolves once it is listening. */

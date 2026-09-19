@@ -6,7 +6,8 @@
  * the same id (or, without ids, the latest earlier call of that name). Thought signatures are sibling
  * keys on model parts: parts are never merged, split, reordered or rebuilt, only the one string changes.
  */
-import { JsonObject, ToolResult } from './contract.js';
+import crypto from 'node:crypto';
+import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, typedText } from './contract.js';
 
 /** contents[content].parts[part].functionResponse.response.output */
 export interface GeminiToolResultLocation {
@@ -58,4 +59,32 @@ export function replaceToolResultText(params: { body: JsonObject; location: Gemi
   };
   contents[content] = { ...contents[content], parts };
   return { ...body, contents };
+}
+
+export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null {
+  const contents: any[] = Array.isArray(body?.contents) ? body.contents : [];
+  if (contents.some(content => content?.role === 'model')) return null;
+  const config = body.generationConfig ?? {};
+  if (config.responseSchema || config.responseJsonSchema || config.responseMimeType === 'application/json') return null;
+  if (body.toolConfig?.functionCallingConfig?.mode === 'ANY') return null;
+
+  const lastUser = [...contents].reverse().find(content => content?.role === 'user' || content?.role === undefined);
+  const parts: any[] = Array.isArray(lastUser?.parts) ? lastUser.parts : [];
+  const text = typedText(parts.filter(part => typeof part?.text === 'string' && !part.thought).map(part => part.text));
+  const toolsListed = Array.isArray(body.tools) && body.tools.some((tool: any) => !Array.isArray(tool?.functionDeclarations) || tool.functionDeclarations.length > 0);
+  return text ? { text, toolsListed } : null;
+}
+
+export function buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply {
+  const { text, stream, model, usage } = params;
+  const reply = {
+    candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: 'STOP', index: 0 }],
+    usageMetadata: { promptTokenCount: usage.inputTokens, candidatesTokenCount: usage.outputTokens, totalTokenCount: usage.inputTokens + usage.outputTokens },
+    modelVersion: model,
+    responseId: `slmgate-${crypto.randomUUID()}`,
+  };
+  // Streamed replies are server-sent events (`?alt=sse`), which is what Gemini CLI asks for.
+  return stream
+    ? { contentType: 'text/event-stream', body: `data: ${JSON.stringify(reply)}\r\n\r\n` }
+    : { contentType: 'application/json; charset=UTF-8', body: JSON.stringify(reply) };
 }

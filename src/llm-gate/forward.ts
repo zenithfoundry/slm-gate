@@ -20,6 +20,8 @@ export interface UpstreamRoute {
   generation: boolean;
   /** Gemini names the model in the path instead of the body. */
   pathModel?: string;
+  /** Gemini streams per path: server-sent events with `?alt=sse`, otherwise a JSON array. */
+  geminiStream?: 'sse' | 'json-array';
 }
 
 export interface ForwardOutcome {
@@ -101,6 +103,9 @@ export function resolveUpstream(params: { pathAndQuery: string; headers: http.In
     url: upstreamUrl({ base: CONFIG.UPSTREAM_GEMINI_URL, path: pathname, search }),
     generation: gemini[2] !== 'countTokens',
     pathModel: gemini[1],
+    ...(gemini[2] === 'streamGenerateContent'
+      ? { geminiStream: new URLSearchParams(search).get('alt') === 'sse' ? 'sse' as const : 'json-array' as const }
+      : {}),
   };
 }
 

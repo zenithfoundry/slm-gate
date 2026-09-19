@@ -5,10 +5,11 @@ import { estimateTokens } from '../utils/elision.js';
 import { DistillStats, distilRequest } from './distill.js';
 import * as anthropic from './formats/anthropic.js';
 import * as chatCompletions from './formats/chat-completions.js';
-import { WireFormatModule } from './formats/contract.js';
+import { JsonObject, WireFormatModule } from './formats/contract.js';
 import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
+import { answerFirstRequestLocally } from './local-first.js';
 
 const FORMATS: Record<WireFormat, WireFormatModule> = {
   anthropic,
@@ -32,21 +33,83 @@ function requestModel(route: UpstreamRoute, body: Buffer): string | undefined {
   }
 }
 
+function parseJsonObject(body: Buffer): JsonObject | null {
+  try {
+    const parsed = JSON.parse(body.toString('utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How a Step A attempt went, for the ledger row of the request (answered locally or forwarded). */
+interface LocalStep {
+  reply: { contentType: string; body: string; answer: string; model: string } | null;
+  latencyMs: number;
+  verifierFlags: string[];
+  /** Ledger meta fields; names match the ones the dashboards already read. */
+  meta: Record<string, unknown>;
+}
+
+/**
+ * Step A: a first request the local model answers itself, in the request's own format. Anything else —
+ * a later request, structured output, a busy or slow local model, a declined or rejected answer —
+ * returns no reply and the request goes on unchanged.
+ */
+async function localFirst(params: { route: UpstreamRoute; parsed: JsonObject; body: Buffer }): Promise<LocalStep | null> {
+  const { route, parsed, body } = params;
+  const format = FORMATS[route.format];
+  const prompt = format.firstRequestPrompt(parsed);
+  // Gemini's JSON-array streaming (no `alt=sse`) is left to the provider.
+  if (!prompt || route.geminiStream === 'json-array') return null;
+  const stream = route.format === 'gemini' ? route.geminiStream === 'sse' : parsed.stream === true;
+
+  const started = Date.now();
+  let local: Awaited<ReturnType<typeof answerFirstRequestLocally>>;
+  try {
+    local = await answerFirstRequestLocally({ task: prompt.text, toolsListed: prompt.toolsListed });
+  } catch (err) {
+    // Step A can only make a request cheaper; if it fails in any way the request goes on as normal.
+    console.error(`LLM Gate: local answer skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+  const { attempt, outcome } = local;
+  const step: LocalStep = {
+    reply: null,
+    latencyMs: Date.now() - started,
+    verifierFlags: attempt?.verifierFlags ?? [],
+    meta: {
+      local_outcome: outcome,
+      category: attempt?.category ?? null,
+      local_attempted: attempt?.attempted ? 1 : 0,
+      local_accepted: attempt?.accepted ? 1 : 0,
+      from_cache: attempt?.fromCache ? 1 : 0,
+      prompt_chars: prompt.text.length,
+      prompt_tok_est: estimateTokens(prompt.text),
+      has_code_fence: /```/.test(prompt.text) ? 1 : 0,
+    },
+  };
+  if (!attempt || attempt.answer === null) return step;
+
+  const answer = attempt.answer;
+  const reply = format.buildLocalReply({
+    text: answer,
+    stream,
+    model: attempt.model,
+    usage: { inputTokens: estimateTokens(body.toString('utf8')), outputTokens: estimateTokens(answer) },
+  });
+  return { ...step, reply: { ...reply, answer, model: attempt.model } };
+}
+
 /**
  * Step B: the bytes to forward. The original bytes go out whenever nothing changed, the body is not
  * JSON, or distillation fails in any way — it can make a request smaller, never break it.
  */
-async function distilBody(params: { route: UpstreamRoute; body: Buffer }): Promise<{ sent: Buffer; distill: DistillStats | null }> {
-  const { route, body } = params;
-  let parsed: unknown;
+async function distilBody(params: { route: UpstreamRoute; parsed: JsonObject | null; body: Buffer }): Promise<{ sent: Buffer; distill: DistillStats | null }> {
+  const { route, parsed, body } = params;
+  if (!parsed) return { sent: body, distill: null };
   try {
-    parsed = JSON.parse(body.toString('utf8'));
-  } catch {
-    return { sent: body, distill: null };
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { sent: body, distill: null };
-  try {
-    const result = await distilRequest({ format: FORMATS[route.format], body: parsed as Record<string, unknown> });
+    const result = await distilRequest({ format: FORMATS[route.format], body: parsed });
     return { sent: result.body ? Buffer.from(JSON.stringify(result.body)) : body, distill: result.stats };
   } catch (err) {
     console.error(`LLM Gate: distillation skipped for this request: ${err instanceof Error ? err.message : String(err)}`);
@@ -67,18 +130,52 @@ function recordRequest(params: {
   /** What was forwarded, when Step B changed the body. */
   sent?: Buffer;
   distill?: DistillStats | null;
+  /** A Step A attempt that ended without a local reply. */
+  local?: LocalStep | null;
 }): void {
-  const { reqId, path } = params;
+  recordSafely({ reqId: params.reqId, path: params.path, write: () => writeLedgerRow(params) });
+}
+
+function recordSafely(params: { reqId: string; path: string; write: () => void }): void {
   try {
-    writeLedgerRow(params);
+    params.write();
   } catch (err) {
     // Telemetry must never hold up model traffic: the row is lost, the request is not.
-    console.error(`LLM Gate: ledger row for ${reqId} (${path}) not written: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`LLM Gate: ledger row for ${params.reqId} (${params.path}) not written: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
+/** The ledger row of a first request the local model answered: the whole cloud request was avoided. */
+function recordLocalAnswer(params: { reqId: string; path: string; body: Buffer; route: UpstreamRoute; local: LocalStep }): void {
+  const { reqId, path, body, route, local } = params;
+  recordSafely({
+    reqId,
+    path,
+    write: () => writeEvent({
+      ts: new Date().toISOString(),
+      layer: 'llm',
+      request_id: reqId,
+      route: 'defer_local',
+      is_local_call: 1,
+      slm_model: local.reply!.model,
+      // The provider whose request was avoided, for per-provider savings.
+      api_model: requestModel(route, body),
+      in_tok: estimateTokens(body.toString('utf8')),
+      out_tok: estimateTokens(local.reply!.answer),
+      api_in_tok: 0,
+      api_out_tok: 0,
+      cost_usd: 0,
+      slm_latency_s: local.latencyMs / 1000,
+      api_latency_s: 0,
+      verifier_flags: JSON.stringify(local.verifierFlags),
+      slm_gate: 'on',
+      meta: JSON.stringify({ format: route.format, path, status: 200, ...local.meta }),
+    }),
+  });
+}
+
 function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
-  const { reqId, path, body, route, outcome, distill = null } = params;
+  const { reqId, path, body, route, outcome, distill = null, local = null } = params;
   const sent = params.sent ?? body;
   const distilled = sent !== body;
   writeEvent({
@@ -94,10 +191,13 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
     api_in_tok: route ? estimateTokens(sent.toString('utf8')) : 0,
     api_out_tok: 0,
     cost_usd: 0,
-    slm_latency_s: 0,
+    slm_latency_s: (local?.latencyMs ?? 0) / 1000,
     api_latency_s: (outcome.durationMs ?? 0) / 1000,
+    ...(local ? { verifier_flags: JSON.stringify(local.verifierFlags) } : {}),
     slm_gate: 'on',
     meta: JSON.stringify({
+      // A Step A attempt that did not answer: ROUTING_TUNE learns from local_attempted/local_accepted.
+      ...(local?.meta ?? {}),
       format: route?.format ?? null,
       path,
       status: outcome.status,
@@ -136,13 +236,24 @@ async function handleRequest(params: {
     return;
   }
 
-  const { sent, distill } = route.generation && CONFIG.LLM_GATE_DISTILL
-    ? await distilBody({ route, body })
+  const parsed = route.generation ? parseJsonObject(body) : null;
+
+  const local = parsed && CONFIG.LLM_GATE_LOCAL_FIRST ? await localFirst({ route, parsed, body }) : null;
+  if (local?.reply) {
+    res.writeHead(200, { 'content-type': local.reply.contentType, 'x-slm-gate-route': 'defer_local' });
+    res.end(local.reply.body);
+    console.info(`LLM Gate: ${req.method} ${path} -> answered locally by ${local.reply.model} in ${local.latencyMs}ms`);
+    recordLocalAnswer({ reqId, path, body, route, local });
+    return;
+  }
+
+  const { sent, distill } = CONFIG.LLM_GATE_DISTILL
+    ? await distilBody({ route, parsed, body })
     : { sent: body, distill: null };
   const outcome = await forwardRequest({ req, res, body: sent, route });
   const saved = sent === body ? '' : `, distilled ${body.length} -> ${sent.length} bytes`;
   console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${saved}${outcome.clientAborted ? ' (client aborted)' : ''}`);
-  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill });
+  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local });
 }
 
 /**

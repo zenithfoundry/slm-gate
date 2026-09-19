@@ -5,7 +5,8 @@
  * is a string or an array of parts whose `text` parts are the text. The call is the entry with the
  * same id in a preceding assistant message's `tool_calls`; its `arguments` is a JSON string.
  */
-import { JsonObject, ToolResult } from './contract.js';
+import crypto from 'node:crypto';
+import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, typedText } from './contract.js';
 
 /** messages[message], and the text part when its content is an array. */
 export interface ChatToolResultLocation {
@@ -58,4 +59,49 @@ export function replaceToolResultText(params: { body: JsonObject; location: Chat
     ? { ...target, content: text }
     : { ...target, content: target.content.map((p: any, k: number) => (k === part ? { ...p, text } : p)) };
   return { ...body, messages };
+}
+
+export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null {
+  const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
+  if (messages.some(message => message?.role === 'assistant')) return null;
+  if (['json_schema', 'json_object'].includes(body.response_format?.type)) return null;
+  if (body.tool_choice === 'required' || (body.tool_choice && typeof body.tool_choice === 'object')) return null;
+
+  const lastUser = [...messages].reverse().find(message => message?.role === 'user');
+  const content = lastUser?.content;
+  const texts = typeof content === 'string'
+    ? [content]
+    : Array.isArray(content)
+      ? content.filter((part: any) => part?.type === 'text' && typeof part.text === 'string').map((part: any) => part.text)
+      : [];
+  const text = typedText(texts);
+  const toolsListed = (Array.isArray(body.tools) && body.tools.length > 0) || (Array.isArray(body.functions) && body.functions.length > 0);
+  return text ? { text, toolsListed } : null;
+}
+
+export function buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply {
+  const { text, stream, model, usage } = params;
+  const id = `chatcmpl-slmgate-${crypto.randomUUID().replace(/-/g, '')}`;
+  const created = Math.floor(Date.now() / 1000);
+  const tokens = { prompt_tokens: usage.inputTokens, completion_tokens: usage.outputTokens, total_tokens: usage.inputTokens + usage.outputTokens };
+  if (!stream) {
+    return {
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id,
+        object: 'chat.completion',
+        created,
+        model,
+        choices: [{ index: 0, message: { role: 'assistant', content: text }, logprobs: null, finish_reason: 'stop' }],
+        usage: tokens,
+      }),
+    };
+  }
+  const chunk = (delta: object, finishReason: string | null, extra: object = {}) =>
+    `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, logprobs: null, finish_reason: finishReason }], ...extra })}\n\n`;
+  return {
+    contentType: 'text/event-stream; charset=utf-8',
+    // Usage rides on the final chunk, so clients that asked for it get it and the rest ignore it.
+    body: chunk({ role: 'assistant', content: '' }, null) + chunk({ content: text }, null) + chunk({}, 'stop', { usage: tokens }) + 'data: [DONE]\n\n',
+  };
 }

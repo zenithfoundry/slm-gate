@@ -70,6 +70,8 @@ async function main() {
       ...process.env,
       LLM_GATE_PORT: String(llmGatePort),
       UPSTREAM_OPENAI_URL: `http://127.0.0.1:${upstreamPort}/v1`,
+      // This test is about routing; its first request ("Say hello!") must not be answered locally.
+      LLM_GATE_LOCAL_FIRST: 'false',
       // Keep test rows out of the real ledger and away from Langfuse.
       LEDGER_PATH: path.join(os.tmpdir(), `slm-gate-e2e-routing-${process.pid}.sqlite`),
       LANGFUSE_PUBLIC_KEY: '',

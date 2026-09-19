@@ -3,7 +3,13 @@ import http from 'node:http';
 import { AddressInfo } from 'node:net';
 
 // The distiller's rules shrink these logs without the local model; the fake guarantees no Ollama call.
-jest.unstable_mockModule('../../src/models/reasoning.js', () => ({ compressNarrativeRun: jest.fn(async () => 'summary') }));
+// classify and checkAgreement are imported through Step A; these requests are never first requests, so
+// neither is called.
+jest.unstable_mockModule('../../src/models/reasoning.js', () => ({
+  compressNarrativeRun: jest.fn(async () => 'summary'),
+  classify: jest.fn(async () => 'other'),
+  checkAgreement: jest.fn(() => null),
+}));
 
 let lastBody = '';
 let upstream: http.Server;

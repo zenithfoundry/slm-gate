@@ -18,6 +18,23 @@ import { writeReport } from './report.js';
 import { processPipeline, waitWithBackoff } from '../src/llm-gate/pipeline.js';
 import { InternalRequest } from '../src/llm-gate/formats/internal.js';
 
+/**
+ * `--tools-listed`: every task is sent with a tool list, as a coding tool's request is, so the run
+ * measures the narrow local-answer branch real traffic takes (see src/llm-gate/local-first.ts). Its
+ * results are cached apart from default runs, which stay comparable with earlier ones.
+ */
+const TOOLS_LISTED = process.argv.includes('--tools-listed');
+const BENCH_TOOLS = [{ name: 'Bash' }, { name: 'Read' }, { name: 'Grep' }];
+
+/** The request a task is sent as. */
+function benchRequest(prompt: string, toolsListed: boolean): InternalRequest {
+  return {
+    model: CONFIG.CLOUD_MODEL || 'unknown',
+    messages: [{ role: 'user', content: prompt }],
+    ...(toolsListed ? { tools: BENCH_TOOLS } : {}),
+  };
+}
+
 const CACHE_DIR = path.join(CONFIG.ROOT_DIR, 'harness', '.cache');
 const OUTPUT_DIR = CONFIG.OUTPUT_DIR;
 
@@ -45,7 +62,7 @@ interface CacheEntry {
 }
 
 function getCachePath(taskId: string, route: string) {
-  return path.join(CACHE_DIR, `synthetic_${taskId}_${route}.json`);
+  return path.join(CACHE_DIR, `synthetic_${taskId}_${route}${TOOLS_LISTED ? '_tools' : ''}.json`);
 }
 
 /**
@@ -87,14 +104,12 @@ function writeCache(taskId: string, route: string, entry: CacheEntry) {
  */
 async function callLlmGate(prompt: string, routeHeader: string, taskId?: string): Promise<{ answer: string, reqId: string | null, error?: string, cost?: number, inTokens?: number, outTokens?: number, route?: LedgerEvent['route'] }> {
   try {
-    const req: InternalRequest = {
-      model: CONFIG.CLOUD_MODEL || 'unknown',
-      messages: [{ role: 'user', content: prompt }]
-    };
+    const req = benchRequest(prompt, TOOLS_LISTED);
     const reqId = crypto.randomUUID();
-    const res = await processPipeline(reqId, req, { 
+    const res = await processPipeline(reqId, req, {
       routePolicy: routeHeader as any,
-      localModel: CONFIG.SLM_GATE_TESTING_MODEL
+      localModel: CONFIG.SLM_GATE_TESTING_MODEL,
+      environment: BENCH_ENVIRONMENT
     });
 
     const event: LedgerEvent = {
@@ -344,4 +359,4 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-export { CacheEntry, getCachePath, readCache, writeCache };
+export { benchRequest, CacheEntry, getCachePath, readCache, writeCache };

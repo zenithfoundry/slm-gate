@@ -9,6 +9,9 @@ import zlib from 'node:zlib';
  * are imported. Gemini points at a closed port to exercise the unreachable-upstream path.
  */
 
+// These tests are about pass-through; their first requests ("hi") must not be answered locally.
+process.env.LLM_GATE_LOCAL_FIRST = 'false';
+
 interface Received {
   method?: string;
   url?: string;

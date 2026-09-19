@@ -21,8 +21,45 @@ export interface ToolResult<L> {
   newTurn: boolean;
 }
 
+/** The typed prompt of a first request that a plain local reply could answer. */
+export interface FirstRequestPrompt {
+  text: string;
+  /** The request offers the model tools (coding tools almost always do). */
+  toolsListed: boolean;
+}
+
+/** A complete reply the gate sends itself, in the request's wire format. */
+export interface LocalReply {
+  contentType: string;
+  body: string;
+}
+
 export interface WireFormatModule<L = any> {
   listToolResults(body: JsonObject): ToolResult<L>[];
   /** Returns a new body with only that one text replaced; the input is never modified. */
   replaceToolResultText(params: { body: JsonObject; location: L; text: string }): JsonObject;
+  /**
+   * The typed prompt when this is the first request of a conversation and a plain-text reply could
+   * end the turn; null when there is an earlier model turn, structured output is demanded, a tool call is
+   * forced, or there is no typed text.
+   */
+  firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null;
+  /** A final text reply that ends the turn, streamed (SSE) or as one JSON body. */
+  buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply;
+}
+
+// Coding tools inject context as blocks wrapped in one tag (<system-reminder>…</system-reminder>,
+// <ide_opened_file>…</ide_opened_file>, <environment_context>…</environment_context>).
+const INJECTED_BLOCK = /^\s*<([A-Za-z][\w-]*)[^>]*>[\s\S]*<\/\1>\s*$/;
+
+/**
+ * What the person typed, from the text parts of the latest user entry: the last part that is not one
+ * injected tag-wrapped block. Shared by the format modules.
+ */
+export function typedText(texts: string[]): string | null {
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const text = texts[i].trim();
+    if (text && !INJECTED_BLOCK.test(text)) return text;
+  }
+  return null;
 }

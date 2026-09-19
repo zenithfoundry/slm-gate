@@ -1,4 +1,5 @@
-import { JsonObject, ToolResult } from './contract.js';
+import crypto from 'node:crypto';
+import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, typedText } from './contract.js';
 import { InternalRequest, InternalMessage } from './internal.js';
 
 /**
@@ -159,4 +160,52 @@ export function replaceToolResultText(params: { body: JsonObject; location: Anth
     : { ...result, content: result.content.map((p: any, k: number) => (k === part ? { ...p, text } : p)) };
   messages[message] = { ...messages[message], content };
   return { ...body, messages };
+}
+
+export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null {
+  const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
+  if (messages.some(message => message?.role === 'assistant')) return null;
+  // Structured output (Claude Code's title side request) or a forced tool call cannot be a text reply.
+  if (body.output_config?.format || body.output_format) return null;
+  if (body.tool_choice?.type === 'any' || body.tool_choice?.type === 'tool') return null;
+
+  const lastUser = [...messages].reverse().find(message => message?.role === 'user');
+  const content = lastUser?.content;
+  const texts = typeof content === 'string'
+    ? [content]
+    : Array.isArray(content)
+      ? content.filter((block: any) => block?.type === 'text' && typeof block.text === 'string').map((block: any) => block.text)
+      : [];
+  const text = typedText(texts);
+  return text ? { text, toolsListed: Array.isArray(body.tools) && body.tools.length > 0 } : null;
+}
+
+export function buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply {
+  const { text, stream, model, usage } = params;
+  const message = {
+    id: `msg_slmgate_${crypto.randomUUID().replace(/-/g, '')}`,
+    type: 'message',
+    role: 'assistant',
+    model,
+    content: [{ type: 'text', text }],
+    stop_reason: 'end_turn',
+    stop_sequence: null,
+    usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
+  };
+  if (!stream) return { contentType: 'application/json', body: JSON.stringify(message) };
+
+  const event = (name: string, data: unknown) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+  return {
+    contentType: 'text/event-stream; charset=utf-8',
+    body:
+      event('message_start', {
+        type: 'message_start',
+        message: { ...message, content: [], stop_reason: null, usage: { input_tokens: usage.inputTokens, output_tokens: 1 } },
+      }) +
+      event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) +
+      event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }) +
+      event('content_block_stop', { type: 'content_block_stop', index: 0 }) +
+      event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: usage.outputTokens } }) +
+      event('message_stop', { type: 'message_stop' }),
+  };
 }

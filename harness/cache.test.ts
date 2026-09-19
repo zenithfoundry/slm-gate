@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import fs from 'node:fs';
 import { CONFIG } from '../src/config.js';
-import { getCachePath, readCache, writeCache } from './run';
+import { benchRequest, getCachePath, readCache, writeCache } from './run';
+
+describe('harness requests', () => {
+  it('sends a tool list only for --tools-listed runs', () => {
+    expect(benchRequest('hi', true).tools?.length).toBeGreaterThan(0);
+    expect(benchRequest('hi', false).tools).toBeUndefined();
+    expect(benchRequest('hi', false).messages).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+});
 
 describe('harness cache logic', () => {
   const taskId = 'test_cache_id';

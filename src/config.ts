@@ -81,6 +81,11 @@ const envSchema = z.object({
   // the gate a plain pass-through; ongoing conversations then resend their distilled history in full
   // once (one prompt-cache miss, and Claude drops its earlier thinking once).
   LLM_GATE_DISTILL: parseBoolean(true),
+  // Offer the first request of a conversation to the local model (Step A). Off sends every request on.
+  LLM_GATE_LOCAL_FIRST: parseBoolean(true),
+  // How long a first request may wait for a local answer before it goes on; the attempt is then cancelled.
+  // A warm local answer (3 samples) measured 3.8 s; deciding a coding task is not eligible takes ~0.25 s.
+  LOCAL_ATTEMPT_BUDGET_MS: parseInteger(6000),
   // Where the model gate forwards each wire format. Built in; override only when your requests
   // must already go through a company gateway. The tool's own login is forwarded either way.
   UPSTREAM_ANTHROPIC_URL: z.string().url().default('https://api.anthropic.com'),

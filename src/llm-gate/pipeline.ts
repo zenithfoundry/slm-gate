@@ -1,21 +1,20 @@
-import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
+import { setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
-import { LedgerEvent, getDb } from '../ledger/index.js';
-import { handleSlmError } from '../models/helpers.js';
-import { classify } from '../models/reasoning.js';
-import { SLM } from '../models/slm.js';
+import { LedgerEvent } from '../ledger/index.js';
 import { calculateCostUsd } from '../pricing/index.js';
 import { waitWithBackoff as sharedWaitWithBackoff } from '../utils/backoff.js';
 import { compressContext } from '../utils/compression.js';
 import { isLatestInstructionFromTool } from '../utils/safety.js';
-import { verify } from '../verifier/index.js';
 import { buildAnthropicRequest } from './formats/anthropic.js';
 import { InternalMessage, InternalRequest } from './formats/internal.js';
 import { buildOpenAIRequest } from './formats/openai.js';
+import { attemptLocalAnswer } from './local-first.js';
 
 export interface PipelineOptions {
   routePolicy: 'raw' | 'auto' | 'force-local';
   localModel?: string;
+  /** Ledger environment ROUTING_TUNE learns from (the harness passes its 'bench' tag). */
+  environment?: string;
 }
 
 export interface PipelineResult {
@@ -97,35 +96,6 @@ function countMessagesTokens(messages: InternalMessage[], system?: string): numb
   return estimateTokens(text);
 }
 
-function getCategorySuccessRate(category: string, window: number, minSamples: number): number | null {
-  try {
-    const db = getDb();
-    const rows = db.prepare(`
-      SELECT json_extract(meta, '$.local_accepted') as accepted
-      FROM events
-      WHERE layer = 'llm'
-        AND json_extract(meta, '$.category') = ?
-        AND json_extract(meta, '$.local_attempted') = 1
-      ORDER BY ts DESC
-      LIMIT ?
-    `).all(category, window) as { accepted: 1 | 0 | null | boolean }[];
-
-    if (rows.length < minSamples) {
-      return null;
-    }
-
-    let acceptedCount = 0;
-    for (const row of rows) {
-      if (row.accepted === 1 || row.accepted === true) {
-        acceptedCount++;
-      }
-    }
-    return acceptedCount / rows.length;
-  } catch (e) {
-    return null; // fail open on error
-  }
-}
-
 /**
  * The core orchestration pipeline for a single LLM Gate request.
  * 
@@ -151,7 +121,6 @@ export async function processPipeline(
   console.info('LLM Gate Pipeline: Started');
 
   const t0 = Date.now();
-  const slm = new SLM();
   const messages = internalReq.messages;
 
   const result: PipelineResult = {
@@ -193,107 +162,27 @@ export async function processPipeline(
   result.promptTokEst = estimateTokens(taskText);
   result.hasCodeFence = /```/.test(taskText);
 
-  // SEMANTIC CACHE check
-  let cachedResponse = null;
-  if (isSafeForLocal && CONFIG.SEMCACHE) {
-    // Only cache if it's read-only. We check this with the heuristics or classification later, 
-    // but a quick check is if it's safe for local (no tools)
-    cachedResponse = await checkSemanticCache(normalizedText);
-    if (cachedResponse) {
-      result.route = 'defer_local'; // or 'cache_hit' if we map it, but defer_local gets correct logging
-      result.isLocal = true;
-      result.model = 'semcache';
-      result.outTok = estimateTokens(cachedResponse);
-      result.costUsd = 0; // The actual cost is $0
-      
-      // add a flag so we can see it in ledger
-      if (!result.verifierFlags) result.verifierFlags = [];
-      result.verifierFlags.push('cache_hit');
-
-      result.body = {
-        choices: [
-          {
-            message: {
-              role: 'assistant',
-              content: cachedResponse
-            }
-          }
-        ]
-      };
-      return result;
-    }
-  }
-
+  // Local answer: the same implementation the model gate uses (local-first.ts), so the bench measures
+  // what ships. It includes the semantic cache, which is therefore only consulted on this path now.
+  let fromCache = false;
   if (routePolicy === 'force-local' || (routePolicy === 'auto' && isSafeForLocal)) {
-    // Attempt local classification
-    let category = 'other';
-    try {
-      if (taskText) {
-        category = await classify(slm, taskText);
-      }
-    } catch (e) {
-      // Classification failed, default to 'other'
-    }
-
-    result.category = category;
-
-    // The `baseAllowList` defines which task categories the SLM is allowed to attempt answering locally.
-    // Small Language Models excel at deterministic, narrow, and structurally simple tasks but struggle with complex reasoning.
-    // Note: This list perfectly mirrors the ENUM output schema defined in `src/models/reasoning.ts` (excluding 'other').
-    // To expand this list with new capabilities (e.g. 'query_rewrite', 'guardrail_check'), we must also update the classify() prompt schema!
-    const baseAllowList = ['classify', 'extract', 'format', 'boolean', 'short_factual', 'trivial_edit'];
-    let isEligible = baseAllowList.includes(category);
-    
-    if (CONFIG.ROUTING_TUNE && isEligible && routePolicy !== 'force-local') {
-      if (Math.random() < CONFIG.ROUTING_TUNE_EXPLORE_RATE) {
-        isEligible = true; // Epsilon-greedy exploration
-      } else {
-        const rate = getCategorySuccessRate(category, CONFIG.ROUTING_TUNE_WINDOW, CONFIG.ROUTING_TUNE_MIN_SAMPLES);
-        if (rate !== null && rate < CONFIG.ROUTING_TUNE_THRESHOLD) {
-          isEligible = false;
-        }
-      }
-    }
-
-    if (routePolicy === 'force-local' || isEligible) {
-      result.localAttempted = true;
-      // Try local answer
-      try {
-        let answer = '';
-        let samples: string[] = [];
-        
-        if (CONFIG.HEADLINE_STRICTNESS >= 4) {
-          // Just run it 3 times sequentially to simulate generating samples
-          // A proper selfConsistency requires structured outputs, but for text we can do it here:
-          const k = CONFIG.SELF_CONSISTENCY_K;
-          const promises = Array.from({ length: k }).map(() =>
-            slm.generateText(localModel, messages, CONFIG.SELF_CONSISTENCY_TEMP)
-          );
-          samples = await Promise.all(promises);
-          answer = samples[0]; // Simplified: just pick first or we could use checkAgreement if we lifted it
-        } else {
-          answer = await slm.generateText(localModel, messages, CONFIG.TEMPERATURE);
-        }
-
-        const vResult = verify(answer, samples, { nonEmpty: true }, CONFIG.HEADLINE_STRICTNESS);
-        result.verifierFlags = vResult.flags;
-        
-        // Note: localAccepted means the VERIFIER accepted the answer (non-empty, no hedging, samples agree) 
-        // — a PROXY for quality, not ground-truth correctness.
-        result.localAccepted = !vResult.escalate;
-
-        if (!vResult.escalate || routePolicy === 'force-local') {
-          localDeferred = true;
-          localAnswer = answer;
-        }
-      } catch (e: any) {
-        if (e.name === 'SlmTimeoutError' || e.message?.includes('fetch failed') || e.code === 'ECONNREFUSED' || e.message?.includes('ECONNREFUSED')) {
-          handleSlmError(e, 'llm-gate:generate', localModel);
-        } else {
-          handleSlmError(e, 'llm-gate:generate', localModel);
-        }
-        // Local generation failed, fall through to escalate
-      }
+    const attempt = await attemptLocalAnswer({
+      task: taskText,
+      messages,
+      toolsListed: (internalReq.tools?.length ?? 0) > 0,
+      routePolicy,
+      localModel,
+      environment: options.environment,
+    });
+    result.category = attempt.category;
+    result.localAttempted = attempt.attempted;
+    result.localAccepted = attempt.accepted;
+    result.verifierFlags = attempt.verifierFlags;
+    if (attempt.answer !== null) {
+      localDeferred = true;
+      localAnswer = attempt.answer;
+      localModel = attempt.model;
+      fromCache = attempt.fromCache;
     }
   }
 
@@ -304,7 +193,7 @@ export async function processPipeline(
     result.isLocal = true;
     result.model = localModel;
     result.outTok = estimateTokens(localAnswer);
-    result.costUsd = calculateCostUsd(localModel, result.inTok, result.outTok);
+    result.costUsd = fromCache ? 0 : calculateCostUsd(localModel, result.inTok, result.outTok);
 
     // Format local answer as a standard completion in the internal format
     // Since we stream in the server based on the return format, here we just return the full response.
