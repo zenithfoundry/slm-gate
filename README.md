@@ -488,7 +488,7 @@ If the file doesn't exist yet, create it. Add (or merge) the following into the 
 }
 ```
 
-> **Important:** For Antigravity, your configuration lives **directly in this JSON block**, not in a `.env` file. The `.env.*.example` preset files in `configs/antigravity/` are reference documents — values you want active must be added to the `"env"` block above.
+> **Important:** For Antigravity, values in this JSON `"env"` block override `slm-gate`'s `.env` for the MCP server inside Antigravity. The model gate reads only `slm-gate`'s `.env`, so copy the preset for your RAM from `configs/antigravity/` to `.env` too, and keep the model settings the same in both places.
 
 **Using Tech-Lead-Stack as your downstream?** Add these two extra keys to the `env` block:
 ```json
@@ -711,7 +711,9 @@ Instead of starting from scratch, find your machine's RAM in the table below and
 | **Generic HTTP** | [`.env.16gb.example`](configs/generic-http/.env.16gb.example) | [`.env.24gb.example`](configs/generic-http/.env.24gb.example) | [`.env.32gb.example`](configs/generic-http/.env.32gb.example) |
 | **Full Reference** | [`.env.example`](.env.example) (all variables, fully documented) | | |
 
-> **Note for Antigravity users:** Your active configuration lives in the `"env"` block of `~/.gemini/config/mcp_config.json`, not in a `.env` file. The preset files above are reference templates — copy the values you need from them into your `mcp_config.json` env block.
+Each preset holds every setting from `.env.example`, with the models and sizes for that amount of RAM. Copy the one for your tool and RAM to `.env` in the `slm-gate` folder.
+
+> **Note for Antigravity users:** values in the `"env"` block of `~/.gemini/config/mcp_config.json` apply to `slm-gate`'s MCP server inside Antigravity and override `.env` there. The model gate reads only `slm-gate`'s `.env`, so keep the model settings the same in both places.
 
 ### The 16 GB Baseline Configuration
 
