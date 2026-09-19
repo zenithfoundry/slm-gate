@@ -97,3 +97,37 @@ export async function compress(
   const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'compress', CONFIG.SLM_TIMEOUT_MS);
   return result.compressedText;
 }
+
+/**
+ * Compresses ONE narrative run for `distillToolResult`, which never sends protected content here, so
+ * this prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and reliably
+ * loses opaque tokens. An explicit word budget is what actually drives the ratio: without it the model
+ * rewords instead of condensing (measured 4-8% vs 44-60%). Shared by the MCP layer and the model gate.
+ *
+ * @param params.slm The local model client
+ * @param params.text The narrative run to compress
+ * @param params.task Optional task context for the model
+ * @returns The compressed run
+ */
+export function compressNarrativeRun(params: { slm: SLM; text: string; task?: string }): Promise<string> {
+  const { slm, text, task } = params;
+  const wordCount = text.trim().split(/\s+/).length;
+  const targetWords = Math.max(20, Math.ceil(wordCount * 0.35));
+  const prompt = `Compress the text below to AT MOST ${targetWords} words.\n\nKeep: every instruction, requirement, constraint, name, number, path and technical specific.\nDelete: background, history, rationale, motivation, repetition and filler.\nOutput ONLY the compressed text as terse bullet points. No preamble, no heading.\n\nTask context: ${task || 'None'}\n\n${text}`;
+  // This was the only model call in the pipeline with neither a token ceiling nor a timeout.
+  // Ollama sends HTTP response headers only AFTER generation completes, so the effective cap
+  // is Node fetch's 300s header timeout surfacing as `fetch failed`, misclassified as a
+  // transport error, long after the MCP client had given up. SLM_TIMEOUT_MS now governs it.
+  // The ceiling is per-run and generous against the target so a summary is never cut mid-
+  // sentence; the run is discarded anyway if it comes back longer than the original.
+  return withSlmTimeout(
+    slm.generateText(
+      CONFIG.SLM_GATE_MODEL,
+      [{ role: 'user', content: prompt }],
+      CONFIG.TEMPERATURE,
+      Math.max(128, Math.ceil(wordCount * 0.6))
+    ),
+    'distill',
+    CONFIG.SLM_TIMEOUT_MS
+  );
+}

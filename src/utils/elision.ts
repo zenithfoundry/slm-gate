@@ -64,6 +64,22 @@ export function formatElisionMarker(elisionId: string, elidedLinesCount: number,
   return `\n... ${elidedLinesCount} lines elided [id: ${elisionId}${rangeStr}] — ${how} ...\n`;
 }
 
+// Matches the retrieval clause formatElisionMarker writes, with or without a range. Kept next to it so
+// a wording change is made in both places; a test pairs them.
+const EXPAND_HINT = /— call expand_elision with this id(?: and range \{"startLine": \d+, "endLine": \d+\})? to retrieve \.\.\./g;
+
+/**
+ * Rewrites the markers in a distilled text for a client that has no `expand_elision` tool (the MCP
+ * layer is optional): the marker still says how many lines are missing, but points the model at
+ * re-running its own tool instead of a tool it cannot call.
+ *
+ * @param text Distilled text containing markers from formatElisionMarker
+ * @returns The same text with every retrieval clause replaced
+ */
+export function rewriteElisionHint(text: string): string {
+  return text.replace(EXPAND_HINT, '— not shown by slm-gate; re-run the tool with a narrower scope to see them ...');
+}
+
 /**
  * Takes as many lines from a range as fit in a token budget, never skipping any.
  *

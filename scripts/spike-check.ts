@@ -52,6 +52,11 @@ interface Expectation {
   credential: Credential;
   /** False for tools that take files on the command line instead of through a tool call (Aider). */
   toolStep?: boolean;
+  /**
+   * A Step B check (runs only with --gate): at least one request must go out distilled, and no request
+   * may be rejected with 400 (Anthropic's answer to changed history under earlier thinking).
+   */
+  distillCheck?: boolean;
 }
 
 interface AutoCheck extends Expectation {
@@ -65,6 +70,8 @@ interface AutoCheck extends Expectation {
   requiredEnv?: string[];
   /** Why the check must not run on this machine (e.g. the tool is on an account login), or null. */
   skipReason?: () => string | null;
+  /** An extra check on the tool's own output; returns what is wrong, or null. */
+  outputCheck?: (output: string) => string | null;
 }
 
 interface ManualCheck extends Expectation {
@@ -77,6 +84,8 @@ type Check = AutoCheck | ManualCheck;
 interface LogEntry {
   path: string;
   status?: number;
+  /** Ledger route (gate only): forward_compressed when the request went out distilled. */
+  route?: string;
   headers?: Record<string, string>;
   query?: Record<string, string>;
   body?: { types?: Record<string, number>; roles?: Record<string, number>; keys?: Record<string, number> };
@@ -135,6 +144,21 @@ const CODEX_ARGS = [
   '-c', 'model_providers.slm-gate-spike.requires_openai_auth=true',
   PROMPT,
 ];
+
+/**
+ * Reads Claude Code's `--output-format json` result: later steps of a session must read the prompt
+ * cache, which only happens when the history before them came back byte-identical.
+ */
+function claudeCacheReads(output: string): string {
+  const line = output.split('\n').find(text => text.startsWith('{') && text.includes('"usage"'));
+  if (!line) return 'FAIL: no JSON result from Claude Code';
+  try {
+    const reads = Number(JSON.parse(line).usage?.cache_read_input_tokens ?? 0);
+    return reads > 0 ? `prompt-cache reads: ${reads} tokens` : 'FAIL: usage shows no prompt-cache reads';
+  } catch {
+    return 'FAIL: unreadable JSON result from Claude Code';
+  }
+}
 
 /** Gemini CLI's selected auth type (security.auth.selectedType), which beats GEMINI_API_KEY. */
 function geminiAuthType(): string | null {
@@ -195,6 +219,41 @@ const CHECKS: Check[] = [
     requiredEnv: ['GEMINI_API_KEY'],
     // Any other auth type (Google login, Vertex, or unset, which the CLI resolves from the
     // environment) would not reach the spike, or would reach it on a login the gate must not route.
+    skipReason: () => geminiAuthType() === 'gemini-api-key'
+      ? null
+      : 'Gemini CLI is not on API-key auth; set security.auth.selectedType to "gemini-api-key" in ~/.gemini/settings.json',
+  },
+  {
+    kind: 'auto',
+    id: 'claude-code-distill',
+    title: 'Claude Code through Step B: large Grep result, then another step',
+    pathPrefix: '/v1/messages',
+    credential: 'anthropic-oauth',
+    distillCheck: true,
+    findBinary: findClaude,
+    args: [
+      // Each step needs the one before, so the distilled Grep result is resent as history at least
+      // twice; a changed byte there would cost the cache read or draw a 400.
+      '-p', 'Step 1: use the Grep tool to search for the word "import" in the src directory (output mode content, no head limit). Step 2: after you have those results, use the Read tool to read the first 5 lines of the first file they mention. Step 3: after that, use the Read tool to read ./package.json. Reply with only the value of its "name" field.',
+      '--model', 'sonnet', '--allowedTools', 'Grep', 'Read', '--strict-mcp-config', '--no-session-persistence', '--output-format', 'json',
+    ],
+    env: { ...OUTER_CLAUDE_SESSION, ANTHROPIC_BASE_URL: BASE_URL, ANTHROPIC_API_KEY: undefined, ANTHROPIC_AUTH_TOKEN: undefined },
+    outputCheck: claudeCacheReads,
+  },
+  {
+    kind: 'auto',
+    id: 'gemini-cli-distill',
+    title: 'Gemini CLI through Step B: large grep_search result, then another step',
+    pathPrefix: '/v1beta/',
+    credential: 'any',
+    distillCheck: true,
+    findBinary: () => onPath('gemini'),
+    args: [
+      '-p', 'Step 1: search the src directory for the text "import" with your search tool and look at every match. Step 2: after you have those results, read the first file they mention. Step 3: after that, read ./package.json. Reply with only the value of its "name" field.',
+      '--approval-mode', 'plan', '--skip-trust',
+    ],
+    env: { GOOGLE_GEMINI_BASE_URL: BASE_URL },
+    requiredEnv: ['GEMINI_API_KEY'],
     skipReason: () => geminiAuthType() === 'gemini-api-key'
       ? null
       : 'Gemini CLI is not on API-key auth; set security.auth.selectedType to "gemini-api-key" in ~/.gemini/settings.json',
@@ -442,9 +501,9 @@ function recordMark(): number {
 /** What was recorded after a mark, in the spike log's shape (the gate's rows carry path and status only). */
 function entriesSince(mark: number): LogEntry[] {
   if (!THROUGH_GATE) return readLogFrom(mark);
-  return queryGateLedger<{ meta: string }>("SELECT meta FROM events WHERE layer = 'llm' AND rowid > ? ORDER BY rowid", mark)
-    .map(row => JSON.parse(row.meta) as { path: string; status: number })
-    .map(meta => ({ path: meta.path, status: meta.status }));
+  return queryGateLedger<{ route: string; meta: string }>("SELECT route, meta FROM events WHERE layer = 'llm' AND rowid > ? ORDER BY rowid", mark)
+    .map(row => ({ route: row.route, meta: JSON.parse(row.meta) as { path: string; status: number } }))
+    .map(({ route, meta }) => ({ path: meta.path, status: meta.status, route }));
 }
 
 /**
@@ -480,6 +539,12 @@ function judge(params: { check: Check; entries: LogEntry[]; run?: { exitCode: nu
       const succeeded = mine.filter(e => statusOf(e) >= 200 && statusOf(e) < 300).length;
       const needed = check.toolStep === false ? 1 : 2;
       if (succeeded < needed) notes.push(`FAIL: ${succeeded} successful model request(s); a tool step needs at least ${needed}`);
+      if (check.distillCheck) {
+        const distilled = mine.filter(e => e.route === 'forward_compressed').length;
+        notes.push(`${distilled} request(s) went out distilled`);
+        if (distilled === 0) notes.push('FAIL: no request went out distilled');
+        if (mine.some(e => statusOf(e) === 400)) notes.push('FAIL: a request was rejected with 400 (changed history?)');
+      }
     } else {
       if (check.toolStep !== false && !mine.some(carriesToolResult)) {
         notes.push('FAIL: no request carried a tool result, so the tool step did not pass through');
@@ -496,6 +561,8 @@ function judge(params: { check: Check; entries: LogEntry[]; run?: { exitCode: nu
   if (run) {
     if (run.exitCode !== 0) notes.push(`FAIL: tool exited with code ${run.exitCode}`);
     if (!run.output.includes(EXPECTED_ANSWER)) notes.push(`FAIL: answer did not contain "${EXPECTED_ANSWER}"`);
+    const problem = check.kind === 'auto' ? check.outputCheck?.(run.output) : null;
+    if (problem) notes.push(problem);
   }
 
   const failed = mine.length === 0 || notes.some(n => n.startsWith('FAIL'));
@@ -554,6 +621,7 @@ async function runCheck(check: Check, prompt: readline.Interface): Promise<Outco
   if (!binary) return { result: 'SKIP', notes: ['tool not installed'] };
   const missing = (check.requiredEnv ?? []).filter(name => !process.env[name]);
   if (missing.length > 0) return { result: 'SKIP', notes: [`not set: ${missing.join(', ')}`] };
+  if (check.distillCheck && !THROUGH_GATE) return { result: 'SKIP', notes: ['a distillation check; runs only with --gate'] };
   const reason = check.skipReason?.();
   if (reason) return { result: 'SKIP', notes: [reason] };
 

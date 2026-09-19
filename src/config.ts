@@ -77,6 +77,10 @@ const envSchema = z.object({
   // STEP 4
   LLM_GATE_PORT: parseInteger(8787),
   LLM_GATE_EXPOSE: parseStringArray(['openai', 'anthropic']),
+  // Distil large command, search and listing tool results before requests leave the machine. Off makes
+  // the gate a plain pass-through; ongoing conversations then resend their distilled history in full
+  // once (one prompt-cache miss, and Claude drops its earlier thinking once).
+  LLM_GATE_DISTILL: parseBoolean(true),
   // Where the model gate forwards each wire format. Built in; override only when your requests
   // must already go through a company gateway. The tool's own login is forwarded either way.
   UPSTREAM_ANTHROPIC_URL: z.string().url().default('https://api.anthropic.com'),
@@ -120,6 +124,9 @@ const envSchema = z.object({
   DISTILL_FEEDBACK_MAX_ROWS: parseInteger(5000),
   DISTILL_MAX_TOKENS: parseInteger(2000),
   DISTILL_MIN_TOKENS: parseInteger(500),
+  // How long the model gate may hold one request to distil its new tool results. Past it, a result is
+  // sent (and kept, forever) as the original. Warm local-model runs take ~0.5 s per ~600 words.
+  DISTILL_BUDGET_MS: parseInteger(3000),
   KEEP_RECENT_TOOL_TURNS: parseInteger(2),
   ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),

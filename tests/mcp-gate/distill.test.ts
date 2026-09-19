@@ -21,7 +21,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 
 const fsMock = await import('fs/promises');
 const { CONFIG } = await import('../../src/config.js');
-const { buildPreserveList } = await import('../../src/mcp-gate/patterns.js');
+const { buildPreserveList } = await import('../../src/utils/preserve-patterns.js');
 const { distillToolResult } = await import('../../src/utils/elision.js');
 
 // Mock SLM behavior

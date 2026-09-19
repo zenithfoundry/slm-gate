@@ -1,3 +1,4 @@
+import { JsonObject, ToolResult } from './contract.js';
 import { InternalRequest, InternalMessage } from './internal.js';
 
 /**
@@ -99,4 +100,63 @@ export function formatAnthropicStreamChunk(content: string, isFirst: boolean = f
   }
 
   return chunks;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Model gate contract (formats/contract.ts). Tool results are `tool_result` blocks in user messages;
+// their `content` is a string, or an array whose text parts are the text (images etc. are left alone).
+// The call is the `tool_use` block with the same id in an assistant message.
+// ---------------------------------------------------------------------------------------------------
+
+/** messages[message].content[block], and the text part when that block's content is an array. */
+export interface AnthropicToolResultLocation {
+  message: number;
+  block: number;
+  part?: number;
+}
+
+export function listToolResults(body: JsonObject): ToolResult<AnthropicToolResultLocation>[] {
+  const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
+  const calls = new Map<string, { name: string; input: unknown }>();
+  let lastAssistant = -1;
+  messages.forEach((message, i) => {
+    if (message?.role !== 'assistant') return;
+    lastAssistant = i;
+    if (!Array.isArray(message.content)) return;
+    for (const block of message.content) {
+      if (block?.type === 'tool_use' && typeof block.id === 'string') calls.set(block.id, { name: String(block.name ?? ''), input: block.input });
+    }
+  });
+
+  const results: ToolResult<AnthropicToolResultLocation>[] = [];
+  messages.forEach((message, i) => {
+    if (message?.role !== 'user' || !Array.isArray(message.content)) return;
+    message.content.forEach((block: any, j: number) => {
+      if (block?.type !== 'tool_result') return;
+      const call = calls.get(block.tool_use_id);
+      const found = { toolName: call?.name ?? '', callArgs: call?.input, newTurn: i > lastAssistant };
+      if (typeof block.content === 'string') {
+        results.push({ ...found, location: { message: i, block: j }, text: block.content });
+      } else if (Array.isArray(block.content)) {
+        block.content.forEach((part: any, k: number) => {
+          if (part?.type === 'text' && typeof part.text === 'string') {
+            results.push({ ...found, location: { message: i, block: j, part: k }, text: part.text });
+          }
+        });
+      }
+    });
+  });
+  return results;
+}
+
+export function replaceToolResultText(params: { body: JsonObject; location: AnthropicToolResultLocation; text: string }): JsonObject {
+  const { body, location: { message, block, part }, text } = params;
+  const messages = [...body.messages];
+  const content = [...messages[message].content];
+  const result = content[block];
+  content[block] = part === undefined
+    ? { ...result, content: text }
+    : { ...result, content: result.content.map((p: any, k: number) => (k === part ? { ...p, text } : p)) };
+  messages[message] = { ...messages[message], content };
+  return { ...body, messages };
 }

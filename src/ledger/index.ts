@@ -130,6 +130,16 @@ export function getDb(): Database.Database {
         ts TEXT
       );
 
+      -- The model gate's distillation decisions: for each original tool result (by key), the exact
+      -- text the gate sent. The first decision wins and rows are never pruned automatically: every
+      -- later request must resend the same bytes, or provider caches and Claude's thinking break.
+      CREATE TABLE IF NOT EXISTS llm_distilled (
+        key TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS langfuse_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         payload TEXT,
@@ -537,6 +547,33 @@ export function cacheGet(key: string): string | null {
 export function cacheSet(key: string, value: string) {
   const statement = getDb().prepare('INSERT OR REPLACE INTO cache (key, value, ts) VALUES (?, ?, ?)');
   statement.run(key, value, new Date().toISOString());
+}
+
+/** What the model gate sent for one tool result: the text and why (distilled, original, timeout, error). */
+export interface DistillDecision {
+  text: string;
+  outcome: string;
+}
+
+/** The model gate's stored decision for a tool result, or null when it has none. Throws on database errors. */
+export function getDistillDecision(key: string): DistillDecision | null {
+  const row = getDb().prepare('SELECT text, outcome FROM llm_distilled WHERE key = ?').get(key) as DistillDecision | undefined;
+  return row ?? null;
+}
+
+/**
+ * Stores a decision unless one already exists and returns the one that stands; the caller must send
+ * exactly that text. Insert and read-back share one transaction, so a decision is never on disk
+ * without the caller knowing it. Throws on database errors (e.g. the gate's short busy timeout), in
+ * which case nothing was stored.
+ */
+export function recordDistillDecision(params: { key: string; text: string; outcome: string }): DistillDecision {
+  const db = getDb();
+  return db.transaction(() => {
+    db.prepare('INSERT OR IGNORE INTO llm_distilled (key, text, outcome, created_at) VALUES (?, ?, ?, ?)')
+      .run(params.key, params.text, params.outcome, new Date().toISOString());
+    return db.prepare('SELECT text, outcome FROM llm_distilled WHERE key = ?').get(params.key) as DistillDecision;
+  })();
 }
 
 import { safeCalculateCostUsd } from '../pricing/index.js';
