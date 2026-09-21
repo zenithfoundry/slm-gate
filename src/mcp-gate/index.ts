@@ -2,12 +2,33 @@ import { CONFIG } from '../config.js';
 import { createServer } from './server.js';
 import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
 import { logLedgerInfo } from '../ledger/index.js';
+import { exitWithParent } from '../setup/parent-watch.js';
 import { runStartupChecks, watchModelGate } from '../setup/startup.js';
+
+/**
+ * Leave nothing running that no coding tool owns. Registered before any work that could hang, so a
+ * toolbox that never finishes connecting cannot strand a server either.
+ */
+function shutDownWhenNobodyOwnsUs(): void {
+  const quit = () => process.kill(process.pid, 'SIGTERM');
+  if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
+    // Our input closing means the coding tool is gone (closed or crashed). Whichever of these arrives
+    // first wins; SIGTERM is idempotent here, and stdin is deliberately not resumed, because reading
+    // it ourselves would swallow the handshake the transport is about to read.
+    process.stdin.once('end', quit);
+    process.stdin.once('close', quit);
+    process.stdin.on('error', quit);
+  }
+  // The backstop: this arrives even when start-up hangs before anything reads stdin, and it is the
+  // only signal at all when the transport is HTTP.
+  exitWithParent();
+}
 
 async function main() {
   if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
     console.log = console.error;
   }
+  shutDownWhenNobodyOwnsUs();
 
   console.error(`[mcp-gate] Starting up...`);
   console.error(`[mcp-gate] Mode: ${CONFIG.DOWNSTREAM_MCP ? 'Proxy' : 'Standalone'}`);
@@ -31,11 +52,6 @@ async function main() {
     const { start } = await createServer({ notices });
     await start();
     console.error(`[mcp-gate] Server is running and listening for messages.`);
-    if (CONFIG.MCP_GATE_TRANSPORT === 'stdio') {
-      // The coding tool closing our input means it is gone (closed or crashed). Shut down as on SIGTERM
-      // rather than linger as an orphan that keeps watching the model gate and showing notifications.
-      process.stdin.once('end', () => process.kill(process.pid, 'SIGTERM'));
-    }
     watchModelGate();
   } catch (err) {
     console.error(`[mcp-gate] Fatal error during startup:`, err);

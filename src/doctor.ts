@@ -18,6 +18,7 @@ import { getModelsFootprint } from './models/footprint.js';
 import { getProviderRegistry } from './pricing/providers.js';
 import { checkLocalModels } from './setup/local-models.js';
 import { cliCommand, GATE_LOG_FILE, isStoppedByUser, portOwner, probeGate } from './setup/model-gate.js';
+import { findStrandedServers } from './setup/parent-watch.js';
 import { toolSettings, UNROUTABLE_TOOLS } from './setup/tool-settings.js';
 import { listenOnThisComputer } from './utils/local-only.js';
 
@@ -245,6 +246,13 @@ async function run() {
     const mcpPortFree = await checkPortFree(CONFIG.MCP_GATE_PORT);
     report(mcpPortFree, `MCP_GATE_PORT (${CONFIG.MCP_GATE_PORT}) is free`, `Kill the process using port ${CONFIG.MCP_GATE_PORT}`);
   }
+
+  // 9b. MCP servers whose coding tool went away. Current builds stop themselves; ones started by an
+  // older build cannot, and go on checking Ollama and showing notifications until the next reboot.
+  const stranded = findStrandedServers();
+  report(stranded.length === 0, 'No slm-gate MCP servers are left over from closed coding tools',
+    `${stranded.length} slm-gate MCP server${stranded.length === 1 ? '' : 's'} still running with no coding tool attached (pid ${stranded.join(', ')}). ` +
+    `Each keeps checking Ollama and can show notifications from the build it was started with. Stop them with: kill ${stranded.join(' ')}`);
 
   // 10. The setting that sends each coding tool's model requests through the gate (on the current port).
   console.log(`\n--- Coding tool settings: paste these to send a tool's model requests through ${gateAddress} ---`);

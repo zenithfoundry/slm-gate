@@ -958,6 +958,7 @@ What your assistant tells you is a **snapshot from when `slm-gate` started**, be
 | **`OLLAMA_HOST` is not an http address** | Set `OLLAMA_HOST` to a full URL, e.g. `http://localhost:11434`. Ollama's *own* `OLLAMA_HOST` variable is a bare `host:port`, so a value copied from Ollama's docs will not work here. |
 | **Something is listening but it is not Ollama** | Another program holds port 11434, or `OLLAMA_HOST` points somewhere else. `slm-gate doctor` names what holds the port. |
 | **A local model is not downloaded** | Run the `ollama pull …` command shown. |
+| **MCP servers left over from closed coding tools** | Run the `kill …` command `slm-gate doctor` prints. These are servers started by a build from before `slm-gate` learned to stop itself; a force-quit editor left them behind, and each keeps checking Ollama and showing notifications from that old build. Current builds stop themselves, so this clears once and does not come back. |
 
 `slm-gate stop` stops the model gate and keeps it stopped until `slm-gate start`, `slm-gate restart` or your next restart; coding tools pointed at it can't reach their provider meanwhile. `slm-gate serve` runs the model gate in the terminal instead (useful for watching its log).
 
