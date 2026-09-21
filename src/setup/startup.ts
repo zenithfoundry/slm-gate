@@ -15,6 +15,8 @@ export interface Notice {
   key: string;
   message: string;
   fix: string;
+  /** Needs to be seen twice before it is reported. See SetupProblem.transient. */
+  transient?: boolean;
 }
 
 // The coding tool is waiting for the MCP handshake: the checks before it get at most this long.
@@ -85,7 +87,12 @@ export async function runStartupChecks(): Promise<Notice[]> {
   // The probe answers in milliseconds, so the model check can wait for the running gate's models.
   const models = gate
     .then(result => checkLocalModels({ timeoutMs: FAST_CHECK_MS - 300, gateModels: result.gateModels }))
-    .then(result => modelNotices(result.problems))
+    // A check squeezed into the start-up budget, while the editor, the toolbox and often Ollama itself
+    // are all still starting, is weak evidence. Anything that might be a timing artifact waits for the
+    // watch, which gets a quiet moment and a second opinion. This matters more here than anywhere else:
+    // the instructions handed to the editor are fixed for the whole session, so a wrong notice at
+    // start-up is repeated by the AI until the session ends, long after the truth has changed.
+    .then(result => modelNotices(result.problems).filter(notice => !notice.transient))
     .catch(() => [] as Notice[]);
   const notices = (await Promise.all([Promise.race([gate.then(result => result.notices), cap]), Promise.race([models, cap])])).flat();
   notices.forEach(report);
@@ -102,6 +109,9 @@ export async function runStartupChecks(): Promise<Notice[]> {
  */
 export function watchModelGate(params: { firstMs?: number; everyMs?: number } = {}): () => void {
   if (!CONFIG.LLM_GATE_AUTOSTART) return () => {};
+  // Transient problems reported by the previous check. One that is still there on the next check is
+  // real; one that has gone was the machine being busy, and nobody ever hears about it.
+  let awaitingConfirmation = new Set<string>();
   const check = async () => {
     const probe = await probeGate();
     let gate = probe.kind === 'slm-gate' ? probe.health : null;
@@ -114,7 +124,9 @@ export function watchModelGate(params: { firstMs?: number; everyMs?: number } = 
       if (!gate && launched) report(notRunningNotice());
     }
     const { problems } = await checkLocalModels({ gateModels: gate?.models });
-    modelNotices(problems).forEach(report);
+    const notices = modelNotices(problems);
+    notices.filter(notice => !notice.transient || awaitingConfirmation.has(notice.key)).forEach(report);
+    awaitingConfirmation = new Set(notices.filter(notice => notice.transient).map(notice => notice.key));
   };
   const run = () => void check().catch(err => console.error(`[slm-gate] model gate check failed: ${err instanceof Error ? err.message : String(err)}`));
 

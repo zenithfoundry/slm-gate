@@ -48,9 +48,13 @@ export function buildGateInstructions(params: {
   const { toolNames, downstreamInstructions, notices = [] } = params;
   const parts: string[] = [];
   if (notices.length > 0) {
+    // These instructions are fixed when the server starts and cannot be changed afterwards, so they are
+    // written as what was true at start-up rather than as a live fact, and the AI is told it may be out
+    // of date. Without that, one bad check at start-up has the AI repeating it for the whole session.
     parts.push(
-      `${GATE_MCP_NAME} notice — tell the user about this at the start of your next reply, word for word:`,
+      `${GATE_MCP_NAME} notice — what slm-gate found when it started. Tell the user about this at the start of your next reply, word for word:`,
       ...notices.map(notice => `- ${notice.message} Fix: ${notice.fix}`),
+      'This was checked once, when slm-gate started, and is not rechecked in these instructions. If the user shows you it is already working, they are right and this notice is stale.',
       '',
     );
   }

@@ -8,6 +8,13 @@ import { CONFIG } from '../config.js';
 export interface SetupProblem {
   message: string;
   fix: string;
+  /**
+   * True when this might be a timing artifact rather than a real fault, so it has to be seen twice
+   * before anybody is told. Giving up waiting is the only such case: every other answer here — a
+   * refused connection, an address that is not a URL, a reply from something that is not Ollama, a
+   * model missing from disk — is a fact that does not depend on how busy the machine was.
+   */
+  transient?: boolean;
 }
 
 export interface ModelUse {
@@ -114,6 +121,7 @@ function probeProblem(probe: Exclude<OllamaProbe, { kind: 'ok' }>): SetupProblem
       return {
         message: `Ollama did not answer at ${host} (${probe.detail}), so slm-gate could not check the local models. This does not mean Ollama is down.`,
         fix: 'Usually nothing: it is often just busy while everything starts. If it keeps happening, run `slm-gate doctor`.',
+        transient: true,
       };
     case 'bad-host':
       return {

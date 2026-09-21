@@ -55,8 +55,11 @@ describe('buildGateInstructions', () => {
   it('puts set-up problems first and asks the AI to pass them on, also without a toolbox', () => {
     const notice = { message: 'Port 8787 is used by another program.', fix: 'Run `slm-gate doctor`.' };
     const text = buildGateInstructions({ toolNames: [], notices: [notice] }) ?? '';
-    expect(text.split('\n')[0]).toContain('tell the user about this at the start of your next reply');
+    expect(text.split('\n')[0].toLowerCase()).toContain('tell the user about this at the start of your next reply');
     expect(text).toContain('- Port 8787 is used by another program. Fix: Run `slm-gate doctor`.');
+    // The instructions are fixed for the session, so they must not read as a live fact.
+    expect(text.split('\n')[0]).toContain('when it started');
+    expect(text).toContain('is stale');
     const withToolbox = buildGateInstructions({ toolNames: tools, notices: [notice] }) ?? '';
     expect(withToolbox.indexOf('Port 8787')).toBeLessThan(withToolbox.indexOf('get_skill'));
   });
