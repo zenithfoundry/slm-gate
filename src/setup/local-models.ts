@@ -4,6 +4,7 @@
  * Ollama or downloads a model.
  */
 import { CONFIG } from '../config.js';
+import { howToStartOllama } from './ollama-install.js';
 
 export interface SetupProblem {
   message: string;
@@ -115,7 +116,7 @@ function probeProblem(probe: Exclude<OllamaProbe, { kind: 'ok' }>): SetupProblem
     case 'unreachable':
       return {
         message: `Ollama is not running at ${host}, so nothing is answered or shrunk locally (requests still reach the cloud).`,
-        fix: 'Open the Ollama app, or run `ollama serve`.',
+        fix: howToStartOllama(),
       };
     case 'no-answer':
       return {

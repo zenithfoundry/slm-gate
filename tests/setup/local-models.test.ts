@@ -98,7 +98,9 @@ describe('checkLocalModels', () => {
     const { problems } = await checkLocalModels({ timeoutMs: 500 });
     expect(problems).toHaveLength(1);
     expect(problems[0].message).toContain('is not running');
-    expect(problems[0].fix).toContain('ollama serve');
+    // The exact command depends on how Ollama is installed here (see ollama-install.test.ts); what
+    // matters is that the fix tells you how to start it and never starts it itself.
+    expect(problems[0].fix).toMatch(/brew services start ollama|sudo systemctl start ollama|ollama serve|Open the Ollama app|ollama\.com\/download/);
   });
 
   it('does not claim Ollama is down when it simply did not answer in time', async () => {
@@ -107,7 +109,8 @@ describe('checkLocalModels', () => {
     expect(problems).toHaveLength(1);
     expect(problems[0].message).not.toContain('is not running');
     expect(problems[0].message).toContain('did not answer');
-    expect(problems[0].fix).not.toContain('ollama serve');
+    expect(problems[0].fix).not.toMatch(/ollama serve|brew services|systemctl/);
+    expect(problems[0].transient).toBe(true);
   });
 
   it('names OLLAMA_HOST when it has no scheme, rather than blaming Ollama', async () => {

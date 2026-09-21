@@ -426,12 +426,25 @@ pnpm run build
 
 ### Step 3 — Start Ollama & Download Local Models
 
-Make sure Ollama is running. On macOS, it runs as a background app — look for the llama icon in your menu bar, or start it:
+Make sure Ollama is running. How you start it depends on how you installed it:
 
 ```bash
-# Start Ollama (if not already running)
+# Installed with Homebrew (it then runs in the background from login)
+brew services start ollama
+
+# Installed as the macOS app — look for the llama icon in your menu bar
+open -a Ollama
+
+# Installed as a plain binary, or on Linux without a systemd unit
 ollama serve
+
+# Linux, installed with the official script (systemd)
+sudo systemctl start ollama
 ```
+
+If `ollama serve` prints `address already in use`, **Ollama is already running** — Homebrew or systemd started it for you. That is not an error to fix. Check with `ollama ps`, or `curl http://localhost:11434/api/tags`.
+
+`slm-gate` works out which of these applies to your machine and names the right command in any notification it shows you.
 
 Then download the models for your machine. For a **16 GB machine** (the recommended starting point):
 
@@ -805,7 +818,8 @@ Every setting `slm-gate` reads is explained below in plain English. Settings are
 #### Local Model (SLM) Settings
 
 - **`SLM_PROVIDER`** — Where your local AI comes from. `ollama` runs it on your machine for free (the normal choice). `openai` redirects it to a cheap hosted model instead — useful if your machine can't run a local AI.
-- **`OLLAMA_HOST`** — The address where Ollama is listening. Only change this if you're running Ollama on a different machine or port. Default: `http://localhost:11434`
+- **`OLLAMA_HOST`** — The address where Ollama is listening. Only change this if you're running Ollama on a different machine or port. Must be a full URL including `http://`. Default: `http://localhost:11434`
+  - Note: Ollama's **own** `OLLAMA_HOST` variable, the one its docs and `ollama serve` use, is a bare `host:port` such as `127.0.0.1:11434`. `slm-gate` reads the same variable name but needs the scheme in front. If you have Ollama's form exported in your shell, set `slm-gate`'s value explicitly in its `.env` so the exported one doesn't reach it.
 - **`OLLAMA_KEEP_ALIVE`** — How long a loaded model stays in memory after use. Keeping it loaded means instant responses next time; lowering it frees memory. Default: `12h`
 - **`SLM_BRAIN_MODEL`** — The name of your smarter local model, used for compression, summarisation, and local resolution of harder tasks.
 - **`SLM_GATE_MODEL`** — The name of your tiny, fast local model, used only for routing decisions ("can I handle this locally?"). Speed is the priority here.
@@ -932,12 +946,17 @@ Fix any warnings it flags before proceeding.
 
 You don't need to run anything each day. The first coding tool you open starts `slm-gate`'s MCP server, which starts the model gate and checks Ollama and your models. If something is wrong you get a desktop notification, and your AI assistant tells you at the start of its next reply.
 
+What your assistant tells you is a **snapshot from when `slm-gate` started**, because an MCP server's instructions are fixed for the whole session and cannot be rewritten later. If you fix the problem mid-session, the assistant may still repeat it — it is told so, and told to believe you over the notice. The desktop notifications and `slm-gate doctor` are always live. A problem that might just be a slow moment is never reported until a second check, a minute later, finds it still there.
+
 | What you see | What to do |
 | :--- | :--- |
 | **Port 8787 is used by another program** | Quit that program (`slm-gate doctor` names it), then run `slm-gate start`. Or move the gate: set `LLM_GATE_PORT` to a free port in `slm-gate`'s `.env`, run `slm-gate restart`, then run `slm-gate doctor` and paste the new lines into each coding tool. |
 | **The model gate is not running and did not start** | Run `slm-gate start`. If it still fails, read `output/llm-gate.log` in the `slm-gate` folder. After updating `slm-gate`, or if the log shows a missing file, repair the install with `pnpm install && pnpm run build` in the `slm-gate` folder, then `slm-gate restart`. |
 | **The model gate is running an older build** | Run `slm-gate restart` when no coding tool is in the middle of an answer. |
-| **Ollama is not running** | Open the Ollama app, or run `ollama serve`. Requests still reach the cloud meanwhile; nothing is answered or shrunk locally. |
+| **Ollama is not running** | Run the command the notification names — `slm-gate` picks it from how Ollama is installed here (`brew services start ollama`, `open -a Ollama`, `sudo systemctl start ollama` or `ollama serve`). Requests still reach the cloud meanwhile; nothing is answered or shrunk locally. |
+| **Ollama did not answer** | Usually nothing. `slm-gate` gave up waiting rather than finding Ollama down, which mostly happens while everything is still starting. It only tells you at all if it is still true a minute later. If it keeps happening, run `slm-gate doctor`. |
+| **`OLLAMA_HOST` is not an http address** | Set `OLLAMA_HOST` to a full URL, e.g. `http://localhost:11434`. Ollama's *own* `OLLAMA_HOST` variable is a bare `host:port`, so a value copied from Ollama's docs will not work here. |
+| **Something is listening but it is not Ollama** | Another program holds port 11434, or `OLLAMA_HOST` points somewhere else. `slm-gate doctor` names what holds the port. |
 | **A local model is not downloaded** | Run the `ollama pull …` command shown. |
 
 `slm-gate stop` stops the model gate and keeps it stopped until `slm-gate start`, `slm-gate restart` or your next restart; coding tools pointed at it can't reach their provider meanwhile. `slm-gate serve` runs the model gate in the terminal instead (useful for watching its log).

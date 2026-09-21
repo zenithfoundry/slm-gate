@@ -58,7 +58,9 @@ node dist/cli.js doctor
 ✓ Model gate is running on http://localhost:8787 (pid 12345, started 2026-09-19T09:00:00.000Z)
 ```
 
-If something is wrong (port taken, Ollama not running, a model missing), you also get a desktop notification, and your AI assistant tells you about it with the fix at the start of its next reply.
+If something is wrong (port taken, Ollama not running, a model missing), you also get a desktop notification, and your AI assistant tells you about it with the fix at the start of its next reply. The fix names the command for how Ollama is installed on your machine, so it won't tell you to run `ollama serve` when Homebrew or systemd is already running it for you.
+
+What the assistant says is a snapshot from when `slm-gate` started and is never rewritten during the session, so treat the desktop notifications and `slm-gate doctor` as the live picture.
 
 ---
 
