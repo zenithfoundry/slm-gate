@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLM Gate Metrics</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f4f2;   /* page */
+    --surface-1: #fcfcfb;   /* cards */
+    --border:    #e3e2de;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #8a897f;
+    --series-1: #2a78d6;  /* blue   — Claude, distilled */
+    --series-2: #eb6834;  /* orange — ChatGPT, escalated */
+    --series-3: #1baf7a;  /* aqua   — Gemini, local */
+    --track: #eceae6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #111110;
+      --surface-1: #1a1a19;
+      --border:    #2c2c2a;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #8a897f;
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+      --track: #262624;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #111110;
+    --surface-1: #1a1a19;
+    --border:    #2c2c2a;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #8a897f;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --track: #262624;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--surface-0); color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px 16px 40px;
+  }
+  main { max-width: 1180px; margin: 0 auto; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 18px; }
+  header h1 { font-size: 18px; font-weight: 650; margin: 0 auto 0 0; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-1); }
+  .seg button {
+    all: unset; cursor: pointer; padding: 6px 12px; font-size: 13px; color: var(--text-secondary);
+  }
+  .seg button[aria-pressed="true"] { background: var(--track); color: var(--text-primary); font-weight: 600; }
+  .seg button:focus-visible { outline: 2px solid var(--series-1); outline-offset: -2px; }
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
+  .card {
+    grid-column: span 12; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px 18px; min-width: 0;
+  }
+  @media (min-width: 900px) {
+    .span4 { grid-column: span 4; } .span6 { grid-column: span 6; } .span8 { grid-column: span 8; }
+  }
+  .card h2 { font-size: 13px; font-weight: 600; margin: 0 0 2px; }
+  .card .sub { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+  .hero { font-size: 52px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+  .hero small { font-size: 18px; font-weight: 500; color: var(--text-secondary); margin-left: 4px; }
+  .tiles { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+  .tile .label { font-size: 12px; color: var(--text-muted); }
+  .tile .value { font-size: 24px; font-weight: 650; }
+  .tile .value small { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+  .na { color: var(--text-muted); font-weight: 500; font-size: 15px; }
+  .legend { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; }
+  .legend li { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--text-secondary); }
+  .legend .chip { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .legend b { color: var(--text-primary); font-weight: 600; margin-left: auto; }
+  .donut-wrap { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; font-weight: 600; color: var(--text-muted); font-size: 12px; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }
+  td { padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  td:first-child { color: var(--text-primary); }
+  .scroll { max-height: 220px; overflow-y: auto; margin-top: 10px; }
+  .provider-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .provider-head .chip { width: 10px; height: 10px; border-radius: 3px; }
+  .provider-head .plan { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; color: var(--text-primary);
+    box-shadow: 0 4px 14px rgb(0 0 0 / .18);
+  }
+  #tooltip .tt-sub { color: var(--text-muted); }
+  footer { margin-top: 20px; font-size: 12px; color: var(--text-muted); }
+  #drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 48px 20px; text-align: center;
+    color: var(--text-secondary); display: none;
+  }
+  #drop.on { display: block; }
+  svg text { font: 11px system-ui, sans-serif; fill: var(--text-muted); }
+  svg .val { fill: var(--text-secondary); font-weight: 600; }
+  .axisline { stroke: var(--border); stroke-width: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>SLM Gate Metrics</h1>
+    <div class="seg" role="group" aria-label="Date range" id="range">
+      <button data-days="7">7d</button>
+      <button data-days="30" aria-pressed="true">30d</button>
+      <button data-days="0">All</button>
+    </div>
+    <div class="seg" role="group" aria-label="Theme">
+      <button id="theme" aria-pressed="false">Dark</button>
+    </div>
+  </header>
+  <div id="drop">
+    <p><strong>No data found.</strong> Drop your exported <code>data.json</code> here, or</p>
+    <p><input type="file" id="file" accept=".json,application/json"></p>
+    <p>The file never leaves your browser.</p>
+  </div>
+  <div class="grid" id="grid" hidden></div>
+  <footer id="foot"></footer>
+</main>
+<div id="tooltip" role="status"></div>
+<script>
+'use strict';
+/* All data-driven text is set via textContent — nothing from data.json is parsed as HTML. */
+const $ = (s, r) => (r || document).querySelector(s);
+const SERIES = { claude: 'var(--series-1)', chatgpt: 'var(--series-2)', gemini: 'var(--series-3)' };
+const ROUTE_SERIES = [
+  { key: 'resolvedLocal', label: 'Passed (Local SLM)', color: 'var(--series-3)' },
+  { key: 'distilledForwarded', label: 'Distilled (Forwarded)', color: 'var(--series-1)' },
+  { key: 'escalatedCloud', label: 'Escalated (Cloud)', color: 'var(--series-2)' },
+];
+let DATA = null, rangeDays = 30, source = 'unknown';
+
+const fmtInt = n => n.toLocaleString('en-US');
+const fmtCompact = n => Math.abs(n) >= 10000 ? Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n) : fmtInt(n);
+const fmtMin = n => n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2);
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) k === 'text' ? node.textContent = v : node.setAttribute(k, v);
+  for (const c of children || []) node.appendChild(c);
+  return node;
+}
+function svgEl(tag, attrs, children) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs || {})) k === 'text' ? node.textContent = v : node.setAttribute(k, v);
+  for (const c of children || []) node.appendChild(c);
+  return node;
+}
+const tooltip = $('#tooltip');
+function hover(node, lines) {
+  node.addEventListener('mousemove', e => {
+    tooltip.replaceChildren(...lines().map((t, i) => el('div', { text: t, class: i ? 'tt-sub' : '' })));
+    tooltip.style.display = 'block';
+    const w = tooltip.offsetWidth;
+    tooltip.style.left = Math.min(e.clientX + 12, innerWidth - w - 8) + 'px';
+    tooltip.style.top = (e.clientY + 14) + 'px';
+  });
+  node.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+}
+
+function cutoffTs() {
+  if (!rangeDays) return '';
+  const end = DATA.lastEventTs ? Date.parse(DATA.lastEventTs) : Date.now();
+  return new Date(end - rangeDays * 86400_000).toISOString();
+}
+
+/* ---- cards ---- */
+function heroCard(cut) {
+  const claude = DATA.providers.find(p => p.id === 'claude');
+  const cycles = claude ? claude.cycles.filter(c => c.start >= cut) : [];
+  const mins = cycles.map(c => c.minutes).filter(m => m !== null);
+  const card = el('div', { class: 'card span4' });
+  card.append(el('h2', { text: 'Claude window time returned, per cycle' }),
+    el('p', { class: 'sub', text: 'A cycle = the rolling ' + (claude ? claude.windowMinutes / 60 : 5) + '-hour window your first request opens' }));
+  if (!mins.length) {
+    card.append(el('div', { class: 'na', text: claude && claude.windowBudgetTokens === null ? 'Not measured — set CLAUDE_WINDOW_BUDGET' : 'No Claude cycles in this range' }));
+  } else {
+    const avg = mins.reduce((s, m) => s + m, 0) / mins.length;
+    const heroNode = el('div', { class: 'hero', text: fmtMin(avg) });
+    heroNode.append(el('small', { text: 'min avg' }));
+    card.append(heroNode,
+      el('p', { class: 'sub', text: fmtMin(mins.reduce((s, m) => s + m, 0)) + ' min total across ' + cycles.length + ' observed cycles' }));
+  }
+  return card;
+}
+
+function donutCard(cut) {
+  const days = DATA.days.filter(d => d.day >= cut.slice(0, 10));
+  const counts = ROUTE_SERIES.map(s => days.reduce((n, d) => n + d[s.key], 0));
+  const total = counts.reduce((a, b) => a + b, 0);
+  const card = el('div', { class: 'card span4' });
+  card.append(el('h2', { text: 'Routing decision' }),
+    el('p', { class: 'sub', text: 'Real traffic only — benchmark runs and feedback clicks excluded' }));
+  if (!total) { card.append(el('div', { class: 'na', text: 'No routed requests in this range' })); return card; }
+
+  const svg = svgEl('svg', { viewBox: '0 0 132 132', width: '132', height: '132', role: 'img', 'aria-label': 'Routing decision share' });
+  let offset = 25; /* start at 12 o'clock with pathLength=100 */
+  counts.forEach((count, i) => {
+    if (!count) return;
+    const share = count / total * 100;
+    const gap = counts.filter(Boolean).length > 1 ? 1.4 : 0;
+    const seg = svgEl('circle', {
+      cx: 66, cy: 66, r: 52, fill: 'none', stroke: ROUTE_SERIES[i].color, 'stroke-width': 22,
+      pathLength: 100, 'stroke-dasharray': Math.max(share - gap, 0.4) + ' ' + (100 - Math.max(share - gap, 0.4)),
+      'stroke-dashoffset': -offset, 'stroke-linecap': 'butt',
+    });
+    hover(seg, () => [ROUTE_SERIES[i].label, count + ' requests · ' + share.toFixed(1) + '%']);
+    svg.append(seg);
+    offset += share;
+  });
+  svg.append(svgEl('text', { x: 66, y: 63, 'text-anchor': 'middle', style: 'font-size:22px;font-weight:650;fill:var(--text-primary)', text: fmtCompact(total) }),
+    svgEl('text', { x: 66, y: 80, 'text-anchor': 'middle', text: 'requests' }));
+  const legend = el('ul', { class: 'legend' }, ROUTE_SERIES.map((s, i) => el('li', {}, [
+    el('span', { class: 'chip', style: 'background:' + s.color }),
+    el('span', { text: s.label }),
+    el('b', { text: fmtInt(counts[i]) + ' · ' + (total ? (counts[i] / total * 100).toFixed(1) : 0) + '%' }),
+  ])));
+  card.append(el('div', { class: 'donut-wrap' }, [svg, legend]));
+  return card;
+}
+
+function accuracyCard() {
+  const card = el('div', { class: 'card span4' });
+  card.append(el('h2', { text: 'SLM accuracy (verifier acceptance)' }),
+    el('p', { class: 'sub', text: 'A model property. All-time; unaffected by the date range.' }));
+  const tiles = el('div', { class: 'tiles' });
+  for (const [label, slice, note] of [
+    ['Real traffic', DATA.accuracy.real, 'measured only when the model gate answers prompts'],
+    ['Benchmark', DATA.accuracy.bench, 'pnpm run bench — labelled dataset'],
+  ]) {
+    const tile = el('div', { class: 'tile' });
+    tile.append(el('div', { class: 'label', text: label }));
+    tile.append(slice.avgPct === null
+      ? el('div', { class: 'na', text: 'not measured' })
+      : el('div', { class: 'value', text: slice.avgPct + '%' }));
+    tile.append(el('div', { class: 'label', text: slice.n ? 'n = ' + fmtInt(slice.n) : note }));
+    tiles.append(tile);
+  }
+  card.append(tiles);
+  return card;
+}
+
+function weekChart(provider, cut) {
+  const weeks = provider.weeks.filter(w => w.weekStart >= cut.slice(0, 10));
+  const useMinutes = provider.windowBudgetTokens !== null;
+  const values = weeks.map(w => useMinutes ? (w.minutes || 0) : w.tokensSaved);
+  const max = Math.max(...values, 1e-9);
+  const W = 460, H = 130, padL = 6, padR = 44, padT = 18, padB = 20;
+  const svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', role: 'img', 'aria-label': (useMinutes ? 'Minutes' : 'Tokens') + ' returned per week' });
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const slot = innerW / Math.max(weeks.length, 1);
+  const barW = Math.min(Math.max(slot - 8, 6), 48);
+  svg.append(svgEl('line', { x1: padL, y1: padT, x2: W - padR, y2: padT, class: 'axisline', 'stroke-dasharray': '3 3' }),
+    svgEl('text', { x: W - padR + 4, y: padT + 4, text: useMinutes ? fmtMin(max) + ' min' : fmtCompact(max) }),
+    svgEl('line', { x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, class: 'axisline' }));
+  const maxIdx = values.indexOf(Math.max(...values));
+  weeks.forEach((week, i) => {
+    const h = Math.max(values[i] / max * innerH, values[i] > 0 ? 2 : 0);
+    const x = padL + i * slot + (slot - barW) / 2, y = H - padB - h;
+    const r = Math.min(4, h);
+    if (h > 0) svg.append(svgEl('path', {
+      d: 'M' + x + ' ' + (H - padB) + ' V' + (y + r) + ' Q' + x + ' ' + y + ' ' + (x + r) + ' ' + y +
+         ' H' + (x + barW - r) + ' Q' + (x + barW) + ' ' + y + ' ' + (x + barW) + ' ' + (y + r) + ' V' + (H - padB) + ' Z',
+      fill: SERIES[provider.id],
+    }));
+    if (i === maxIdx && values[i] > 0) svg.append(svgEl('text', { x: x + barW / 2, y: y - 5, 'text-anchor': 'middle', class: 'val', text: useMinutes ? fmtMin(values[i]) : fmtCompact(values[i]) }));
+    svg.append(svgEl('text', { x: x + barW / 2, y: H - 6, 'text-anchor': 'middle', text: week.weekStart.slice(5) }));
+    const hit = svgEl('rect', { x: padL + i * slot, y: padT, width: slot, height: innerH, fill: 'transparent' });
+    hover(hit, () => ['Week of ' + week.weekStart,
+      (useMinutes ? fmtMin(week.minutes || 0) + ' min returned · ' : '') + fmtCompact(week.tokensSaved) + ' tokens saved · ' + week.events + ' events']);
+    svg.append(hit);
+  });
+  return svg;
+}
+
+function providerCard(provider, cut) {
+  const cycles = provider.cycles.filter(c => c.start >= cut);
+  const card = el('div', { class: 'card span6' });
+  const head = el('div', { class: 'provider-head' }, [
+    el('span', { class: 'chip', style: 'background:' + SERIES[provider.id] }),
+    el('h2', { text: provider.label }),
+    el('span', { class: 'plan', text: provider.plan + ' · ' + provider.windowMinutes / 60 + 'h window' }),
+  ]);
+  card.append(head);
+  const tokensSaved = cycles.reduce((s, c) => s + c.tokensSaved, 0);
+  const mins = cycles.map(c => c.minutes).filter(m => m !== null);
+  const tiles = el('div', { class: 'tiles' });
+  const tile = (label, valueNode) => tiles.append(el('div', { class: 'tile' }, [el('div', { class: 'label', text: label }), valueNode]));
+  tile('Tokens saved', el('div', { class: 'value', text: fmtCompact(tokensSaved) }));
+  tile('Cycles observed', el('div', { class: 'value', text: String(cycles.length) }));
+  if (provider.windowBudgetTokens === null) {
+    tile('Window time returned', el('div', { class: 'na', text: 'not measured — set ' + provider.id.toUpperCase() + '_WINDOW_BUDGET' }));
+  } else {
+    const avgNode = el('div', { class: 'value', text: mins.length ? fmtMin(mins.reduce((s, m) => s + m, 0) / mins.length) : '0' });
+    avgNode.append(el('small', { text: ' min/cycle' }));
+    tile('Avg returned per cycle', avgNode);
+    const totNode = el('div', { class: 'value', text: fmtMin(mins.reduce((s, m) => s + m, 0)) });
+    totNode.append(el('small', { text: ' min total' }));
+    tile('Total in range', totNode);
+  }
+  card.append(tiles, weekChart(provider, cut));
+
+  if (cycles.length) {
+    const rows = [...cycles].reverse().map(c => el('tr', {}, [
+      el('td', { text: new Date(c.start).toISOString().slice(0, 16).replace('T', ' ') + 'Z' }),
+      el('td', { text: String(c.events) }),
+      el('td', { text: fmtInt(c.tokensSaved) }),
+      el('td', { text: c.minutes === null ? '—' : fmtMin(c.minutes) }),
+    ]));
+    card.append(el('div', { class: 'scroll' }, [el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['Cycle start (UTC)', 'Events', 'Tokens saved', 'Min returned'].map(h => el('th', { text: h })))]),
+      el('tbody', {}, rows),
+    ])]));
+  }
+  return card;
+}
+
+function render() {
+  const cut = cutoffTs();
+  const grid = $('#grid');
+  grid.hidden = false;
+  grid.replaceChildren(heroCard(cut), donutCard(cut), accuracyCard());
+  for (const provider of DATA.providers) if (provider.events > 0) grid.append(providerCard(provider, cut));
+  const span = DATA.firstEventTs ? DATA.firstEventTs.slice(0, 10) + ' → ' + DATA.lastEventTs.slice(0, 10) : 'no events';
+  $('#foot').textContent = 'Source: ' + source + ' · generated ' + DATA.generatedAt.slice(0, 16).replace('T', ' ') + 'Z · ledger span ' + span +
+    ' · ' + fmtInt(DATA.realEvents) + ' real events (' + fmtInt(DATA.benchEvents) + ' benchmark events excluded from savings) · savings figures are estimates: window budgets are measured best guesses.';
+}
+
+/* ---- data source: ?data=URL, ./data.json, or a dropped file ---- */
+function accept(json, from) {
+  DATA = json; source = from;
+  $('#drop').classList.remove('on');
+  render();
+}
+async function boot() {
+  const param = new URLSearchParams(location.search).get('data');
+  try {
+    const res = await fetch(param || './data.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(String(res.status));
+    accept(await res.json(), param ? 'remote (' + new URL(param, location.href).host + ')' : 'data.json');
+  } catch {
+    $('#drop').classList.add('on');
+  }
+}
+$('#file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) f.text().then(t => accept(JSON.parse(t), 'local file'));
+});
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) f.text().then(t => accept(JSON.parse(t), 'local file'));
+});
+
+/* ---- controls ---- */
+$('#range').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  rangeDays = Number(b.dataset.days);
+  for (const btn of $('#range').children) btn.setAttribute('aria-pressed', String(btn === b));
+  if (DATA) render();
+});
+const themeBtn = $('#theme');
+function applyTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  const dark = t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches);
+  themeBtn.textContent = dark ? 'Light' : 'Dark';
+  themeBtn.setAttribute('aria-pressed', String(dark));
+}
+themeBtn.addEventListener('click', () => {
+  const dark = themeBtn.getAttribute('aria-pressed') === 'true';
+  const next = dark ? 'light' : 'dark';
+  try { localStorage.setItem('slm-gate-theme', next); } catch {}
+  applyTheme(next);
+});
+let saved = null;
+try { saved = localStorage.getItem('slm-gate-theme'); } catch {}
+applyTheme(saved);
+boot();
+</script>
+</body>
+</html>

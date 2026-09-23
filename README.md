@@ -74,7 +74,7 @@ pnpm run slm-gate metrics
 
 This prints a clean, offline summary showing tokens saved, compression ratio, requests handled locally, and how many extra minutes of subscription headroom you've gained — no API keys, no internet connection required.
 
-**Want a visual dashboard?** If you set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will also send traces there, giving you graphs, latency breakdowns, and session-by-session analysis. Langfuse is completely optional — the local metrics command always works regardless.
+**Want a visual dashboard?** Run `pnpm run dashboard` for the built-in one-page dashboard — per-cycle window time returned per provider, tokens saved, weekly charts and routing split, straight from the local ledger, publishable to GitHub Pages for free (see [Section 6](#6-verification--day-to-day-use)). If you also set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will send traces there for session-by-session analysis. Both are optional — the local metrics command always works regardless.
 
 ### How It Works: Visual
 <img width="825" height="768" alt="Screenshot 2026-09-10 at 12 30 05 pm" src="https://github.com/user-attachments/assets/81d09734-234e-441f-9213-881ef219bedd" />
@@ -983,6 +983,24 @@ pnpm run slm-gate metrics
 ```
 
 Prints a live summary from your local ledger: tokens saved, compression ratio, local vs. cloud routing split, and subscription runway reclaimed. No internet required.
+
+### The Metrics Dashboard
+
+For a visual view, `slm-gate` ships a one-page dashboard that reads the same local ledger — no cloud, no account, no extra dependencies:
+
+```bash
+pnpm run dashboard            # opens at http://localhost:8790, local-only, read-only
+```
+
+It shows the numbers that justify running the gate: **how many minutes of each provider's rolling usage window you got back per cycle** (a cycle is the 5-hour window your first Claude request opens), tokens saved per provider, week-by-week charts, the routing decision split, and SLM accuracy — with benchmark runs kept separate from real traffic, and anything unmeasured shown as "not measured", never a fake zero.
+
+**Publish yours for free on GitHub Pages:**
+
+```bash
+pnpm run dashboard:export     # bakes a static site/ folder — aggregate numbers only
+```
+
+Commit `site/` and push; the included Pages workflow deploys it (one-time setup: repo **Settings → Pages → Source: GitHub Actions**). The export contains only counts, token sums, minutes and dates — never prompts, tool names or skill names. And with no hosting at all, anyone can open a hosted copy of the page and drag their own `data.json` onto it: it renders in the browser and uploads nothing. Details in [docs/analytics-and-observability.md](docs/analytics-and-observability.md).
 
 ### Verify Active Compression in Your Editor
 

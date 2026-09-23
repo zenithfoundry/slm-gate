@@ -1,0 +1,363 @@
+{
+  "generatedAt": "2026-09-23T19:04:50.293Z",
+  "firstEventTs": "2026-09-13T16:07:07.367Z",
+  "lastEventTs": "2026-09-23T18:43:38.280Z",
+  "realEvents": 286,
+  "benchEvents": 480,
+  "routing": {
+    "resolvedLocal": 3,
+    "distilledForwarded": 171,
+    "escalatedCloud": 4
+  },
+  "accuracy": {
+    "real": {
+      "avgPct": 100,
+      "n": 1
+    },
+    "bench": {
+      "avgPct": 99.38,
+      "n": 320
+    }
+  },
+  "days": [
+    {
+      "day": "2026-09-13",
+      "events": 17,
+      "tokensSaved": 0,
+      "baselineTokens": 47515,
+      "resolvedLocal": 0,
+      "distilledForwarded": 17,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-15",
+      "events": 28,
+      "tokensSaved": 5005,
+      "baselineTokens": 67779,
+      "resolvedLocal": 0,
+      "distilledForwarded": 28,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-16",
+      "events": 33,
+      "tokensSaved": 56530,
+      "baselineTokens": 127120,
+      "resolvedLocal": 0,
+      "distilledForwarded": 24,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-17",
+      "events": 24,
+      "tokensSaved": 38757,
+      "baselineTokens": 56884,
+      "resolvedLocal": 0,
+      "distilledForwarded": 10,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-18",
+      "events": 36,
+      "tokensSaved": 55592,
+      "baselineTokens": 89783,
+      "resolvedLocal": 0,
+      "distilledForwarded": 19,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-19",
+      "events": 56,
+      "tokensSaved": 116118,
+      "baselineTokens": 304583,
+      "resolvedLocal": 3,
+      "distilledForwarded": 22,
+      "escalatedCloud": 4
+    },
+    {
+      "day": "2026-09-21",
+      "events": 37,
+      "tokensSaved": 58426,
+      "baselineTokens": 91800,
+      "resolvedLocal": 0,
+      "distilledForwarded": 20,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-22",
+      "events": 33,
+      "tokensSaved": 60872,
+      "baselineTokens": 94179,
+      "resolvedLocal": 0,
+      "distilledForwarded": 18,
+      "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-23",
+      "events": 22,
+      "tokensSaved": 41535,
+      "baselineTokens": 65857,
+      "resolvedLocal": 0,
+      "distilledForwarded": 13,
+      "escalatedCloud": 0
+    }
+  ],
+  "providers": [
+    {
+      "id": "claude",
+      "label": "Claude",
+      "plan": "claude-max-5x",
+      "windowMinutes": 300,
+      "windowBudgetTokens": 2300000,
+      "events": 253,
+      "tokensSaved": 421334,
+      "minutesTotal": 54.957,
+      "avgMinutesPerCycle": 2.29,
+      "medianMinutesPerCycle": 1.412,
+      "cycles": [
+        {
+          "start": "2026-09-13T16:07:07.367Z",
+          "events": 13,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-13T22:24:30.845Z",
+          "events": 2,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-15T12:00:01.333Z",
+          "events": 6,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-15T17:09:33.170Z",
+          "events": 4,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-15T23:20:30.640Z",
+          "events": 7,
+          "tokensSaved": 2618,
+          "minutes": 0.341
+        },
+        {
+          "start": "2026-09-16T11:12:21.574Z",
+          "events": 7,
+          "tokensSaved": 15629,
+          "minutes": 2.039
+        },
+        {
+          "start": "2026-09-16T18:24:48.615Z",
+          "events": 11,
+          "tokensSaved": 38283,
+          "minutes": 4.993
+        },
+        {
+          "start": "2026-09-17T00:56:51.346Z",
+          "events": 8,
+          "tokensSaved": 11172,
+          "minutes": 1.457
+        },
+        {
+          "start": "2026-09-17T12:26:07.056Z",
+          "events": 3,
+          "tokensSaved": 10822,
+          "minutes": 1.412
+        },
+        {
+          "start": "2026-09-17T18:30:38.456Z",
+          "events": 11,
+          "tokensSaved": 10267,
+          "minutes": 1.339
+        },
+        {
+          "start": "2026-09-18T02:23:59.676Z",
+          "events": 2,
+          "tokensSaved": 977,
+          "minutes": 0.127
+        },
+        {
+          "start": "2026-09-18T12:07:55.892Z",
+          "events": 23,
+          "tokensSaved": 41061,
+          "minutes": 5.356
+        },
+        {
+          "start": "2026-09-18T17:56:03.604Z",
+          "events": 7,
+          "tokensSaved": 9181,
+          "minutes": 1.198
+        },
+        {
+          "start": "2026-09-18T23:39:36.310Z",
+          "events": 19,
+          "tokensSaved": 21674,
+          "minutes": 2.827
+        },
+        {
+          "start": "2026-09-19T12:35:45.658Z",
+          "events": 26,
+          "tokensSaved": 88008,
+          "minutes": 11.479
+        },
+        {
+          "start": "2026-09-19T17:56:11.462Z",
+          "events": 12,
+          "tokensSaved": 10809,
+          "minutes": 1.41
+        },
+        {
+          "start": "2026-09-21T00:08:57.573Z",
+          "events": 11,
+          "tokensSaved": 10226,
+          "minutes": 1.334
+        },
+        {
+          "start": "2026-09-21T13:38:45.019Z",
+          "events": 16,
+          "tokensSaved": 23956,
+          "minutes": 3.125
+        },
+        {
+          "start": "2026-09-21T20:15:54.536Z",
+          "events": 11,
+          "tokensSaved": 29847,
+          "minutes": 3.893
+        },
+        {
+          "start": "2026-09-22T03:13:57.879Z",
+          "events": 4,
+          "tokensSaved": 1854,
+          "minutes": 0.242
+        },
+        {
+          "start": "2026-09-22T12:06:14.320Z",
+          "events": 14,
+          "tokensSaved": 18201,
+          "minutes": 2.374
+        },
+        {
+          "start": "2026-09-22T17:15:39.323Z",
+          "events": 14,
+          "tokensSaved": 35214,
+          "minutes": 4.593
+        },
+        {
+          "start": "2026-09-23T12:22:25.999Z",
+          "events": 16,
+          "tokensSaved": 33320,
+          "minutes": 4.346
+        },
+        {
+          "start": "2026-09-23T18:10:40.356Z",
+          "events": 6,
+          "tokensSaved": 8215,
+          "minutes": 1.072
+        }
+      ],
+      "weeks": [
+        {
+          "weekStart": "2026-09-07",
+          "events": 15,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "weekStart": "2026-09-14",
+          "events": 146,
+          "tokensSaved": 260501,
+          "minutes": 33.975
+        },
+        {
+          "weekStart": "2026-09-21",
+          "events": 92,
+          "tokensSaved": 160833,
+          "minutes": 20.987
+        }
+      ]
+    },
+    {
+      "id": "chatgpt",
+      "label": "ChatGPT",
+      "plan": "chatgpt-plus",
+      "windowMinutes": 180,
+      "windowBudgetTokens": 160,
+      "events": 0,
+      "tokensSaved": 0,
+      "minutesTotal": 0,
+      "avgMinutesPerCycle": null,
+      "medianMinutesPerCycle": null,
+      "cycles": [],
+      "weeks": []
+    },
+    {
+      "id": "gemini",
+      "label": "Gemini",
+      "plan": "gemini-pro",
+      "windowMinutes": 300,
+      "windowBudgetTokens": 10000000,
+      "events": 33,
+      "tokensSaved": 11501,
+      "minutesTotal": 0.345,
+      "avgMinutesPerCycle": 0.057,
+      "medianMinutesPerCycle": 0,
+      "cycles": [
+        {
+          "start": "2026-09-13T16:32:02.680Z",
+          "events": 2,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-15T18:52:19.982Z",
+          "events": 17,
+          "tokensSaved": 5005,
+          "minutes": 0.15
+        },
+        {
+          "start": "2026-09-16T13:40:19.611Z",
+          "events": 7,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-16T19:27:09.005Z",
+          "events": 2,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-09-17T18:30:22.543Z",
+          "events": 2,
+          "tokensSaved": 6496,
+          "minutes": 0.195
+        },
+        {
+          "start": "2026-09-19T18:03:50.711Z",
+          "events": 3,
+          "tokensSaved": 0,
+          "minutes": 0
+        }
+      ],
+      "weeks": [
+        {
+          "weekStart": "2026-09-07",
+          "events": 2,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "weekStart": "2026-09-14",
+          "events": 31,
+          "tokensSaved": 11501,
+          "minutes": 0.346
+        }
+      ]
+    }
+  ]
+}

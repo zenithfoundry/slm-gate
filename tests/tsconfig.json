@@ -1,0 +1,15 @@
+{
+  // Type-checking config for tests/ only — the IDE picks it up as the nearest tsconfig.
+  //
+  // The root tsconfig includes src/**/* alone (its rootDir/outDir drive the dist build),
+  // which left every file here outside any TypeScript project: editors then fall back to
+  // default compiler settings (no esModuleInterop, no import.meta, ES5 target) and paint
+  // false errors over perfectly valid tests. This mirrors what ts-jest actually compiles
+  // with (see jest.config.js transform). Never emits; the build still uses `tsc -p .`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true
+  },
+  "include": ["**/*", "../scripts/ollama-helper.ts"]
+}

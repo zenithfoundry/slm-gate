@@ -325,6 +325,39 @@ pnpm run ledger:report   # tokens saved per UTC day and all-time, from the ledge
 
 A day in the report equals the Tokens Saved card with Langfuse's date picker set to that same UTC day. The "of which bench" column is benchmark savings, already included in the total.
 
+### The built-in dashboard: per-cycle savings, no cloud required
+
+Langfuse cannot reconstruct provider cycles (a cycle is the rolling window your first
+request opens — Claude: 5 hours), keeps only its retention window, and retires its v1 read
+APIs on Cloud on 2026-11-16. The built-in dashboard reads the local ledger instead, so it
+shows the metrics that matter with no cloud dependency:
+
+- **Window time returned per cycle, per provider** — real cycle reconstruction, with
+  average, median, a per-cycle table, and a per-week bar chart (the 7-day cap view).
+- **Tokens saved per provider**, the **routing decision** split (feedback clicks excluded —
+  they are not routed prompts), and **SLM accuracy** shown twice: real traffic and
+  benchmark, so hiding bench data never blanks the score.
+- Benchmark runs are excluded from every savings figure. A provider without a
+  `*_WINDOW_BUDGET` shows "not measured", never a fake 0.
+
+```bash
+pnpm run dashboard            # live at http://localhost:8790, read-only, local-only
+pnpm run dashboard:export     # bakes site/index.html + site/data.json for static hosting
+```
+
+**Free hosting (GitHub Pages).** The export is a plain static folder. `site/data.json`
+contains aggregates only — counts, token sums, minutes, dates. No prompts, tool names or
+skill names ever leave your machine (the timestamps do show when you work). To publish:
+
+1. Once: repository **Settings → Pages → Source: GitHub Actions**.
+2. `pnpm run dashboard:export`, commit `site/`, push to `main`. The
+   `.github/workflows/pages.yml` workflow deploys it to `https://<owner>.github.io/<repo>/`.
+3. Re-run the export and push whenever you want the public numbers refreshed.
+
+No GitHub needed at all, either: open anyone's hosted copy of the page and **drag your own
+`data.json` onto it** — it renders entirely in your browser and uploads nothing — or pass
+`?data=<url>` pointing at a raw gist of your export.
+
 ### Checking the ledger against Langfuse: `ledger:verify`
 
 ```bash
