@@ -10,6 +10,7 @@
  * 3. Graceful Network Tolerance: It uses non-throwing network checks (catching fetch/net errors)
  *    so the diagnostic tool itself doesn't crash if the environment is heavily misconfigured.
  */
+import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from './config.js';
@@ -37,6 +38,54 @@ async function checkPortFree(port: number): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Days without a model-gate event before doctor warns that per-prompt savings are not measured. */
+const MODEL_GATE_QUIET_DAYS = 7;
+
+/**
+ * The newest model-gate event in the ledger, benchmark runs excluded (they are not real traffic).
+ * Opens the ledger read-only: doctor must not create or migrate it, which getDb() would.
+ *
+ * @returns The event's timestamp, null when there is none, or the error that stopped the read.
+ */
+function lastModelGateEventTs(): { ts: string | null; error?: string } {
+  if (!fs.existsSync(CONFIG.LEDGER_PATH)) return { ts: null };
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(CONFIG.LEDGER_PATH, { readonly: true });
+    const row = db.prepare("SELECT MAX(ts) AS ts FROM events WHERE layer = 'llm' AND (environment IS NULL OR environment != 'bench')").get() as { ts: string | null };
+    return { ts: row.ts };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // A ledger that has never recorded an event has no table yet.
+    return /no such table/i.test(message) ? { ts: null } : { ts: null, error: message };
+  } finally {
+    db?.close();
+  }
+}
+
+/**
+ * The Langfuse environments the gate's real traffic sits in: every environment in the ledger except
+ * the benchmark's, plus the one new events go to. History can sit apart from new traffic — events
+ * written before LANGFUSE_ENVIRONMENT defaulted to 'slm-gate' stay in 'default', because Langfuse
+ * never moves a score to a new environment.
+ */
+function dashboardEnvironments(): { environments: string[]; error?: string } {
+  const environments = new Set([CONFIG.LANGFUSE_ENVIRONMENT]);
+  if (!fs.existsSync(CONFIG.LEDGER_PATH)) return { environments: [...environments] };
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(CONFIG.LEDGER_PATH, { readonly: true });
+    const rows = db.prepare("SELECT DISTINCT environment FROM events WHERE environment IS NOT NULL AND environment != 'bench'").all() as { environment: string }[];
+    for (const row of rows) environments.add(row.environment);
+    return { environments: [...environments].sort() };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return /no such table/i.test(message) ? { environments: [...environments] } : { environments: [...environments], error: message };
+  } finally {
+    db?.close();
   }
 }
 
@@ -253,6 +302,26 @@ async function run() {
   report(stranded.length === 0, 'No slm-gate MCP servers are left over from closed coding tools',
     `${stranded.length} slm-gate MCP server${stranded.length === 1 ? '' : 's'} still running with no coding tool attached (pid ${stranded.join(', ')}). ` +
     `Each keeps checking Ollama and can show notifications from the build it was started with. Stop them with: kill ${stranded.join(' ')}`);
+
+  // 9c. Per-prompt savings (local answers, accuracy, window time per provider) are only measured on
+  // model-gate traffic. MCP tool calls alone keep the ledger busy while those cards stay empty, so the
+  // gap is called out here. A warning, not an issue: the gate itself works.
+  const lastModelGateEvent = lastModelGateEventTs();
+  if (lastModelGateEvent.error) {
+    console.log(`  Note: could not read the ledger to check for model-gate traffic: ${lastModelGateEvent.error}`);
+  } else if (!lastModelGateEvent.ts || Date.now() - Date.parse(lastModelGateEvent.ts) > MODEL_GATE_QUIET_DAYS * 86_400_000) {
+    console.log(`⚠ No model request has gone through the model gate in the last ${MODEL_GATE_QUIET_DAYS} days (last: ${lastModelGateEvent.ts ?? 'never'}). ` +
+      'Per-prompt savings (local answers, SLM accuracy, window time saved) are not being measured; only MCP tool calls are reaching slm-gate.');
+    console.log(`  Fix: point a coding tool at ${gateAddress} with the settings printed below.`);
+  }
+
+  // 9d. Langfuse's dashboard shows one Env selection at a time; set to the wrong one it looks empty.
+  if (CONFIG.LANGFUSE_PUBLIC_KEY && CONFIG.LANGFUSE_SECRET_KEY && CONFIG.LANGFUSE_HOST) {
+    const dashboard = dashboardEnvironments();
+    if (dashboard.error) console.log(`  Note: could not read the ledger's environments: ${dashboard.error}`);
+    console.log(`  Langfuse dashboard: set the Env selector to ${dashboard.environments.map(e => `"${e}"`).join(' and ')}` +
+      ` (new traffic goes to "${CONFIG.LANGFUSE_ENVIRONMENT}"; leave "bench" out unless you want benchmark runs).`);
+  }
 
   // 10. The setting that sends each coding tool's model requests through the gate (on the current port).
   console.log(`\n--- Coding tool settings: paste these to send a tool's model requests through ${gateAddress} ---`);

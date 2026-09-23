@@ -167,6 +167,12 @@ export function getE2EEnv(overrides: Record<string, string> = {}): Record<string
     // Distillation thresholds are deliberately NOT pinned here. A script whose canned payload
     // is sized against particular DISTILL_MIN/MAX_TOKENS values passes them in `overrides`,
     // next to the payload, where the coupling is visible.
-    ...overrides
+    ...overrides,
+    // After the overrides, so no script can put them back: a throwaway ledger with the real
+    // Langfuse keys shipped every E2E event to the real project, where it matched no ledger
+    // row (20 such traces on 2026-09-15 and 09-19). Guarded by tests/scripts/e2e-env.test.ts.
+    LANGFUSE_PUBLIC_KEY: '',
+    LANGFUSE_SECRET_KEY: '',
+    LANGFUSE_HOST: '',
   };
 }

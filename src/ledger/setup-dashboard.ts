@@ -4,6 +4,20 @@
  */
 import { CONFIG, requireKeys } from '../config.js';
 import { setTimeout } from 'timers/promises';
+import { RETIRED_SCORE_NAMES } from './sync-config.js';
+
+// The cards do not filter on SLM_GATE_SOURCE_TAG. Each already filters on a score name only
+// the gate writes, which keeps other writers out. A tag filter looked equivalent but was not:
+// Langfuse's v2 query engine (the dashboard's) sees trace tags on scores only for data it
+// received after about 2026-09-21, and re-sending older data does not add them — the cards
+// matched 59 of 760 tokens_saved scores and read near zero (checked 2026-09-23).
+
+// Langfuse keeps only the last LANGFUSE_RETENTION_DAYS of data, so a total can fall while
+// the gate is busy. Said on the dashboard and on every card that sums, where it misleads most.
+const DASHBOARD_DESCRIPTION = `Rolling ${CONFIG.LANGFUSE_RETENTION_DAYS}-day window (Langfuse data retention). ` +
+  'Older days drop off as new ones arrive, so totals can fall even during heavy use. ' +
+  `The permanent record is the local ledger at ${CONFIG.LEDGER_PATH}.`;
+const RANGE_TOTAL_NOTE = `Total across the selected range only, within the rolling ${CONFIG.LANGFUSE_RETENTION_DAYS}-day window.`;
 
 /**
  * Names cards used before they were renamed. Their placements must be removed too:
@@ -21,6 +35,12 @@ const RETIRED_WIDGET_NAMES = [
   'ChatGPT Cycle: Estimated Minutes Saved',
   'Gemini Cycle: Estimated Minutes Saved',
 ];
+
+/** A widget from an earlier build: retired by name, or counting a score name no longer written. */
+function isStaleWidget(widget: { name: string; filters?: Array<{ column?: string; value?: unknown }> }): boolean {
+  return RETIRED_WIDGET_NAMES.includes(widget.name)
+    || (widget.filters ?? []).some(f => f.column === 'name' && typeof f.value === 'string' && RETIRED_SCORE_NAMES.includes(f.value));
+}
 
 async function apiFetch(url: string, init: RequestInit, label: string): Promise<Response> {
   let attempt = 0;
@@ -103,7 +123,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Tokens Saved',
-      description: 'Total cloud tokens saved by local SLM deferral',
+      description: `Total cloud tokens saved by local SLM deferral. ${RANGE_TOTAL_NOTE}`,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -112,7 +132,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Cost Saved (Cents)',
-      description: 'Estimated cloud API dollars avoided (in Cents)',
+      description: `Estimated cloud API dollars avoided (in Cents). ${RANGE_TOTAL_NOTE}`,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -121,7 +141,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'SLM Accuracy Rate (%)',
-      description: 'Accuracy of SLM output compared to cloud model baseline (0-100%). Only filled by llm-gate traffic or bench runs (Env = bench); mcp-gate never answers prompts, so it never scores accuracy.',
+      description: 'Only measured for prompts that pass through the model gate. Shows 0 when the model gate is not in the request path — that means not measured, not 0% accurate. MCP tool calls never answer prompts, so they never score accuracy. Share of local-model answers the verifier accepted (0-100%); benchmark runs land under Env = bench.',
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -130,7 +150,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle: Est. Seconds Saved (per prompt)',
-      description: "SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. Only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
+      description: "Only measured when Claude traffic passes through the gate and CLAUDE_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -139,7 +159,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle: Est. Seconds Saved (per prompt)',
-      description: "SECONDS of your 3-hour ChatGPT window freed per prompt, averaged — bounded [0, 10800]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. ChatGPT uses message-based metering, so only a prompt answered entirely locally frees anything; a distilled-but-forwarded prompt still costs a message and scores 0. Only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
+      description: "Only measured when ChatGPT traffic passes through the gate and CHATGPT_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 3-hour ChatGPT window freed per prompt, averaged — bounded [0, 10800]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. ChatGPT uses message-based metering, so only a prompt answered entirely locally frees anything; a distilled-but-forwarded prompt still costs a message and scores 0.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -148,7 +168,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle: Est. Seconds Saved (per prompt)',
-      description: "SECONDS of your 5-hour Gemini window freed per prompt, averaged — bounded [0, 18000]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle. Only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
+      description: "Only measured when Gemini traffic passes through the gate and GEMINI_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 5-hour Gemini window freed per prompt, averaged — bounded [0, 18000]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -157,7 +177,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle: Est. Minutes Saved (total)',
-      description: "Total MINUTES of your 5-hour Claude window freed across every prompt in the selected date range. This is the companion to the per-prompt seconds card above it: same quantity, summed instead of averaged, so it grows as you use the gate. An estimate within a margin of error — CLAUDE_WINDOW_BUDGET is a measured best guess. Only populates when Claude receives traffic and CLAUDE_WINDOW_BUDGET is set.",
+      description: "Only measured when Claude traffic passes through the gate and CLAUDE_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Claude window freed across every prompt in the selected date range. This is the companion to the per-prompt seconds card above it: same quantity, summed instead of averaged, so it grows as you use the gate. An estimate within a margin of error — CLAUDE_WINDOW_BUDGET is a measured best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -166,7 +186,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle: Est. Minutes Saved (total)',
-      description: "Total MINUTES of your 3-hour ChatGPT window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — CHATGPT_WINDOW_BUDGET is a best guess. Only populates when ChatGPT receives traffic and CHATGPT_WINDOW_BUDGET is set.",
+      description: "Only measured when ChatGPT traffic passes through the gate and CHATGPT_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 3-hour ChatGPT window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — CHATGPT_WINDOW_BUDGET is a best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -175,7 +195,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle: Est. Minutes Saved (total)',
-      description: "Total MINUTES of your 5-hour Gemini window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — GEMINI_WINDOW_BUDGET is a best guess. Only populates when Gemini receives traffic and GEMINI_WINDOW_BUDGET is set.",
+      description: "Only measured when Gemini traffic passes through the gate and GEMINI_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Gemini window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — GEMINI_WINDOW_BUDGET is a best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -190,7 +210,33 @@ async function setupDashboard(): Promise<void> {
   for (const w of widgets) {
     const existing = existingWidgets.find(ew => ew.name === w.name);
     if (existing) {
-      console.log(`✓ Reusing existing widget: ${w.name}`);
+      // Reused by name, so a changed description or filter would otherwise never reach
+      // Langfuse. Patched in place: the widget keeps its id and its placement.
+      // Compared field by field: Langfuse returns filter keys in its own order.
+      const filterKey = (filters: any[]) => JSON.stringify(filters.map(f => [f.column, f.operator, f.type, f.value, f.key ?? null]));
+      const upToDate = existing.description === w.description
+        && filterKey(existing.filters ?? []) === filterKey(w.filters);
+      if (upToDate) {
+        console.log(`✓ Reusing existing widget: ${w.name}`);
+        targetWidgets.push(existing);
+        continue;
+      }
+      try {
+        const res = await apiFetch(`${baseUrl}/api/public/unstable/dashboard-widgets/${existing.id}`, {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ description: w.description, filters: w.filters }),
+        }, `update widget '${w.name}'`);
+        if (res.ok) {
+          console.log(`✓ Updated existing widget: ${w.name}`);
+        } else {
+          console.warn(`⚠ Failed to update widget '${w.name}': ${await res.text()}`);
+          failures++;
+        }
+      } catch (err) {
+        console.warn(`⚠ Error updating widget '${w.name}':`, err);
+        failures++;
+      }
       targetWidgets.push(existing);
       continue;
     }
@@ -227,6 +273,19 @@ async function setupDashboard(): Promise<void> {
       if (existing) {
         dashboard = existing;
         console.log(`✓ Found existing dashboard: ${dashboard.name} (ID: ${dashboard.id})`);
+        if (existing.description !== DASHBOARD_DESCRIPTION) {
+          const patchRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${existing.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ description: DASHBOARD_DESCRIPTION }),
+          }, 'update dashboard description');
+          if (patchRes.ok) {
+            console.log('✓ Updated dashboard description');
+          } else {
+            console.warn(`⚠ Failed to update dashboard description: ${await patchRes.text()}`);
+            failures++;
+          }
+        }
       }
     } else {
       console.warn(`⚠ Failed to list dashboards: ${await listRes.text()}`);
@@ -244,7 +303,7 @@ async function setupDashboard(): Promise<void> {
         headers,
         body: JSON.stringify({
           name: 'SLM Gate Performance',
-          description: 'Comprehensive metrics tracking local SLM deferral rates, token savings, and quality.',
+          description: DASHBOARD_DESCRIPTION,
         }),
       }, 'create dashboard');
 
@@ -276,7 +335,7 @@ async function setupDashboard(): Promise<void> {
           const placementWidget = existingWidgets.find(ew => ew.id === placement.widgetId) 
                                || targetWidgets.find(tw => tw.id === placement.widgetId);
                                
-          if (placementWidget && (widgets.some(w => w.name === placementWidget.name) || RETIRED_WIDGET_NAMES.includes(placementWidget.name))) {
+          if (placementWidget && (widgets.some(w => w.name === placementWidget.name) || isStaleWidget(placementWidget))) {
             console.log(`Removing existing placement for '${placementWidget.name}'...`);
             const delRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboards/${dashboard.id}/placements/${placement.id}`, {
               method: 'DELETE',
@@ -288,6 +347,23 @@ async function setupDashboard(): Promise<void> {
               failures++;
             }
           }
+        }
+      }
+
+      // With their placements gone, stale widgets can be deleted. Langfuse answers 409 while
+      // a widget is still placed on some other dashboard; that one is left and reported.
+      for (const stale of existingWidgets.filter(isStaleWidget)) {
+        const delRes = await apiFetch(`${baseUrl}/api/public/unstable/dashboard-widgets/${stale.id}`, {
+          method: 'DELETE',
+          headers,
+        }, `delete stale widget '${stale.name}'`);
+        if (delRes.ok) {
+          console.log(`✓ Deleted stale widget: ${stale.name}`);
+        } else if (delRes.status === 409) {
+          console.warn(`⚠ Kept stale widget '${stale.name}': it is still placed on another dashboard.`);
+        } else {
+          console.warn(`⚠ Failed to delete stale widget '${stale.name}': ${await delRes.text()}`);
+          failures++;
         }
       }
     } catch (err) {

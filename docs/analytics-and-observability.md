@@ -303,6 +303,36 @@ pnpm run ledger:sync --limit 20
 4. Ingests local SLM calls at `$0.00` and cloud API calls with exact usage and cost details.
 5. Pushes quantitative scores (`cost_saved_usd`, `tokens_saved`, `verified`) with deterministic IDs to populate your dashboards.
 
+Every trace carries the tag `source:slm-gate`, so `ledger:verify` and `langfuse:wipe` can tell the gate's traces from another program writing to the same Langfuse project. Traces written before the tag existed get it when `ledger:sync` resends them. The dashboard cards do not filter on the tag: each filters on a score name only the gate writes, which already keeps other programs out. (A tag filter on the cards matched only data Langfuse received after about 2026-09-21, and re-sending older data does not change that, so the cards read near zero.)
+
+### Backfilling after an upgrade, and which Env to pick
+
+`ledger:sync` is also the backfill. Run it after any change to what the gate sends (tags, score names), and old traces pick up the change:
+
+- **Idempotent.** Every id is deterministic, so a re-send updates in place. Checked on 2026-09-23: 891 traces and 760 `verified` scores before a full re-send of 760 events, the same after.
+- **Paced and resumable.** One batch of 50 events every 2.1 s, retried on 429/5xx. If Langfuse still refuses a batch, the run stops and prints `pnpm run ledger:sync --after <rowid>` to continue from the last accepted event.
+- **Only ledger-backed events can be restored.** Traces from other programs, and from E2E runs that used a throwaway ledger, are not in the ledger, never get the tag, and never show on the cards.
+
+**Environments since 2026-09-23.** New traffic goes to Langfuse environment `slm-gate` (`LANGFUSE_ENVIRONMENT`). Events written before that stay in `default`: Langfuse moves a re-sent trace to a new environment but never its scores (tested 2026-09-23), so moving history would split every trace from its own scores. **Set the dashboard's Env selector to both `default` and `slm-gate`**; with only one of them the cards look empty or short. `slm-gate doctor` prints the exact selection for your ledger. Leave `bench` out unless you want benchmark runs.
+
+### Rolling window: why a total can go down
+
+Langfuse keeps only the last `LANGFUSE_RETENTION_DAYS` days (Hobby: 30; set it to your plan's retention). Older days drop off as new ones arrive, so a total on the dashboard can fall even during heavy use. Every card that sums (Tokens Saved, Cost Saved, the Minutes Saved cards) is a total across the selected range only, within that window. The permanent record is the local ledger:
+
+```bash
+pnpm run ledger:report   # tokens saved per UTC day and all-time, from the ledger alone
+```
+
+A day in the report equals the Tokens Saved card with Langfuse's date picker set to that same UTC day. The "of which bench" column is benchmark savings, already included in the total.
+
+### Checking the ledger against Langfuse: `ledger:verify`
+
+```bash
+pnpm run ledger:verify --from 2026-09-20 --to 2026-09-23   # both days included, UTC
+```
+
+Read-only: it opens the ledger read-only and sends only GET requests. For the window it prints ledger events, Langfuse traces (all writers, tagged `source:slm-gate`, and the gate's own counted by their one `verified` score each), and per score name the count the ledger's events produce against the count Langfuse holds. Run it before and after any repair. Rows marked "retired name, safe to ignore" are scores an earlier build wrote under a name no longer used (`cycle_extended_per_window_*`); no card reads them, and `langfuse:setup-dashboard` removes any widget that still does.
+
 
 ---
 

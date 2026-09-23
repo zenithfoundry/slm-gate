@@ -143,7 +143,18 @@ export function getDb(): Database.Database {
       CREATE TABLE IF NOT EXISTS langfuse_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         payload TEXT,
-        synced INTEGER DEFAULT 0
+        synced INTEGER DEFAULT 0,
+        attempts INTEGER DEFAULT 0
+      );
+
+      -- Queue rows Langfuse kept rejecting item by item. Parked here, never deleted, so a
+      -- malformed row cannot block the queue and its data is still there to inspect or resend.
+      CREATE TABLE IF NOT EXISTS langfuse_dead_letter (
+        id INTEGER PRIMARY KEY,
+        payload TEXT,
+        attempts INTEGER,
+        error TEXT,
+        dead_at TEXT
       );
 
       CREATE TABLE IF NOT EXISTS elision_cache (
@@ -163,23 +174,21 @@ export function getDb(): Database.Database {
     // Additive, idempotent column migrations. CREATE TABLE IF NOT EXISTS above only covers
     // fresh databases, and this process runs headless inside MCP hosts where nobody will
     // remember to run scripts/migrations/*. Every column here must be nullable.
-    const tableInfo = db.prepare('PRAGMA table_info(events)').all() as { name: string }[] | undefined;
-    if (Array.isArray(tableInfo)) {
-      const eventColumns = new Set(tableInfo.map(c => c.name));
-      for (const [column, ddl] of [
-        ['provider', 'ALTER TABLE events ADD COLUMN provider TEXT'],
-        ['agent', 'ALTER TABLE events ADD COLUMN agent TEXT'],
-        ['environment', 'ALTER TABLE events ADD COLUMN environment TEXT'],
-      ] as const) {
-        if (eventColumns.has(column)) continue;
-        try {
-          db.exec(ddl);
-          console.error(`[ledger] Migrated: added events.${column}`);
-        } catch (err) {
-          // "duplicate column name" means another process won the race — benign.
-          const message = err instanceof Error ? err.message : String(err);
-          if (!/duplicate column name/i.test(message)) throw err;
-        }
+    for (const [table, column, ddl] of [
+      ['events', 'provider', 'ALTER TABLE events ADD COLUMN provider TEXT'],
+      ['events', 'agent', 'ALTER TABLE events ADD COLUMN agent TEXT'],
+      ['events', 'environment', 'ALTER TABLE events ADD COLUMN environment TEXT'],
+      ['langfuse_queue', 'attempts', 'ALTER TABLE langfuse_queue ADD COLUMN attempts INTEGER DEFAULT 0'],
+    ] as const) {
+      const tableInfo = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[] | undefined;
+      if (!Array.isArray(tableInfo) || tableInfo.some(c => c.name === column)) continue;
+      try {
+        db.exec(ddl);
+        console.error(`[ledger] Migrated: added ${table}.${column}`);
+      } catch (err) {
+        // "duplicate column name" means another process won the race — benign.
+        const message = err instanceof Error ? err.message : String(err);
+        if (!/duplicate column name/i.test(message)) throw err;
       }
     }
 
@@ -644,6 +653,13 @@ export interface LangfuseQueuePayload {
   scores?: LangfuseScorePayload[];
 }
 
+/**
+ * Carried by every trace the gate writes. Other programs may write to the same Langfuse
+ * project, so ledger:verify counts and langfuse:wipe deletes only traces with this tag. The
+ * dashboard cards do not use it (see setup-dashboard.ts): they filter on the gate's score names.
+ */
+export const SLM_GATE_SOURCE_TAG = 'source:slm-gate';
+
 export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
   // Price against the model that actually served (or would have served) this event.
   // Previously every defer_local/condition event was priced at CONFIG.CLOUD_MODEL, so
@@ -680,6 +696,7 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
     : (e.layer === 'mcp' ? `[mcp] ${e.route}` : `[llm] ${e.route}`);
 
   const tags = [
+    SLM_GATE_SOURCE_TAG,
     e.slm_gate === 'on' ? 'slm_gate=on' : 'slm_gate=off',
     `route:${e.route}`,
     `layer:${e.layer}`,
@@ -858,6 +875,22 @@ export function formatEventForLangfuse(e: LedgerEvent): LangfuseQueuePayload {
   };
 }
 
+/** One rejected item from a Langfuse ingestion response (the `errors` array of a 207). */
+interface IngestionItemError {
+  id?: string;
+  status?: number;
+  message?: string;
+  error?: unknown;
+}
+
+/** Flushes a queue row may be rejected before it is parked in langfuse_dead_letter. */
+const MAX_ROW_ATTEMPTS = 5;
+
+function describeItemError(e: IngestionItemError): string {
+  const detail = e.message ?? (typeof e.error === 'string' ? e.error : e.error === undefined ? '' : JSON.stringify(e.error));
+  return `status=${e.status ?? 'unknown'} ${detail}`.trim();
+}
+
 export class LangfuseSink {
   static _warnedMissingKeys = false;
   
@@ -892,6 +925,12 @@ export class LangfuseSink {
    * catch up. Rows are only deleted after the server accepts them, so a failure leaves the
    * queue intact and the offline contract holds.
    *
+   * Langfuse answers 207 when it takes the batch but rejects single items. A row is deleted
+   * only when every one of its items was accepted; a rejected row stays queued with its
+   * attempt count raised, and after MAX_ROW_ATTEMPTS it moves to langfuse_dead_letter so it
+   * cannot block the queue. Each row is sent at most once per call, so a rejection costs one
+   * attempt per flush, not one per batch.
+   *
    * @param options.maxBatches Safety valve so a pathological queue cannot spin forever.
    * @param options.deadlineMs Wall-clock budget; used by the shutdown drain, where MCP hosts
    *   force-kill after a short grace period.
@@ -905,6 +944,8 @@ export class LangfuseSink {
     const db = getDb();
     const MAX_ATTEMPTS = 3;
     let shipped = 0;
+    // Rows at or below this id were already sent during this call.
+    let lastId = 0;
 
     for (let batchNo = 0; batchNo < maxBatches; batchNo++) {
       if (deadlineMs !== undefined && Date.now() - startedAt >= deadlineMs) {
@@ -914,13 +955,17 @@ export class LangfuseSink {
 
       // ORDER BY id so the oldest events drain first and ordering is deterministic.
       const rows = db
-        .prepare('SELECT id, payload FROM langfuse_queue WHERE synced = 0 ORDER BY id ASC LIMIT 50')
-        .all() as { id: number; payload: string }[];
+        .prepare('SELECT id, payload, attempts FROM langfuse_queue WHERE synced = 0 AND id > ? ORDER BY id ASC LIMIT 50')
+        .all(lastId) as { id: number; payload: string; attempts: number | null }[];
 
       if (rows.length === 0) break;
+      lastId = rows[rows.length - 1].id;
 
-      const batch = [];
+      const batch: Array<{ id: string; type: string; timestamp: string; body: unknown }> = [];
       const rowIds = [];
+      // Each batch item's id → the queue row it came from, so a per-item error in a 207
+      // response can be traced back to the one row that must stay queued.
+      const rowIdByItemId = new Map<string, number>();
 
       for (const row of rows) {
         rowIds.push(row.id);
@@ -930,46 +975,32 @@ export class LangfuseSink {
         // field at all, so without this every score lands at flush time and the whole time
         // series collapses onto a few instants — which is what broke the date filters.
         const envelopeTs = payload.eventTs ?? payload.trace?.timestamp ?? new Date().toISOString();
+        const add = (item: { type: string; body: unknown }) => {
+          const id = crypto.randomUUID();
+          rowIdByItemId.set(id, row.id);
+          batch.push({ id, type: item.type, timestamp: envelopeTs, body: item.body });
+        };
 
-        batch.push({
-          id: crypto.randomUUID(),
-          type: 'trace-create',
-          timestamp: envelopeTs,
-          body: payload.trace
-        });
+        add({ type: 'trace-create', body: payload.trace });
 
         const generations = payload.generations || (payload.generation ? [payload.generation] : []);
         for (const gen of generations) {
-          batch.push({
-            id: crypto.randomUUID(),
-            type: 'generation-create',
-            timestamp: envelopeTs,
-            body: { ...gen, traceId: payload.trace.id }
-          });
+          add({ type: 'generation-create', body: { ...gen, traceId: payload.trace.id } });
         }
 
         if (payload.scores && Array.isArray(payload.scores)) {
           for (const score of payload.scores) {
-            batch.push({
-              id: crypto.randomUUID(),
-              type: 'score-create',
-              timestamp: envelopeTs,
-              body: { ...score, traceId: payload.trace.id }
-            });
+            add({ type: 'score-create', body: { ...score, traceId: payload.trace.id } });
           }
         }
 
         if (payload.span) {
-          batch.push({
-            id: crypto.randomUUID(),
-            type: 'span-create',
-            timestamp: envelopeTs,
-            body: { ...payload.span, traceId: payload.trace.id }
-          });
+          add({ type: 'span-create', body: { ...payload.span, traceId: payload.trace.id } });
         }
       }
 
       let accepted = false;
+      let itemErrors: IngestionItemError[] = [];
       for (let attempt = 0; attempt < MAX_ATTEMPTS && !accepted; attempt++) {
         try {
           const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
@@ -982,19 +1013,20 @@ export class LangfuseSink {
             body: JSON.stringify({ batch })
           });
 
-          let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
+          let body: { errors?: IngestionItemError[] } | null = null;
           try {
-            body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
+            body = await res.json() as { errors?: IngestionItemError[] };
           } catch { /* not JSON */ }
 
           if (body && Array.isArray(body.errors) && body.errors.length > 0) {
             for (const e of body.errors) {
-              console.error(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+              console.error(`[ledger] Langfuse per-item error: id=${e.id ?? 'unknown'} ${describeItemError(e)}`);
             }
           }
 
           if (res.ok) {
             accepted = true;
+            itemErrors = body && Array.isArray(body.errors) ? body.errors : [];
             break;
           }
 
@@ -1023,9 +1055,38 @@ export class LangfuseSink {
 
       if (!accepted) break; // leave rows queued for the next attempt
 
-      const placeholders = rowIds.map(() => '?').join(',');
-      db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...rowIds);
-      shipped += rowIds.length;
+      // An error that names no item of this batch cannot be pinned to a row, so every row
+      // in the batch is treated as rejected: resending is harmless (every id is an upsert),
+      // deleting an unaccepted row is silent data loss.
+      const rejections = new Map<number, string[]>();
+      for (const e of itemErrors) {
+        const rowId = e.id === undefined ? undefined : rowIdByItemId.get(e.id);
+        for (const id of rowId === undefined ? rowIds : [rowId]) {
+          rejections.set(id, [...(rejections.get(id) ?? []), describeItemError(e)]);
+        }
+      }
+
+      const acceptedIds = rowIds.filter(id => !rejections.has(id));
+      db.transaction(() => {
+        if (acceptedIds.length > 0) {
+          const placeholders = acceptedIds.map(() => '?').join(',');
+          db.prepare(`DELETE FROM langfuse_queue WHERE id IN (${placeholders})`).run(...acceptedIds);
+        }
+        for (const row of rows) {
+          const errors = rejections.get(row.id);
+          if (!errors) continue;
+          const attempts = (row.attempts ?? 0) + 1;
+          if (attempts < MAX_ROW_ATTEMPTS) {
+            db.prepare('UPDATE langfuse_queue SET attempts = ? WHERE id = ?').run(attempts, row.id);
+            continue;
+          }
+          db.prepare('INSERT OR REPLACE INTO langfuse_dead_letter (id, payload, attempts, error, dead_at) VALUES (?, ?, ?, ?, ?)')
+            .run(row.id, row.payload, attempts, errors.join('\n'), new Date().toISOString());
+          db.prepare('DELETE FROM langfuse_queue WHERE id = ?').run(row.id);
+          console.warn(`[ledger] Warning: Langfuse rejected queue row ${row.id} ${attempts} times; moved it to langfuse_dead_letter. Last error: ${errors[0]}`);
+        }
+      })();
+      shipped += acceptedIds.length;
     }
 
     return shipped;

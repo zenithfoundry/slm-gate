@@ -35,6 +35,13 @@ describe('Config blank-value handling', () => {
     expect(CONFIG.OLLAMA_HOST).toBe('http://localhost:11434');
     expect(CONFIG.DOWNSTREAM_MCP).toBeNull();
   });
+
+  it('puts the gate\'s Langfuse traffic in its own environment, not the shared default', async () => {
+    // 'default' is where any other writer to the same project lands when it sets none.
+    process.env.LANGFUSE_ENVIRONMENT = '';
+    const { CONFIG } = await loadConfig('blank-langfuse-env');
+    expect(CONFIG.LANGFUSE_ENVIRONMENT).toBe('slm-gate');
+  });
 });
 
 describe('Config Plan Precedence', () => {

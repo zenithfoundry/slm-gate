@@ -66,6 +66,8 @@
     "metrics": "tsx harness/metrics.ts",
     "migrate:provider": "tsx scripts/migrations/001-add-provider.ts",
     "ledger:sync": "tsx src/ledger/sync.ts",
+    "ledger:verify": "tsx src/ledger/verify.ts",
+    "ledger:report": "tsx src/ledger/report.ts",
     "ledger:reset": "rm -f output/ledger.sqlite output/ledger.sqlite-wal output/ledger.sqlite-shm output/deferral_curve.svg output/leaderboard.md",
     "ledger:wipe-langfuse": "tsx src/ledger/wipe-langfuse.ts",
     "langfuse:wipe": "tsx src/ledger/wipe-langfuse.ts",

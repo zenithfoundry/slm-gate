@@ -17,6 +17,7 @@ const MockDatabase = jest.fn(() => ({
   exec: mockExec,
   pragma: mockPragma,
   close: mockClose,
+  transaction: (fn: () => unknown) => fn,
 }));
 
 jest.unstable_mockModule('better-sqlite3', () => ({

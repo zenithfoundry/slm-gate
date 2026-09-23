@@ -17,15 +17,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * - 'tokens_saved' (Numeric)
  * - 'quality_score' (Numeric)
  */
-export async function syncScoreConfigs(): Promise<void> {
-  if (!CONFIG.LANGFUSE_PUBLIC_KEY || !CONFIG.LANGFUSE_SECRET_KEY || !CONFIG.LANGFUSE_HOST) {
-    return;
-  }
+/**
+ * Score names an earlier build wrote and this one no longer does. Their rows stay in Langfuse
+ * until deleted; no card reads them. setup-dashboard removes widgets that still filter on them,
+ * and ledger:verify labels them instead of reporting them as an unexplained surplus.
+ */
+export const RETIRED_SCORE_NAMES: readonly string[] = [
+  'cycle_extended_per_window_claude',
+  'cycle_extended_per_window_chatgpt',
+  'cycle_extended_per_window_gemini',
+];
 
-  const authHeader = 'Basic ' + Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
-  const baseUrl = CONFIG.LANGFUSE_HOST.replace(/\/$/, '');
-
-  const scoreConfigs = [
+/** The score configs the gate registers. Also the list langfuse:wipe archives, and nothing else. */
+export const SCORE_CONFIGS = [
     {
       name: 'verified',
       dataType: 'CATEGORICAL',
@@ -88,8 +92,16 @@ export async function syncScoreConfigs(): Promise<void> {
     }
   ];
 
+export async function syncScoreConfigs(): Promise<void> {
+  if (!CONFIG.LANGFUSE_PUBLIC_KEY || !CONFIG.LANGFUSE_SECRET_KEY || !CONFIG.LANGFUSE_HOST) {
+    return;
+  }
+
+  const authHeader = 'Basic ' + Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
+  const baseUrl = CONFIG.LANGFUSE_HOST.replace(/\/$/, '');
+
   console.log('Initializing Langfuse Score Configurations...');
-  for (const config of scoreConfigs) {
+  for (const config of SCORE_CONFIGS) {
     try {
       const res = await fetch(`${baseUrl}/api/public/score-configs`, {
         method: 'POST',

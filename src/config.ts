@@ -107,9 +107,11 @@ const envSchema = z.object({
   // Langfuse environment dimension. Keeps benchmark/harness runs out of the real
   // traffic view — the dashboard's Env selector filters on this. Langfuse requires
   // lowercase alphanumeric plus - and _, and forbids the 'langfuse' prefix.
+  // Not 'default': that is where any other writer to the same Langfuse project lands
+  // when it sets no environment, so the gate's traffic would be mixed with theirs.
   LANGFUSE_ENVIRONMENT: z.string()
     .regex(/^(?!langfuse)[a-z0-9_-]+$/, "LANGFUSE_ENVIRONMENT must be lowercase alphanumeric (- and _ allowed) and must not start with 'langfuse'")
-    .default('default'),
+    .default('slm-gate'),
   SUBSCRIPTION_PLAN: z.string().optional(),
   PLAN_CLAUDE: z.string().optional(),
   PLAN_CHATGPT: z.string().optional(),
@@ -138,6 +140,9 @@ const envSchema = z.object({
   ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),
   ELISION_MAX_MB: parseInteger(500),
+  // How many days of data your Langfuse plan keeps (Hobby: 30). Only the dashboard text reads it: the
+  // cards cover this rolling window, while the local ledger keeps everything.
+  LANGFUSE_RETENTION_DAYS: parseInteger(30),
 
   // ROUTING TUNE
   ROUTING_TUNE: parseBoolean(false),

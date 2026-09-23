@@ -6,7 +6,7 @@
  * that differed between SQLite and Langfuse.
  */
 
-import { formatEventForLangfuse, LedgerEvent } from './index.js';
+import { formatEventForLangfuse, LedgerEvent, SLM_GATE_SOURCE_TAG } from './index.js';
 import { __resetProviderRegistry } from '../pricing/providers.js';
 
 const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
@@ -65,6 +65,16 @@ describe('environment separates benchmark traffic from real traffic', () => {
     const payload = formatEventForLangfuse(ev());
     expect(payload.trace.environment).toBeTruthy();
     expect(payload.trace.environment).not.toBe('bench');
+  });
+});
+
+describe('the gate\'s traces are told apart from other writers to the same project', () => {
+  it('tags every trace with the source tag ledger:verify and langfuse:wipe select on', () => {
+    // Another program writes to the same Langfuse project; without a tag only the gate
+    // writes, its traces could not be counted or deleted apart from the gate's.
+    for (const route of ['condition', 'feedback', 'defer_local', 'forward_raw'] as const) {
+      expect(formatEventForLangfuse(ev({ route })).trace.tags).toContain(SLM_GATE_SOURCE_TAG);
+    }
   });
 });
 
