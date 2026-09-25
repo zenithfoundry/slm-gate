@@ -1002,6 +1002,8 @@ pnpm run dashboard:export     # bakes a static site/ folder — aggregate number
 
 Commit `site/` and push; the included Pages workflow deploys it (one-time setup: repo **Settings → Pages → Source: GitHub Actions**). The export contains only counts, token sums, minutes and dates — never prompts, tool names or skill names. And with no hosting at all, anyone can open a hosted copy of the page and drag their own `data.json` onto it: it renders in the browser and uploads nothing. Details in [docs/analytics-and-observability.md](docs/analytics-and-observability.md).
 
+The published page is a snapshot and does not refresh itself: re-export and push, or schedule `scripts/dashboard-publish.sh` to do it daily at no cost — see [Keeping the published dashboard current](docs/analytics-and-observability.md#keeping-the-published-dashboard-current).
+
 ### Verify Active Compression in Your Editor
 
 When your editor calls a tool (like `get_skill` in Tech-Lead-Stack), the response that arrives in your editor's context should be noticeably shorter than the raw output — but still contain all the critical content (headings marked `MUST`, YAML frontmatter, phase markers).

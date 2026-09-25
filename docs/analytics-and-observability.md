@@ -352,11 +352,145 @@ skill names ever leave your machine (the timestamps do show when you work). To p
 1. Once: repository **Settings → Pages → Source: GitHub Actions**.
 2. `pnpm run dashboard:export`, commit `site/`, push to `main`. The
    `.github/workflows/pages.yml` workflow deploys it to `https://<owner>.github.io/<repo>/`.
-3. Re-run the export and push whenever you want the public numbers refreshed.
+3. The published page never refreshes itself. Re-run the export and push to update it,
+   or schedule that for free — see
+   [Keeping the published dashboard current](#keeping-the-published-dashboard-current).
 
 No GitHub needed at all, either: open anyone's hosted copy of the page and **drag your own
 `data.json` onto it** — it renders entirely in your browser and uploads nothing — or pass
 `?data=<url>` pointing at a raw gist of your export.
+
+### Keeping the published dashboard current
+
+**Why the page does not update on its own.** The published page is a snapshot.
+`site/data.json` is baked from `output/ledger.sqlite`, which exists only on your machine
+(`output/` is gitignored), and the Pages workflow deploys only when something under
+`site/` changes on `main`. New gate traffic reaches the public page only when the export is
+re-run and pushed.
+
+**By hand, any time:**
+
+```bash
+pnpm run dashboard:export
+git add site/data.json
+git commit -m "chore(dashboard): refresh data"
+git push
+```
+
+`scripts/dashboard-publish.sh` does the same job without touching your working copy (see
+below); `scripts/dashboard-publish.sh --dry-run` shows the commit it would push and stops.
+
+#### Automatic daily refresh (macOS, $0)
+
+**Why not a GitHub Action on its own.** A runner on GitHub cannot read the ledger on your
+machine. Rebuilding the numbers from Langfuse instead would need Langfuse keys stored as repo
+secrets and a second data loader, and Langfuse Cloud retires the v1 read API it would use on
+2026-11-16. So the schedule runs on your Mac and GitHub only deploys.
+
+**Cost.** Nothing. launchd is built into macOS, and for a public repository GitHub Actions
+minutes and GitHub Pages are free. (A private repository needs a paid GitHub plan for Pages.)
+
+**How often it runs.** Once a day at 21:00 local time, set in the launchd agent below. If
+the Mac is asleep at 21:00 the job runs once on wake; several missed days still give one
+run, not a backlog. When the Mac is off, nothing runs and the page keeps its last numbers.
+A day adds at most one commit to `main`, and only when the numbers changed.
+
+**What the script guards against.** The same list is kept as comments at the top of
+`scripts/dashboard-publish.sh`.
+
+| Guard | What it prevents |
+| :--- | :--- |
+| Builds its commit with git plumbing in a throwaway index on top of the freshly fetched `origin/main` — no checkout, pull, merge, stash or staging | Changing your branch, staged files or uncommitted work, and any merge conflict with them. The only local effect is the fetch. |
+| Verifies the commit changes exactly `site/data.json` | Publishing anything else. `site/index.html` is never republished by timer, so an unfinished edit to the page cannot go live. |
+| Plain push, never forced | Overwriting work on GitHub. If `main` moved since the fetch, or two runs race, the push is rejected, nothing changes, and the next run retries. |
+| Skips when the numbers are unchanged (the `generatedAt` stamp is ignored) | A pointless commit on every idle day. |
+| Stops if the export fails or is not valid JSON, or if `main` has no published page yet | Publishing a broken or half-set-up dashboard. |
+| Temp files owner-only (`umask 077`), deleted on exit | Leaving copies of the export behind. |
+| Exports aggregates only; reads and writes no secrets | Leaking prompts, tool names, skill names or keys. The timestamps still show when you work. |
+
+After a publish your local `main` is one commit behind GitHub; `git pull` as usual.
+
+**Setup.**
+
+1. **Let the job read the repo.** macOS blocks background jobs from `~/Desktop`,
+   `~/Documents` and `~/Downloads`; the log then shows `Operation not permitted`. Either move
+   the repo outside those folders (for example `~/repos`), or grant Full Disk Access to
+   `/bin/bash` (System Settings → Privacy & Security → Full Disk Access → **+** →
+   <kbd>⌘</kbd><kbd>⇧</kbd><kbd>G</kbd> → `/bin/bash`). Moving the repo is the safer choice:
+   the grant gives every bash script started by a background job access to your whole disk.
+2. **Create the agent** at `~/Library/LaunchAgents/com.zenithfoundry.slm-gate-dashboard.plist`.
+   Replace `<REPO>` with the repo's absolute path, `<NODE_BIN>` with the output of
+   `dirname "$(command -v pnpm)"`, and `<HOME>` with your home directory:
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+     <key>Label</key><string>com.zenithfoundry.slm-gate-dashboard</string>
+     <key>ProgramArguments</key>
+     <array>
+       <string>/bin/bash</string>
+       <string><REPO>/scripts/dashboard-publish.sh</string>
+     </array>
+     <key>EnvironmentVariables</key>
+     <dict>
+       <key>PATH</key><string><NODE_BIN>:/usr/bin:/bin:/usr/sbin:/sbin</string>
+     </dict>
+     <key>StartCalendarInterval</key>
+     <dict>
+       <key>Hour</key><integer>21</integer>
+       <key>Minute</key><integer>0</integer>
+     </dict>
+     <key>StandardOutPath</key><string><HOME>/Library/Logs/slm-gate-dashboard-publish.log</string>
+     <key>StandardErrorPath</key><string><HOME>/Library/Logs/slm-gate-dashboard-publish.log</string>
+   </dict>
+   </plist>
+   ```
+
+   launchd starts jobs with a bare `PATH`, so it must name the Node install the repo's
+   dependencies were built with; `better-sqlite3` is compiled for that exact Node. After
+   switching Node versions with nvm, update `<NODE_BIN>`. The log sits in `~/Library/Logs`
+   so it is still written when step 1 is missing. To change the time, edit `Hour`/`Minute`;
+   for twice a day, turn `StartCalendarInterval` into an `<array>` of two such `<dict>`s.
+3. **Check it:** `plutil -lint ~/Library/LaunchAgents/com.zenithfoundry.slm-gate-dashboard.plist`,
+   then `scripts/dashboard-publish.sh --dry-run` from the repo.
+4. **Load it, then run it once now** — as yourself, without `sudo`. The agent belongs to your
+   login session (`gui/<uid>`), and root's launchd domain is a different one:
+
+   ```bash
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.zenithfoundry.slm-gate-dashboard.plist
+   launchctl kickstart gui/$(id -u)/com.zenithfoundry.slm-gate-dashboard
+   tail ~/Library/Logs/slm-gate-dashboard-publish.log
+   ```
+
+   The kickstart run is real: it publishes if the numbers changed.
+5. **Pushing unattended** needs an SSH key without a passphrase prompt. If your key has one,
+   store it in the keychain (`ssh-add --apple-use-keychain ~/.ssh/<key>`, plus
+   `UseKeychain yes` under `Host github.com` in `~/.ssh/config`).
+
+**Stop it:** `launchctl bootout gui/$(id -u)/com.zenithfoundry.slm-gate-dashboard`, then
+delete the plist. After editing the plist, `bootout` and `bootstrap` again to reload it.
+
+**Linux** has no folder-access prompt; a cron line does the same (cron skips runs missed
+while the machine was off):
+
+```bash
+0 21 * * * PATH=<NODE_BIN>:/usr/bin:/bin <REPO>/scripts/dashboard-publish.sh >> $HOME/slm-gate-dashboard-publish.log 2>&1
+```
+
+**Troubleshooting.**
+
+| Symptom | Cause and fix |
+| :--- | :--- |
+| `Bootstrap failed: 5: Input/output error` | The plist is missing at that path, invalid (`plutil -lint` it), or already loaded (`bootout` first). |
+| `sudo: bootstrap: command not found` | The command is `launchctl bootstrap`, and it must run without `sudo`. |
+| `Could not find service … in domain for user gui` | `bootstrap` failed, so there is nothing to `kickstart`. Fix the bootstrap error first. |
+| `Operation not permitted` in the log | macOS folder protection; see setup step 1. |
+| `pnpm not found on PATH` in the log | `<NODE_BIN>` in the plist is wrong or outdated. |
+| `push rejected` in the log | `main` moved on GitHub; the next run retries, or run the script by hand. |
+| `git pull` conflicts on `site/data.json` | You also committed a hand-made export. Keep either version; the next export replaces it. |
+| Changed the dashboard page itself | The timer never publishes `site/index.html`. Run `pnpm run dashboard:export`, commit `site/`, push. |
 
 ### Checking the ledger against Langfuse: `ledger:verify`
 
