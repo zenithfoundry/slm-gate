@@ -36,6 +36,12 @@
   "bin": {
     "slm-gate": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "configs",
+    ".env.example"
+  ],
   "engines": {
     "node": ">=22",
     "pnpm": ">=10"
