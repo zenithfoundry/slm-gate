@@ -2,6 +2,8 @@
 
 Follow these steps in order. By the end, `slm-gate` will be running and wired up to your editor. Then head to the [Configuration Setup Guide](configuration.md) to fine-tune your settings.
 
+> **Just want to use `slm-gate`?** [Install from npm](install-from-npm.md) is quicker. This guide builds it from source.
+
 ---
 
 ## Step 1 — Clone the Repository

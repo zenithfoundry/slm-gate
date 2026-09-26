@@ -258,7 +258,17 @@ flowchart LR
 
 ## Quick Start
 
-You need Node.js 22+, pnpm 10+ and [Ollama](https://ollama.com/download) running. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
+You need a Mac or Linux computer with 16 GB of RAM or more, Node.js 22+ and [Ollama](https://ollama.com/download) running.
+
+```bash
+npm install -g @zenithfoundry/slm-gate
+slm-gate init        # creates ~/.slm-gate/.env for this computer and prints the next steps
+slm-gate doctor      # after the `ollama pull` line init printed
+```
+
+Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`; for Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. The [Install from npm](docs/install-from-npm.md) guide walks through every step: any coding tool, any AI provider or fully local, toolboxes, updates.
+
+**From source** (to change `slm-gate` itself). You also need pnpm 10+. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
 
 ```bash
 git clone https://github.com/zenithfoundry/slm-gate.git small-language-model-gate
