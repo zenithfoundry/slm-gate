@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from './config.js';
 import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
+import { isPackageInstall } from './home-dir.js';
 import { getModelsFootprint } from './models/footprint.js';
 import { getProviderRegistry } from './pricing/providers.js';
 import { checkLocalModels } from './setup/local-models.js';
@@ -269,7 +270,10 @@ async function run() {
   const gateAddress = `http://localhost:${gatePort}`;
   const toolsFail = `EVERY CODING TOOL POINTED AT ${gateAddress} CANNOT REACH ITS AI PROVIDER.`;
   const [start, restart, doctor] = [cliCommand('start'), cliCommand('restart'), cliCommand('doctor')];
-  const reinstall = `If it still does not start, see ${GATE_LOG_FILE}; a broken install is repaired with \`cd ${CONFIG.ROOT_DIR} && pnpm install && pnpm run build\`, then \`${restart}\`.`;
+  const repair = isPackageInstall(CONFIG.ROOT_DIR)
+    ? '`npm install -g @zenithfoundry/slm-gate@latest`'
+    : `\`cd ${CONFIG.ROOT_DIR} && pnpm install && pnpm run build\``;
+  const reinstall = `If it still does not start, see ${GATE_LOG_FILE}; a broken install is repaired with ${repair}, then \`${restart}\`.`;
   const gate = await probeGate({ port: gatePort });
   if (gate.kind === 'slm-gate') {
     report(true, `Model gate is running on ${gateAddress} (pid ${gate.health.pid}, started ${gate.health.startedAt})`);

@@ -126,7 +126,9 @@ const envSchema = z.object({
   RESOLVER_CLOUD_TIER: parseBoolean(false),
   RESOLVER_CLOUD_BUDGET_USD: parseFloatNumber(0),
   PROMPT_VERSION: z.string().default('v1'),
-  RAM_PRESET: z.enum(['ram-4', 'ram-8', 'ram-12', 'ram-16', 'ram-24', 'ram-32', 'custom']).default('custom'),
+  // Every value recommendPreset() (src/hardware.ts) can print must be accepted here, or following
+  // doctor's advice stops slm-gate from starting.
+  RAM_PRESET: z.enum(['ram-4', 'ram-8', 'ram-12', 'ram-16', 'ram-24', 'ram-32', 'ram-64', 'ram-128', 'custom']).default('custom'),
   TLS_ADAPTER: parseBoolean(false),
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
