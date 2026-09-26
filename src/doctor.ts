@@ -174,7 +174,7 @@ async function run() {
       SLM_GATE_MODEL: ramPresets[recPreset].gate,
       NUM_CTX: recNumCtx
     };
-    const fallbackPath = path.join(CONFIG.ROOT_DIR, '.slm-gate-fallback.json');
+    const fallbackPath = path.join(CONFIG.HOME_DIR, '.slm-gate-fallback.json');
     fs.writeFileSync(fallbackPath, JSON.stringify(fallbackConfig, null, 2));
     
     report(false, `Memory constraint: Current models/preset likely exceed available memory (eviction/thrash risk).`, `A safe fallback config was written to .slm-gate-fallback.json`);
@@ -188,7 +188,7 @@ async function run() {
 
   // 2. .env presence and CONFIG parsing
   // Validates that the configuration template has been implemented by the user.
-  const envPath = path.join(CONFIG.ROOT_DIR, '.env');
+  const envPath = path.join(CONFIG.HOME_DIR, '.env');
   const envExists = fs.existsSync(envPath);
   report(envExists, '.env file is present', 'Copy .env.example to .env and configure it.');
   report(true, 'Configuration parses successfully'); // If we reached here without throwing, CONFIG parsed correctly.
@@ -280,7 +280,7 @@ async function run() {
   } else if (gate.kind === 'other') {
     const owner = portOwner(gatePort) ?? 'another program';
     report(false, `MODEL GATE CANNOT RUN: port ${gatePort} is taken by ${owner}. ${toolsFail}`,
-      `Either quit ${owner}, then run \`${start}\`. Or move the gate to a free port: set LLM_GATE_PORT=<new port> in ${path.join(CONFIG.ROOT_DIR, '.env')}, run \`${restart}\`, then run \`${doctor}\` again, paste the new lines below into each coding tool and restart them.`);
+      `Either quit ${owner}, then run \`${start}\`. Or move the gate to a free port: set LLM_GATE_PORT=<new port> in ${path.join(CONFIG.HOME_DIR, '.env')}, run \`${restart}\`, then run \`${doctor}\` again, paste the new lines below into each coding tool and restart them.`);
   } else if (isStoppedByUser()) {
     report(false, `MODEL GATE IS STOPPED (you ran \`slm-gate stop\`). ${toolsFail}`,
       `\`${start}\` (it also starts again by itself after a reboot). ${reinstall}`);

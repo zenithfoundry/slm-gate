@@ -1,6 +1,7 @@
-import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { parse } from 'dotenv';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // config.ts reads the environment once, at import time. A unique query string forces a
@@ -84,6 +85,12 @@ describe('CONFIG_ENV_KEYS', () => {
     expect(CONFIG_ENV_KEYS).not.toContain('PATH');
     expect(CONFIG_ENV_KEYS).not.toContain('HOME');
   });
+
+  it('leaves out SLM_GATE_HOME, so the automatically started model gate inherits it and reads the same .env', async () => {
+    const { gateEnvironment } = await import('./setup/model-gate.js');
+    expect(gateEnvironment({ SLM_GATE_HOME: '/data/slm-gate', SLM_GATE_MODEL: 'm', LEDGER_PATH: '/x', PATH: '/bin' }))
+      .toEqual({ SLM_GATE_HOME: '/data/slm-gate', PATH: '/bin' });
+  });
 });
 
 describe('MODEL_GATE_PORT', () => {
@@ -95,9 +102,47 @@ describe('MODEL_GATE_PORT', () => {
   it("comes only from slm-gate's .env, so a port set in one tool's MCP env block cannot start a second gate", async () => {
     process.env = { ...originalEnv, LLM_GATE_PORT: '9999' };
     const { CONFIG } = await loadConfig('gate-port');
-    const envPath = path.join(CONFIG.ROOT_DIR, '.env');
+    const envPath = path.join(CONFIG.HOME_DIR, '.env');
     const fromFile = fs.existsSync(envPath) ? parse(fs.readFileSync(envPath)).LLM_GATE_PORT : undefined;
     expect(CONFIG.LLM_GATE_PORT).toBe(9999);
     expect(CONFIG.MODEL_GATE_PORT).toBe(fromFile ? Number(fromFile) : 8787);
+  });
+});
+
+describe('SLM_GATE_HOME', () => {
+  const originalEnv = process.env;
+  let home: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-home-'));
+    process.env = { ...originalEnv, SLM_GATE_HOME: home };
+    // tests/setup-env.ts points LEDGER_PATH at a temp ledger; these tests check the default under HOME_DIR.
+    delete process.env.LEDGER_PATH;
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('reads .env from SLM_GATE_HOME and keeps output/ and the ledger there', async () => {
+    fs.writeFileSync(path.join(home, '.env'), 'LLM_GATE_PORT=9123\n');
+    const { CONFIG } = await loadConfig('home-env');
+    expect(CONFIG.HOME_DIR).toBe(home);
+    expect(CONFIG.OUTPUT_DIR).toBe(path.join(home, 'output'));
+    expect(CONFIG.LEDGER_PATH).toBe(path.join(home, 'output', 'ledger.sqlite'));
+    expect(CONFIG.MODEL_GATE_PORT).toBe(9123);
+  });
+
+  it('keeps the precedence: the host environment beats .env, and .env beats the defaults', async () => {
+    fs.writeFileSync(path.join(home, '.env'), 'SLM_GATE_MODEL=from-env-file\nSLM_BRAIN_MODEL=brain-from-env-file\n');
+    process.env.SLM_GATE_MODEL = 'from-host';
+    delete process.env.SLM_BRAIN_MODEL;
+    const { CONFIG } = await loadConfig('home-precedence');
+    expect(CONFIG.SLM_GATE_MODEL).toBe('from-host');
+    expect(CONFIG.SLM_BRAIN_MODEL).toBe('brain-from-env-file');
   });
 });

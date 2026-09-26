@@ -14,7 +14,9 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { resolveHomeDir } from './home-dir.js';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -149,12 +151,13 @@ Commands:
     const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/setup-dashboard.ts');
     runCommand(cmd, cmdArgs);
   } else if (command === 'ledger:reset') {
+    const outputDir = path.join(resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }), 'output');
     const filesToNuke = [
-      path.join(ROOT_DIR, 'output/ledger.sqlite'),
-      path.join(ROOT_DIR, 'output/ledger.sqlite-wal'),
-      path.join(ROOT_DIR, 'output/ledger.sqlite-shm'),
-      path.join(ROOT_DIR, 'output/deferral_curve.svg'),
-      path.join(ROOT_DIR, 'output/leaderboard.md')
+      path.join(outputDir, 'ledger.sqlite'),
+      path.join(outputDir, 'ledger.sqlite-wal'),
+      path.join(outputDir, 'ledger.sqlite-shm'),
+      path.join(outputDir, 'deferral_curve.svg'),
+      path.join(outputDir, 'leaderboard.md')
     ];
     for (const f of filesToNuke) {
       if (fs.existsSync(f)) {
