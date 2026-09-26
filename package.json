@@ -1,6 +1,6 @@
 {
   "name": "@zenithfoundry/slm-gate",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "description": "A decoupled local-SLM pre-processing and routing layer for MCP and cloud LLMs. Intercepts, distills, and routes prompts locally with Ollama to cut token costs and protect monthly quota.",
   "license": "MIT",

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.2](https://github.com/zenithfoundry/slm-gate/compare/v1.2.1...v1.2.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* **deps:** bump actions/setup-node from 4.4.0 to 7.0.0 ([2d473b9](https://github.com/zenithfoundry/slm-gate/commit/2d473b9266cd6e49184960ed1a39fbf9f3137cee))
+* **deps:** bump actions/setup-node from 4.4.0 to 7.0.0 ([d54083a](https://github.com/zenithfoundry/slm-gate/commit/d54083a0b0360417f80d063f4a8990cf9f9eb578))
+* **deps:** bump actions/upload-pages-artifact from 3.0.1 to 5.0.0 ([e891e1b](https://github.com/zenithfoundry/slm-gate/commit/e891e1b18fea748acc470121d68ce9a916dbdf26))
+* **deps:** bump actions/upload-pages-artifact from 3.0.1 to 5.0.0 ([cec57e1](https://github.com/zenithfoundry/slm-gate/commit/cec57e18ed496cfe8a13822a72eb3e539b279d8c))
+* **deps:** bump dotenv from 16.6.1 to 18.0.3 ([9217084](https://github.com/zenithfoundry/slm-gate/commit/92170849dcf09573fa17ed85da879bf8b1143f27))
+* **deps:** bump pnpm/action-setup from 3.0.0 to 6.1.0 ([ecd63c5](https://github.com/zenithfoundry/slm-gate/commit/ecd63c5611a92d8ff5a0c67c2ff4ec74cb6cb1bf))
+* **deps:** bump pnpm/action-setup from 3.0.0 to 6.1.0 ([1e8d7d3](https://github.com/zenithfoundry/slm-gate/commit/1e8d7d3dd8af654ea204f14ac89edd81fe3fe35f))
+
 ## [1.2.1](https://github.com/zenithfoundry/slm-gate/compare/v1.2.0...v1.2.1) (2026-09-26)
 
 
