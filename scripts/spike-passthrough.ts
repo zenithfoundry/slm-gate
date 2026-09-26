@@ -7,6 +7,10 @@
  * output/spike/requests.jsonl so the real paths, headers and streaming behaviour can be read back
  * before the gate is redesigned.
  *
+ * Routing is the gate's own (resolveUpstream in src/llm-gate/forward.ts), so the spike can reach only
+ * the endpoints the gate forwards. Any other path gets a 404; its log line still records that the tool
+ * sent it.
+ *
  * Nothing secret is written. Credential headers and the Gemini `key` query parameter are logged as
  * a shape (kind and length, no characters). Bodies are logged as a shape (keys, type counts, sizes),
  * never their text. Error bodies (status >= 400) are the one exception: their first 500 bytes are
@@ -15,29 +19,18 @@
  * Throwaway by design: after the Slice 0 report it either grows into Slice 1's forwarder or is deleted.
  *
  * Usage:  pnpm exec tsx scripts/spike-passthrough.ts
- *   SPIKE_PORT                 listen port (default 8799)
- *   SPIKE_RESPONSES_UPSTREAM   chatgpt | openai — force the upstream for OpenAI-family paths
- *                              instead of guessing it from the login
+ *   SPIKE_PORT   listen port (default 8799)
  */
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveUpstream, SUPPORTED_PATHS } from '../src/llm-gate/forward.js';
+import { isLocalRequest, listenOnThisComputer } from '../src/utils/local-only.js';
 
 const PORT = Number(process.env.SPIKE_PORT || 8799);
 const LOG_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'output', 'spike', 'requests.jsonl');
-
-const ANTHROPIC = 'https://api.anthropic.com';
-const GEMINI = 'https://generativelanguage.googleapis.com';
-const OPENAI_V1 = 'https://api.openai.com/v1';
-const CHATGPT_CODEX = 'https://chatgpt.com/backend-api/codex';
-
-const SUPPORTED_PATHS = [
-  '/v1/messages', '/v1/messages/count_tokens', '/api/*', '/v1/models',
-  '/v1/chat/completions', '/v1/responses',
-  '/v1beta/models/{model}:generateContent', '/v1beta/models/{model}:streamGenerateContent',
-];
 
 // Never forwarded in either direction: they describe this hop, not the request.
 const HOP_BY_HOP = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'proxy-connection', 'upgrade']);
@@ -47,13 +40,6 @@ const NOTABLE_KEYS = new Set([
   'cache_control', 'thoughtSignature', 'thought_signature', 'encrypted_content', 'signature',
   'tool_use_id', 'tool_call_id', 'tool_calls', 'call_id', 'functionCall', 'functionResponse', 'previous_response_id',
 ]);
-
-interface Route {
-  format: 'anthropic' | 'openai' | 'gemini';
-  upstream: string;
-  /** Why an OpenAI-family request went to the ChatGPT backend or the API. */
-  loginSignals?: { chatgptAccountIdHeader: boolean; bearerIsJwt: boolean; forced: string | null };
-}
 
 /** Describes a credential without revealing any of its characters. */
 function credentialShape(value: string): string {
@@ -76,24 +62,9 @@ function bearerIsJwt(headers: http.IncomingHttpHeaders): boolean {
   return credentialShape(String(headers.authorization ?? '')).startsWith('Bearer <jwt');
 }
 
-function resolveRoute(pathname: string, headers: http.IncomingHttpHeaders): Route | null {
-  const isAnthropic = pathname.startsWith('/v1/messages') || pathname.startsWith('/api/')
-    || (pathname === '/v1/models' && headers['anthropic-version'] !== undefined);
-  if (isAnthropic) return { format: 'anthropic', upstream: ANTHROPIC + pathname };
-
-  if (pathname.startsWith('/v1beta/') || pathname.startsWith('/v1alpha/')) {
-    return { format: 'gemini', upstream: GEMINI + pathname };
-  }
-
-  if (pathname.startsWith('/v1/')) {
-    const forced = process.env.SPIKE_RESPONSES_UPSTREAM ?? null;
-    const signals = { chatgptAccountIdHeader: headers['chatgpt-account-id'] !== undefined, bearerIsJwt: bearerIsJwt(headers), forced };
-    const useChatgpt = forced ? forced === 'chatgpt' : signals.chatgptAccountIdHeader || signals.bearerIsJwt;
-    const base = useChatgpt ? CHATGPT_CODEX : OPENAI_V1;
-    return { format: 'openai', upstream: base + pathname.slice('/v1'.length), loginSignals: signals };
-  }
-
-  return null;
+/** The login of an OpenAI-format request: the gate sends /v1/responses to the ChatGPT backend when either is true. */
+function loginSignals(headers: http.IncomingHttpHeaders): { chatgptAccountIdHeader: boolean; bearerIsJwt: boolean } {
+  return { chatgptAccountIdHeader: headers['chatgpt-account-id'] !== undefined, bearerIsJwt: bearerIsJwt(headers) };
 }
 
 function headersForLog(headers: http.IncomingHttpHeaders): Record<string, string> {
@@ -217,14 +188,20 @@ function forward(req: http.IncomingMessage, res: http.ServerResponse, body: Buff
   const url = new URL(req.url ?? '/', 'http://localhost');
   const entry: Record<string, unknown> = { ...requestSummary(req), body: bodyShape(body) };
 
-  const route = resolveRoute(url.pathname, req.headers);
+  const route = resolveUpstream({ pathAndQuery: req.url ?? '/', headers: req.headers });
   if (!route) {
     res.writeHead(404, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: `slm-gate spike: unsupported path ${url.pathname}`, supported: SUPPORTED_PATHS }));
     writeLog({ ...entry, status: 404 });
     return;
   }
-  Object.assign(entry, { format: route.format, upstream: route.upstream, loginSignals: route.loginSignals });
+  const openaiFormat = route.format === 'chat-completions' || route.format === 'responses';
+  // No query: it can carry Gemini's `key`, which the log keeps only as a shape (see `query`).
+  Object.assign(entry, {
+    format: route.format,
+    upstream: route.url.origin + route.url.pathname,
+    loginSignals: openaiFormat ? loginSignals(req.headers) : undefined,
+  });
 
   const requestStarted = Date.now();
   const headers = withoutHopByHop(req.headers);
@@ -238,7 +215,8 @@ function forward(req: http.IncomingMessage, res: http.ServerResponse, body: Buff
     writeLog({ ...entry, ...outcome });
   };
 
-  const upstreamReq = https.request(new URL(route.upstream + url.search), { method: req.method, headers }, upstreamRes => {
+  const transport = route.url.protocol === 'https:' ? https : http;
+  const upstreamReq = transport.request(route.url, { method: req.method, headers }, upstreamRes => {
     const ttfbMs = Date.now() - requestStarted;
     // content-length stays: the bytes are passed through unchanged, so it is still correct.
     res.writeHead(upstreamRes.statusCode ?? 502, withoutHopByHop(upstreamRes.headers, ['content-length']));
@@ -278,18 +256,29 @@ function forward(req: http.IncomingMessage, res: http.ServerResponse, body: Buff
 
 fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
 
-http.createServer((req, res) => {
-  const chunks: Buffer[] = [];
-  req.on('data', (chunk: Buffer) => chunks.push(chunk));
-  req.on('end', () => forward(req, res, Buffer.concat(chunks)));
-  // Client dropped while still sending: nothing was forwarded, but the request still gets its one
-  // log line. 'close' covers both a reset and a clean half-close; 'error' only needs swallowing.
-  req.on('close', () => {
-    if (req.complete) return;
-    writeLog({ ...requestSummary(req), clientAbortedDuringUpload: true, bytesReceived: chunks.reduce((n, c) => n + c.length, 0) });
-    res.destroy();
-  });
-  req.on('error', () => res.destroy());
-}).listen(PORT, () => {
-  console.error(`[spike] pass-through listening on http://localhost:${PORT} — logging to ${LOG_PATH}`);
+// The gate's rule: other machines cannot connect, and web pages cannot reach it through the browser.
+listenOnThisComputer({
+  handler: (req, res) => {
+    if (!isLocalRequest(req.headers)) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'slm-gate spike only accepts requests from programs on this computer' }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => forward(req, res, Buffer.concat(chunks)));
+    // Client dropped while still sending: nothing was forwarded, but the request still gets its one
+    // log line. 'close' covers both a reset and a clean half-close; 'error' only needs swallowing.
+    req.on('close', () => {
+      if (req.complete) return;
+      writeLog({ ...requestSummary(req), clientAbortedDuringUpload: true, bytesReceived: chunks.reduce((n, c) => n + c.length, 0) });
+      res.destroy();
+    });
+    req.on('error', () => res.destroy());
+  },
+  port: PORT,
+  onListening: () => console.error(`[spike] pass-through listening on http://localhost:${PORT} — logging to ${LOG_PATH}`),
+}).catch(err => {
+  console.error(`[spike] could not listen on port ${PORT}: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
 });
