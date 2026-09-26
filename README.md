@@ -291,7 +291,7 @@ Also: [walkthroughs](docs/README.md#walkthroughs), [analytics & observability](d
 
 ## Contributing & Security
 
-Pull requests are welcome; read the [contributing guide](.github/CONTRIBUTING.md) first. Please report security problems privately, as the [security policy](SECURITY.md) describes, not in a public issue.
+Pull requests are welcome; read the [contributing guide](.github/CONTRIBUTING.md) first. For help, and what is supported, see [support](SUPPORT.md). Please report security problems privately, as the [security policy](SECURITY.md) describes, not in a public issue.
 
 ---
 
