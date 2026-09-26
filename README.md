@@ -7,6 +7,7 @@
 [![CI](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/zenithfoundry/slm-gate/badge)](https://scorecard.dev/viewer/?uri=github.com/zenithfoundry/slm-gate)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14955/badge)](https://www.bestpractices.dev/projects/14955)
 [![License](https://img.shields.io/github/license/zenithfoundry/slm-gate)](LICENSE)
 [![Version](https://img.shields.io/github/package-json/v/zenithfoundry/slm-gate)](package.json)
 [![Last commit](https://img.shields.io/github/last-commit/zenithfoundry/slm-gate)](https://github.com/zenithfoundry/slm-gate/commits/main)
