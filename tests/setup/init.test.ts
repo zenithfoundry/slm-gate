@@ -23,7 +23,8 @@ afterEach(() => {
 describe('initSettings', () => {
   it('creates the settings folder and a file set up for a 64 GB computer', () => {
     const result = initSettings({ installDir, homeDir, ramGb: 64 });
-    expect(result).toMatchObject({ created: true, preset: 'ram-64', models: ['qwen3.5:9b', 'qwen3.5:4b'] });
+    // The template turns on adaptive shrinking, which needs the embedding model too.
+    expect(result).toMatchObject({ created: true, preset: 'ram-64', models: ['qwen3.5:4b', 'qwen3.5:9b', 'nomic-embed-text'] });
     expect(parse(fs.readFileSync(result.envPath))).toMatchObject({
       RAM_PRESET: 'ram-64',
       SLM_BRAIN_MODEL: 'qwen3.5:9b',
@@ -49,7 +50,7 @@ describe('initSettings', () => {
 
   it('sets up more than 128 GB as custom, starting from the 128 GB models', () => {
     const result = initSettings({ installDir, homeDir, ramGb: 192 });
-    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:14b', 'qwen3:8b'] });
+    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:8b', 'qwen3:14b', 'nomic-embed-text'] });
     expect(parse(fs.readFileSync(result.envPath))).toMatchObject({ RAM_PRESET: 'custom', SLM_BRAIN_MODEL: 'qwen3:14b', SLM_GATE_MODEL: 'qwen3:8b' });
   });
 

@@ -5,6 +5,9 @@
  */
 import { CONFIG } from '../config.js';
 import { howToStartOllama } from './ollama-install.js';
+import { modelsFor, type ModelUse } from './required-models.js';
+
+export type { ModelUse };
 
 export interface SetupProblem {
   message: string;
@@ -18,22 +21,9 @@ export interface SetupProblem {
   transient?: boolean;
 }
 
-export interface ModelUse {
-  name: string;
-  setting: string;
-  purpose: string;
-}
-
 /** The models this process's settings use, and what each one is for. */
 export function requiredModels(): ModelUse[] {
-  const models = [
-    { name: CONFIG.SLM_GATE_MODEL, setting: 'SLM_GATE_MODEL', purpose: 'sorting requests and shrinking tool output' },
-    { name: CONFIG.SLM_BRAIN_MODEL, setting: 'SLM_BRAIN_MODEL', purpose: 'answering first messages locally' },
-  ];
-  if (CONFIG.SEMCACHE || CONFIG.DISTILL_ADAPTIVE) {
-    models.push({ name: CONFIG.EMBED_MODEL, setting: 'EMBED_MODEL', purpose: 'the semantic cache' });
-  }
-  return models;
+  return modelsFor(CONFIG);
 }
 
 /** Ollama lists `name:tag`; a setting without a tag means `:latest`. */
