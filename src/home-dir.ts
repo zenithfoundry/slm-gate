@@ -29,7 +29,13 @@ export function resolveHomeDir(params: { installDir: string; env: NodeJS.Process
     }
     return path.resolve(explicit);
   }
-  return params.installDir.split(path.sep).includes('node_modules')
-    ? path.join(params.userHome, '.slm-gate')
-    : params.installDir;
+  return isPackageInstall(params.installDir) ? path.join(params.userHome, '.slm-gate') : params.installDir;
+}
+
+/**
+ * @param installDir The install folder
+ * @returns True for a copy installed by npm (it lives inside node_modules), false for a git checkout
+ */
+export function isPackageInstall(installDir: string): boolean {
+  return installDir.split(path.sep).includes('node_modules');
 }

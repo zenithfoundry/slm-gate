@@ -146,3 +146,45 @@ describe('SLM_GATE_HOME', () => {
     expect(CONFIG.SLM_BRAIN_MODEL).toBe('brain-from-env-file');
   });
 });
+
+describe('RAM_PRESET', () => {
+  const originalEnv = process.env;
+  let home: string;
+
+  beforeEach(() => {
+    // An empty settings folder, so no .env names the models and the preset picks them.
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-ram-'));
+    process.env = { ...originalEnv, SLM_GATE_HOME: home };
+    for (const key of ['RAM_PRESET', 'SLM_BRAIN_MODEL', 'SLM_GATE_MODEL', 'SLM_GATE_TESTING_MODEL']) delete process.env[key];
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it.each([16, 24, 32, 48, 64, 128, 192])('accepts what doctor recommends for %i GB of RAM, so following its advice cannot stop slm-gate', async ramGb => {
+    const { recommendPreset } = await import('./hardware.js');
+    process.env.RAM_PRESET = recommendPreset(ramGb);
+    await expect(loadConfig(`ram-${ramGb}`)).resolves.toBeDefined();
+  });
+
+  it.each([
+    ['ram-48', 'qwen3.5:9b', 'qwen2.5-coder:3b'],
+    ['ram-64', 'qwen3.5:9b', 'qwen3.5:4b'],
+    ['ram-128', 'qwen3:14b', 'qwen3:8b'],
+  ])('%s picks its own models when .env names none', async (preset, brain, gate) => {
+    process.env.RAM_PRESET = preset;
+    const { CONFIG } = await loadConfig(`models-${preset}`);
+    expect(CONFIG.SLM_BRAIN_MODEL).toBe(brain);
+    expect(CONFIG.SLM_GATE_MODEL).toBe(gate);
+  });
+
+  it.each(['ram-4', 'ram-8', 'ram-12'])('rejects %s: slm-gate needs 16 GB of RAM or more', async preset => {
+    process.env.RAM_PRESET = preset;
+    await expect(loadConfig(`reject-${preset}`)).rejects.toThrow(/RAM_PRESET|Invalid enum/);
+  });
+});

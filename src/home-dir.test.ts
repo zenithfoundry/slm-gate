@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import path from 'node:path';
-import { resolveHomeDir } from './home-dir.js';
+import { isPackageInstall, resolveHomeDir } from './home-dir.js';
 
 const userHome = '/Users/someone';
 const clone = '/Users/someone/projects/small-language-model-gate';
@@ -30,5 +30,15 @@ describe('resolveHomeDir', () => {
 
   it.each(['slm-gate-home', './home', '~/.slm-gate'])('refuses a relative SLM_GATE_HOME (%s), which would change with the folder a tool starts in', value => {
     expect(() => resolveHomeDir({ installDir: clone, env: { SLM_GATE_HOME: value }, userHome })).toThrow(/SLM_GATE_HOME must be an absolute path/);
+  });
+});
+
+describe('isPackageInstall', () => {
+  it.each([npmGlobal, npxCache])('recognises a copy installed by npm (%s)', installDir => {
+    expect(isPackageInstall(installDir)).toBe(true);
+  });
+
+  it('does not mistake a git checkout for an npm install', () => {
+    expect(isPackageInstall(clone)).toBe(false);
   });
 });

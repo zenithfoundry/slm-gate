@@ -14,7 +14,8 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from './config.js';
-import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, ramPresets } from './hardware.js';
+import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, MIN_RAM_GB, modelsForRam, ramPresets } from './hardware.js';
+import { isPackageInstall } from './home-dir.js';
 import { getModelsFootprint } from './models/footprint.js';
 import { getProviderRegistry } from './pricing/providers.js';
 import { checkLocalModels } from './setup/local-models.js';
@@ -123,6 +124,8 @@ async function run() {
   // 0. Hardware Check
   const hw = detectHardware();
   report(true, `Hardware: ${hw.totalRamGB}GB RAM, ${hw.arch}, ${hw.accelerator} accelerator${hw.unifiedMemory ? ' (Unified Memory)' : ''}`);
+  report(hw.totalRamGB >= MIN_RAM_GB, `At least ${MIN_RAM_GB} GB of RAM (found ${hw.totalRamGB} GB)`,
+    `slm-gate needs ${MIN_RAM_GB} GB of RAM or more, to keep both local models loaded next to your other apps.`);
 
   const recPreset = recommendPreset(hw.totalRamGB);
   const recNumCtx = recommendNumCtx(hw.totalRamGB);
@@ -136,7 +139,8 @@ async function run() {
   }
 
   let memoryWarning = false;
-  const recRank = getPresetRank(recPreset);
+  // Above 128 GB the recommendation is `custom`, and every preset fits.
+  const recRank = recPreset === 'custom' ? Infinity : getPresetRank(recPreset);
   const curRank = getPresetRank(CONFIG.RAM_PRESET);
 
   if (recRank < curRank) {
@@ -168,10 +172,11 @@ async function run() {
   // If a memory constraint is detected, actively intervene by writing a known-safe fallback configuration
   // The system or user can then choose to load this fallback instead of crashing
   if (memoryWarning) {
+    const fallbackModels = modelsForRam(hw.totalRamGB);
     const fallbackConfig = {
       RAM_PRESET: recPreset,
-      SLM_BRAIN_MODEL: ramPresets[recPreset].brain,
-      SLM_GATE_MODEL: ramPresets[recPreset].gate,
+      SLM_BRAIN_MODEL: fallbackModels.brain,
+      SLM_GATE_MODEL: fallbackModels.gate,
       NUM_CTX: recNumCtx
     };
     const fallbackPath = path.join(CONFIG.HOME_DIR, '.slm-gate-fallback.json');
@@ -269,7 +274,10 @@ async function run() {
   const gateAddress = `http://localhost:${gatePort}`;
   const toolsFail = `EVERY CODING TOOL POINTED AT ${gateAddress} CANNOT REACH ITS AI PROVIDER.`;
   const [start, restart, doctor] = [cliCommand('start'), cliCommand('restart'), cliCommand('doctor')];
-  const reinstall = `If it still does not start, see ${GATE_LOG_FILE}; a broken install is repaired with \`cd ${CONFIG.ROOT_DIR} && pnpm install && pnpm run build\`, then \`${restart}\`.`;
+  const repair = isPackageInstall(CONFIG.ROOT_DIR)
+    ? '`npm install -g @zenithfoundry/slm-gate@latest`'
+    : `\`cd ${CONFIG.ROOT_DIR} && pnpm install && pnpm run build\``;
+  const reinstall = `If it still does not start, see ${GATE_LOG_FILE}; a broken install is repaired with ${repair}, then \`${restart}\`.`;
   const gate = await probeGate({ port: gatePort });
   if (gate.kind === 'slm-gate') {
     report(true, `Model gate is running on ${gateAddress} (pid ${gate.health.pid}, started ${gate.health.startedAt})`);

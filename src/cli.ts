@@ -16,7 +16,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { resolveHomeDir } from './home-dir.js';
+import { isPackageInstall, resolveHomeDir } from './home-dir.js';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -72,6 +72,13 @@ function getRunPath(srcPath: string) {
   return { command: tsxPath, args: [path.join(ROOT_DIR, srcPath)] };
 }
 
+/** `bench` and `metrics` run the evaluation harness with tsx; only a git checkout has either. */
+function requireCheckout(params: { command: string; script: string }): void {
+  if (fs.existsSync(path.join(ROOT_DIR, params.script)) && fs.existsSync(tsxPath)) return;
+  console.error(`\`slm-gate ${params.command}\` needs a git checkout of slm-gate (https://github.com/zenithfoundry/slm-gate): it runs the evaluation harness, which an npm install does not include.`);
+  process.exit(1);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -81,6 +88,12 @@ async function main() {
 Usage: slm-gate <command> [options]
 
 Commands:
+  init           Create your settings file (.env), set up for this computer's RAM. Never replaces one
+                 that exists
+                 Options:
+                   --ram <GB>               (set up for a computer with this much RAM instead)
+  mcp            Run the MCP server for a coding tool. This is what you register in the tool:
+                 command \`slm-gate\`, argument \`mcp\`. It starts the model gate by itself
   serve          Run the model gate in this terminal (normally not needed: it starts by itself
                  whenever a coding tool starts slm-gate's MCP server)
                  Options:
@@ -106,6 +119,55 @@ Commands:
   doctor         Run preflight readiness checks
 `);
     process.exit(0);
+  }
+
+  if (command === 'init') {
+    const ramAt = args.indexOf('--ram');
+    const ramGb = ramAt >= 0 ? Number(args[ramAt + 1]) : undefined;
+    if (ramGb !== undefined && !(Number.isInteger(ramGb) && ramGb > 0)) {
+      console.error('--ram takes a whole number of gigabytes, e.g. --ram 64');
+      process.exit(1);
+    }
+    const { initSettings } = await import('./setup/init.js');
+    const { detectHardware } = await import('./hardware.js');
+    const setUpFor = ramGb ?? detectHardware().totalRamGB;
+    let result: ReturnType<typeof initSettings>;
+    try {
+      result = initSettings({
+        installDir: ROOT_DIR,
+        homeDir: resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }),
+        ramGb: setUpFor,
+      });
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+    const self = isPackageInstall(ROOT_DIR) ? 'slm-gate' : `node ${path.join(ROOT_DIR, 'dist', 'cli.js')}`;
+    if (!result.created) {
+      console.log(`Your settings file already exists, so nothing was changed: ${result.envPath}`);
+      console.log(`Edit it directly, or delete it and run \`${self} init\` again.`);
+      return;
+    }
+    console.log(`Created your settings file: ${result.envPath}`);
+    console.log(`It is set up for ${setUpFor} GB of RAM (RAM_PRESET=${result.preset}); every other setting is explained in the file.`);
+    if (result.preset === 'custom') {
+      console.log('That is more than 128 GB, so it starts from the 128 GB models; you can choose bigger ones (step 4).');
+    }
+    console.log('\nNext:');
+    console.log(`  1. Download the local models:  ${result.models.map(model => `ollama pull ${model}`).join(' && ')}`);
+    console.log(`  2. Check everything:           ${self} doctor`);
+    console.log(`  3. Connect your coding tool:   add an MCP server that runs \`${self} mcp\`.`);
+    console.log(`     \`${self} doctor\` also prints the address for tools that can send their AI requests through slm-gate.`);
+    console.log('  4. To pick models that fit this computer best, use llmfit: https://github.com/AlexsJones/llmfit');
+    console.log('     Then set SLM_BRAIN_MODEL and SLM_GATE_MODEL in the settings file.');
+    return;
+  }
+
+  if (command === 'mcp') {
+    // In this process, not a child: the coding tool talks to it over this process's stdin/stdout and
+    // stops it by stopping this process. The server sends all logging to stderr and starts on import.
+    await import('./mcp-gate/index.js');
+    return;
   }
 
   if (command === 'serve') {
@@ -138,10 +200,12 @@ Commands:
       runCommand(cmd, cmdArgs, envOverride);
     }
   } else if (command === 'bench') {
+    requireCheckout({ command: 'bench', script: 'harness/run.ts' });
     // Pass all args after bench to the run script
     const benchArgs = args.slice(1);
     runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/run.ts'), ...benchArgs]);
   } else if (command === 'metrics') {
+    requireCheckout({ command: 'metrics', script: 'harness/metrics.ts' });
     runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/metrics.ts')]);
   } else if (command === 'ledger:sync' || command === 'sync') {
     const syncArgs = args.slice(1);
