@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/zenithfoundry/slm-gate/compare/v1.2.0...v1.2.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **deps:** bump the minor-and-patch group across 1 directory with 9 updates ([8e3ff27](https://github.com/zenithfoundry/slm-gate/commit/8e3ff27a5de16206a1cbbf797cf28dd477add478))
+* **deps:** bump the minor-and-patch group across 1 directory with 9 updates ([df0e0fa](https://github.com/zenithfoundry/slm-gate/commit/df0e0fa334e3d12c4337ab22ef21136e5ef2f3b8))
+
 ## [1.2.0](https://github.com/zenithfoundry/slm-gate/compare/v1.1.0...v1.2.0) (2026-09-26)
 
 
