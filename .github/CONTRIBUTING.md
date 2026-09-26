@@ -11,6 +11,7 @@ Before opening a pull request, please review these essential guidelines:
 3. **Decoupling**: Tech-Lead-Stack (TLS) adapter logic lives strictly behind `src/adapters/tech-lead-stack.ts` and dynamic imports. `pnpm run test:decoupling` must always pass.
 4. **Provider-Agnostic**: Never hardcode model tags or endpoint URLs; read them from configuration via `src/config.ts`.
 5. **Pure & Mockable**: Inject dependencies (e.g. SLM client, filesystem readers) so unit tests run cleanly without live model calls or network access.
+6. **Tests with every change**: New functionality and bug fixes come with tests under `tests/`, which `pnpm test` and CI run.
 
 ## Development Workflow
 
