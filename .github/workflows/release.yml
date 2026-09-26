@@ -94,10 +94,11 @@ jobs:
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
             "zenithfoundry-slm-gate-$VERSION.tgz" "slm-gate-$VERSION.spdx.json" "slm-gate-$VERSION.sigstore.json"
 
-  # Publishes the release's own signed tarball to npm, unchanged. Off until the repo variable NPM_PUBLISH is
-  # `on`, which is set once npm trusts this workflow: after the package's first, manual publish, its settings
-  # on npmjs.com name zenithfoundry/slm-gate and release.yml as a trusted publisher. npm then accepts this
-  # job's identity instead of a stored token, and adds provenance on its own.
+  # Stages the release's own signed tarball on npm, unchanged; a maintainer then makes it public with 2FA:
+  # `npm stage list @zenithfoundry/slm-gate`, then `npm stage approve <stage-id>` (or approve it on npmjs.com).
+  # Off until the repo variable NPM_PUBLISH is `on`. npm trusts this job through the package's trusted
+  # publisher (zenithfoundry/slm-gate, release.yml), which allows `npm stage publish` only, so no workflow
+  # can make a version public without that approval. npm adds provenance on its own.
   npm-publish:
     needs: [release-please, assets]
     if: ${{ needs.release-please.outputs.release_created == 'true' && vars.NPM_PUBLISH == 'on' }}
@@ -111,7 +112,7 @@ jobs:
       VERSION: ${{ needs.release-please.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # Node 24 ships npm 11.5 or newer, which trusted publishing needs.
+      # Node 24 ships npm 11.15 or newer, which trusted publishing and `npm stage` need.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -121,5 +122,5 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "zenithfoundry-slm-gate-$VERSION.tgz"
           gh attestation verify "zenithfoundry-slm-gate-$VERSION.tgz" --repo "$GITHUB_REPOSITORY"
 
-      - name: Publish to npm
-        run: npm publish "zenithfoundry-slm-gate-$VERSION.tgz" --access public
+      - name: Stage on npm (a maintainer approves it with 2FA to publish)
+        run: npm stage publish "zenithfoundry-slm-gate-$VERSION.tgz" --access public

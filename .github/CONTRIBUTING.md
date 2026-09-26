@@ -50,6 +50,6 @@ Releases are automated by [release-please](https://github.com/googleapis/release
 - `!` after the type (`feat!:`), or a `BREAKING CHANGE:` footer, releases a major version (`1.0.0` → `2.0.0`).
 - `docs:`, `test:`, `chore:` and similar types alone do not make a release.
 
-Merging the release pull request tags `vX.Y.Z`, publishes the GitHub Release with those notes, and attaches the package tarball, an SPDX SBOM and a signed provenance bundle. Release tags cannot be moved or deleted. When the repository variable `NPM_PUBLISH` is `on`, the same tarball is then published to npm, after its signature is checked.
+Merging the release pull request tags `vX.Y.Z`, publishes the GitHub Release with those notes, and attaches the package tarball, an SPDX SBOM and a signed provenance bundle. Release tags cannot be moved or deleted. When the repository variable `NPM_PUBLISH` is `on`, the same tarball is then staged on npm, after its signature is checked. It becomes public only when a maintainer approves it with 2FA: `npm stage list @zenithfoundry/slm-gate`, then `npm stage approve <stage-id>`, or on the package's page on npmjs.com.
 
 A security fix names its advisory in the commit message, e.g. `fix(router): reject absolute-form targets (GHSA-xxxx-xxxx-xxxx)`, so the release notes list it.
