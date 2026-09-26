@@ -86,12 +86,12 @@ Five small diagrams, each answering one question. Read them in order. Numbers on
 
 #### 1. The big picture
 
-slm-gate is two small servers on your computer, between your coding tool and the outside world. The small local model (run by Ollama) always comes before the cloud:
+slm-gate is two small servers on your computer, between your coding tool and the outside world. Both use small local models, run by Ollama:
 
-- **Tool calls** go through the **MCP gate**. The result from your toolbox is shrunk by the small model before your coding tool sees it.
-- **Model requests** go through the **model gate**. The small model gets the first go (answer the request itself, or shrink large tool results), and only what is left goes to the cloud.
+- **Tool calls** go through the **MCP gate**. It passes each call to your toolbox, then trims long text in the result before your coding tool sees it: fixed rules first, then the small model summarises what is still too long. It also adds a short note on what your project uses, and lists any open decisions it found in the text, answered where it can.
+- **Model requests** go through the **model gate**. On the first message of a conversation, the small model may answer by itself, and then the cloud is never called. Otherwise the gate shrinks new command, search and listing output, and sends the request to your AI provider with your own login.
 
-The small model only does work when it can help. If there is nothing to do, or it fails, the request carries on unchanged, so slm-gate never blocks you. Both gates log everything to a local ledger (see diagram 5).
+If the small model fails or runs out of time, the text it was working on goes on as it was. Both gates record what they did in a local ledger (diagram 5).
 
 ```mermaid
 flowchart LR
@@ -100,121 +100,159 @@ flowchart LR
   subgraph mcpRow["Tool calls: MCP gate"]
     direction LR
     mcp["MCP gate"] -->|"pass on"| toolbox["Downstream MCP<br/>toolbox"]
-    toolbox -->|"raw result"| slm1["Small local model<br/>shrinks the result"]
+    toolbox -->|"raw result"| trim["MCP gate trims long text:<br/>rules first, then small model"]
   end
 
   subgraph llmRow["Model requests: model gate"]
     direction LR
-    llm["Model gate"] -->|"local model first"| slm2["Small local model<br/>answers or shrinks"]
-    slm2 -->|"only if still needed"| cloud["Cloud AI<br/>(subscription or API key)"]
+    llm["Model gate"] -->|"first message"| answer["Small model<br/>tries to answer"]
+    llm -->|"later messages"| shrink["Shrink new command,<br/>search and listing output"]
+    answer -->|"no answer"| shrink
+    shrink --> cloud["Your AI provider<br/>(your login or API key)"]
   end
 
   tool --> mcp
-  slm1 -->|"smaller result"| tool
+  trim -->|"smaller result"| tool
   tool --> llm
+  answer -.->|"answer passed the check:<br/>reply, no cloud call"| tool
+  cloud -->|"reply, back through<br/>the gate unchanged"| tool
 ```
 
 #### 2. What happens to a tool call (MCP gate)
 
-The MCP gate passes each tool call to your downstream toolbox unchanged. When the result comes back, it cleans up the text (cuts long output, adds project context, settles unclear points) before your coding tool sees it. Pictures and structured data go back untouched.
+The MCP gate passes each tool call to your downstream toolbox unchanged. When the result comes back, it works on the text only: pictures, structured data and the error flag go back as the toolbox sent them. The gate also adds one tool of its own, `expand_elision`, which fetches back any lines it cut. With no toolbox set, the gate offers a single tool instead, `condition_prompt`, which runs the same steps on text you send it.
 
 ```mermaid
 flowchart LR
   tool(("Coding tool"))
   server["MCP server<br/>[mcp-gate/server.ts]"]
   toolbox["Downstream MCP"]
-  cond["Condition result<br/>[mcp-gate/pipeline.ts]"]
-  helpers["Cache, repo scan,<br/>distil, resolve"]
+  cond["Condition the text<br/>[mcp-gate/pipeline.ts]"]
+  helpers["In order: saved result?,<br/>trim, project scan,<br/>open decisions"]
   ledger[("Ledger")]
+  paid["Cloud model<br/>(CLOUD_API_KEY)"]
 
   tool -->|"1. tool call"| server
   server -->|"2. pass it on"| toolbox
   toolbox -->|"3. raw result"| server
-  server -->|"4. clean it up"| cond
+  server -->|"4. text only"| cond
   cond -->|"5. uses"| helpers
   cond -->|"6. log it"| ledger
   server -->|"7. smaller result"| tool
+  helpers -.->|"optional, off by default"| paid
+  tool -.->|"later: expand_elision"| server
+  ledger -.->|"the cut lines"| server
 ```
 
-| Helper | File | Job |
+| Step | File | What it does |
 | :--- | :--- | :--- |
-| Cache | `src/cache/index.ts` | Reuses an earlier result for similar text |
-| Repo scan | `src/mcp-gate/ground.ts` | Works out the project's stack |
-| Distil | `src/utils/elision.ts` | Cuts long output down |
-| Resolve | `src/resolver/index.ts` | Asks the small model to settle unclear points |
+| Saved result | `src/ledger/index.ts`; `src/cache/index.ts` with `SEMCACHE=on` | If the same tool returned the same text before, sends the saved result and skips the steps below. With `SEMCACHE=on`, very similar text counts too. |
+| Trim | `src/utils/elision.ts` | Leaves text under `DISTILL_MIN_TOKENS` alone. Otherwise saves the original for `expand_elision`, then cuts by tool name: a file keeps its outline and the lines about the task, a log keeps its errors and last 50 lines, a search keeps its first 50 lines. If it is still over `DISTILL_MAX_TOKENS`, the gate model summarises the plain prose, never code blocks, tables, headings or protected lines (and, by default, never skills or file reads). Anything still too long keeps only its start and end. |
+| Project scan | `src/mcp-gate/ground.ts` | Reads the project's root files (`package.json`, `tsconfig.json`, lockfiles, `Cargo.toml`, `go.mod`) and adds a short list of what the project uses. Only when your coding tool shares the project folder. |
+| Open decisions | `src/resolver/index.ts` | The brain model lists up to 3 open decisions in the text and answers each from your project's files or common practice; the gate model rates each one's risk. Low-risk answers found in your files are added as decided; the rest are added as questions to ask you, with a suggested answer. With `RESOLVER_CLOUD_TIER=on` and a budget set, unsure ones go to a paid cloud model using `CLOUD_API_KEY`. |
 
 #### 3. What happens to a model request (model gate)
 
-The model gate makes two tries to save you money before anything goes to the cloud. **Step A:** for the first message of a conversation, the small model answers a few times; if the answers agree (checked by `src/verifier/index.ts`), that answer is sent back and the cloud is never called. **Step B:** otherwise, large tool results the cloud has not seen yet are shrunk, and the request is forwarded to the cloud using whatever your coding tool already uses: your subscription or your API key. slm-gate never adds or swaps credentials.
+The model gate is a small server at `http://localhost:8787`. It reads four request formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini) and makes two tries to save you money before anything goes to your AI provider:
+
+- **Step A, answer locally** (first message of a conversation only). Skipped for slash commands, for requests that demand a set output format or a tool call, and, when the coding tool offers the model tools, for messages that mention your code or files or ask about the assistant itself. Otherwise the gate model sorts the question by type, and only simple types are tried: short facts and formatting, plus yes/no, extraction, classification and spelling fixes when no tools are offered. The brain model answers 3 times by default, and the verifier (`src/verifier/index.ts`) rejects an empty answer, a hedging one ("I'm not sure") or answers that disagree. A passing answer goes back in the provider's own format and the cloud is never called. One try at a time, at most 6 seconds. `SEMCACHE=on` also reuses a saved answer to a very similar question, and `ROUTING_TUNE=on` stops trying types that usually fail.
+- **Step B, shrink** (every request not answered locally). New command, search and listing output of at least `DISTILL_MIN_TOKENS` is trimmed the same way as in the MCP gate. File reads (including `cat` and similar run from a shell), web fetches and MCP tool results are never changed. Each decision is saved and resent unchanged on every later turn, so the provider's prompt cache keeps working. At most 3 seconds; after that, the original goes.
+
+The request then goes to the provider its address belongs to, with every header your coding tool sent, so your own subscription login or API key is used; slm-gate never adds or swaps credentials. The reply streams back unchanged. Token counts, model lists and hello pings skip both steps.
 
 ```mermaid
 flowchart LR
   tool(("Coding tool"))
   server["Model gate<br/>[llm-gate/server.ts]"]
-  stepA["Step A: answer locally?<br/>[local-first.ts]"]
-  stepB["Step B: shrink tool results<br/>[llm-gate/distill.ts]"]
-  fwd["Forward<br/>[forward.ts]"]
-  cloud["Cloud AI<br/>(subscription or API key)"]
+  stepA["Step A: answer locally?<br/>[llm-gate/local-first.ts]"]
+  stepB["Step B: shrink new output<br/>[llm-gate/distill.ts]"]
+  fwd["Forward<br/>[llm-gate/forward.ts]"]
+  cloud["Your AI provider<br/>(your login or API key)"]
   ledger[("Ledger")]
 
   tool -->|"1. request"| server
-  server -->|"2. try"| stepA
-  stepA -.->|"answers agree: reply now"| tool
-  server -->|"3. no local answer"| stepB
+  server -->|"2. first message only"| stepA
+  stepA -.->|"passed the check: reply now"| tool
+  server -->|"3. not answered locally"| stepB
   stepB -->|"4. smaller request"| fwd
-  fwd -->|"5. your subscription or API key"| cloud
-  server -->|"6. log it"| ledger
+  fwd -->|"5. same headers"| cloud
+  cloud -->|"6. reply"| fwd
+  fwd -->|"7. reply, unchanged"| tool
+  server -->|"8. log it"| ledger
+  stepB -.->|"saved decisions"| ledger
 ```
 
 #### 4. How it starts, and what the CLI does
 
-You rarely start anything by hand. Your coding tool starts the MCP gate. The MCP gate then checks Ollama and your models, and starts the model gate — at start-up and again every minute, so it keeps running. The CLI is for doing this yourself and for checks and reports.
+You rarely start anything by hand. Your coding tool starts the MCP gate. Before the MCP gate answers the tool (it waits at most 1.5 seconds), it starts the model gate in the background if nothing is running on its port, and checks that Ollama is running and every model your settings name is downloaded. It checks again 15 seconds later and then every minute, restarting the model gate if it stopped, unless you stopped it with `slm-gate stop`. With `LLM_GATE_AUTOSTART=off` it never starts the model gate and only checks once. It never starts Ollama or downloads a model. Problems show up as a desktop notification, and problems found at start-up are also passed to your AI assistant. The CLI is for doing this by hand, and for checks and reports.
 
 ```mermaid
 flowchart LR
   tool(("Coding tool"))
   you(("You"))
-  mcp["MCP gate"]
-  checks["Startup checks<br/>[setup/startup.ts]"]
+  mcp["MCP gate<br/>[mcp-gate/index.ts]"]
+  checks["Start-up checks<br/>[setup/startup.ts]"]
   ollama["Ollama"]
-  llm["Model gate"]
+  llm["Model gate<br/>[llm-gate/index.ts]"]
   cli["CLI<br/>[cli.ts]"]
 
-  tool -->|"starts"| mcp
-  mcp -->|"at start + every minute"| checks
-  checks -->|"models ready?"| ollama
-  checks -->|"start / keep running"| llm
+  tool -->|"1. starts"| mcp
+  mcp -->|"2. at start, after 15 s,<br/>then every minute"| checks
+  checks -->|"3. running? models downloaded?"| ollama
+  checks -->|"4. start it if not running"| llm
+  checks -.->|"problems: desktop notification"| you
+  checks -.->|"problems at start:<br/>told to your AI assistant"| tool
   you --> cli
   cli -->|"start, stop, restart, serve"| llm
 ```
 
-| Command | Runs |
-| :--- | :--- |
-| `doctor` | `src/doctor.ts` — preflight checks |
-| `config` | `src/config.ts` — prints your settings |
-| `metrics` | `harness/metrics.ts` — reads the ledger |
-| `ledger:sync` | `src/ledger/sync.ts` — sends history to Langfuse |
-| `bench` | `harness/run.ts` — offline benchmark (not live traffic) |
+| Command | Runs | Does |
+| :--- | :--- | :--- |
+| `start`, `stop`, `restart` | `src/setup/gate-command.ts` | Starts or stops the background model gate; `stop` lasts until `start`, `restart` or a reboot |
+| `serve` | `src/llm-gate/index.ts` | Runs the model gate in this terminal (`--layer mcp` or `both` runs the MCP gate too) |
+| `doctor` | `src/doctor.ts` | Preflight checks, and the exact line to paste into each coding tool |
+| `config` | `src/config.ts` | Prints your settings |
+| `models:check` | `src/models/check.ts` | Checks your models are downloaded and fit in memory |
+| `metrics` | `harness/metrics.ts` | Rows, tokens and cost in the ledger, gate on vs off |
+| `ledger:sync` | `src/ledger/sync.ts` | Sends ledger history to Langfuse |
+| `setup-dashboard` | `src/ledger/setup-dashboard.ts` | Builds the Langfuse dashboard |
+| `ledger:reset` | `src/cli.ts` | Deletes the local ledger and benchmark output |
+| `bench` | `harness/run.ts` | Offline benchmark with an API key (not live traffic) |
 
 #### 5. Where the data goes
 
-Every request both gates handle is written to the local ledger, with its cost worked out from provider prices. The report and the dashboard read from the ledger. If Langfuse is set up, each gate also sends its records there as it runs, and `ledger:sync` sends any older ones.
+Both gates write one row to the local ledger, a SQLite file (`output/ledger.sqlite` by default): one for each tool result the MCP gate conditions, and one for each model request the model gate answers or forwards. A row holds token counts, the route taken and timings, not the text itself. Rows for your coding tool's traffic carry no price; only the optional resolver cloud call and the benchmark record one. Cost saved (from the price list) and minutes saved (from each provider's usage-window size) are worked out for Langfuse as each row is written and again by `ledger:sync`; the dashboard works out minutes saved each time it loads. The same file also keeps saved results, the original of anything cut (for `expand_elision`), and the model gate's shrink decisions.
+
+If all three Langfuse keys are set, each gate sends its new rows there as it runs (at start-up, every 15 seconds and at shutdown), and `ledger:sync` re-sends history.
 
 ```mermaid
 flowchart LR
   gates["Both gates"]
   ledger[("Ledger<br/>[ledger/index.ts]")]
-  pricing["Pricing<br/>[pricing/index.ts]"]
-  report["Report<br/>[ledger/report.ts]"]
+  pricing["Prices and window sizes<br/>[pricing/]"]
+  metrics["slm-gate metrics<br/>[harness/metrics.ts]"]
+  report["Tokens saved per day<br/>[ledger/report.ts]"]
   dash["Dashboard<br/>[dashboard/serve.ts]"]
-  langfuse["Langfuse"]
+  site["site/ folder for GitHub Pages<br/>[dashboard/export.ts]"]
+  langfuse["Langfuse (optional)"]
 
-  gates -->|"log every request"| ledger
-  ledger -->|"work out cost"| pricing
+  gates -->|"1. a row per request"| ledger
+  ledger --> metrics
   ledger --> report
   ledger --> dash
-  ledger -.->|"send records"| langfuse
+  ledger --> site
+  pricing -->|"minutes saved"| dash
+  pricing -->|"cost and minutes saved"| langfuse
+  ledger -.->|"new rows every 15 s;<br/>ledger:sync for history"| langfuse
 ```
+
+| Reader | Command | Shows |
+| :--- | :--- | :--- |
+| Metrics | `slm-gate metrics` | Rows, tokens and cost, gate on vs off |
+| Report | `pnpm run ledger:report` | Tokens saved per day and all-time |
+| Dashboard | `pnpm run dashboard` | Minutes of each provider's usage window returned, tokens saved, weekly charts, routing split, local-answer accuracy |
+| Static copy | `pnpm run dashboard:export` | The dashboard with numbers and dates only, written to `site/` for the Pages workflow |
+| Langfuse | runs by itself; `slm-gate ledger:sync` for history | A trace per request, with cost, tokens and minutes saved |
 
 ---
 
