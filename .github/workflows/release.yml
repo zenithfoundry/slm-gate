@@ -34,9 +34,6 @@ jobs:
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           release-type: node
-          # First release only: package.json already says 1.0.0. Remove once v1.0.0 exists, or every
-          # later release is forced to 1.0.0 again.
-          release-as: 1.0.0
 
   assets:
     needs: release-please
