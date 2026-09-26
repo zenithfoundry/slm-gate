@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/zenithfoundry/slm-gate/compare/v1.0.0...v1.1.0) (2026-09-26)
+
+
+### Features
+
+* **config:** keep settings and data in ~/.slm-gate for npm installs; give real-gate tests their own ports ([236f8f5](https://github.com/zenithfoundry/slm-gate/commit/236f8f57f5e76b4d17f03730feac6ce3df41b7f3))
+* **config:** keep settings and data in ~/.slm-gate for npm installs; give real-gate tests their own ports ([32c0465](https://github.com/zenithfoundry/slm-gate/commit/32c04659f90ce7fff07277a6e17c87b147bc0824))
+
 ## 1.0.0 (2026-09-26)
 
 
