@@ -10,6 +10,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Runtime dependency bumps (security updates included) are `fix(deps):`, so release-please makes a
+    # patch release and lists them in its notes. Dev-only bumps stay `chore(deps-dev):` and release nothing.
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
     groups:
       minor-and-patch:
         update-types: [minor, patch]
