@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/zenithfoundry/slm-gate/compare/v1.1.0...v1.2.0) (2026-09-26)
+
+
+### Features
+
+* **cli:** add init and mcp commands for npm installs; accept the 64 and 128 GB RAM presets ([f85f958](https://github.com/zenithfoundry/slm-gate/commit/f85f958b8dab84835fa44a7e47e8e2bb98a9b4e1))
+* **config:** RAM presets from 16 to 128 GB (new 48 GB), custom above 128 GB; drop under-16 GB; align docs, point to llmfit ([aceed2a](https://github.com/zenithfoundry/slm-gate/commit/aceed2a1e45133a4d056defd9a12fb3b0cf3ef27))
+
 ## [1.1.0](https://github.com/zenithfoundry/slm-gate/compare/v1.0.0...v1.1.0) (2026-09-26)
 
 
