@@ -24,8 +24,8 @@ gh attestation verify zenithfoundry-slm-gate-1.0.0.tgz -R zenithfoundry/slm-gate
 
 The release's `slm-gate-<version>.spdx.json` is an SPDX SBOM listing every dependency.
 
-The npm package is that same tarball, published by the same workflow with npm's trusted publishing, so its page on
-npmjs.com shows **Provenance** linking to the build. In a project that depends on it, `npm audit signatures`
+The npm package is that same tarball, staged by the same workflow with npm's trusted publishing and made public only
+after a maintainer approves it with 2FA, so its page on npmjs.com shows **Provenance** linking to the build. In a project that depends on it, `npm audit signatures`
 checks it.
 
 ## What counts
