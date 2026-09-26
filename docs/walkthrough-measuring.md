@@ -113,7 +113,7 @@ pnpm run slm-gate ledger:sync --dry-run
 pnpm run slm-gate ledger:sync --all
 ```
 
-For the complete, beginner-to-advanced guide detailing how to build custom ROI dashboards and configure model pricing in Langfuse, see [`docs/analytics-and-observability.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/docs/analytics-and-observability.md).
+For the complete, beginner-to-advanced guide detailing how to build custom ROI dashboards and configure model pricing in Langfuse, see [`docs/analytics-and-observability.md`](./analytics-and-observability.md).
 
 ---
 
@@ -121,5 +121,5 @@ For the complete, beginner-to-advanced guide detailing how to build custom ROI d
 
 - **"The table is empty" or "Count is 0":** You haven't done any tasks yet, or you are pointing at the wrong ledger path. Check your `LEDGER_PATH` in `.env`.
 - **"Quality went down!":** The local model is answering questions it shouldn't. You need to tell it to be more strict and *escalate* more often. Open your `.env` file and raise the `HEADLINE_STRICTNESS` setting (e.g., from 4 to 5). This makes the verifier more skeptical of the local model's answers.
-- **For more troubleshooting:** Check the FAQ section in [`docs/analytics-and-observability.md`](file:///Users/bz3b/Desktop/repos/small-language-model-gate/docs/analytics-and-observability.md).
+- **For more troubleshooting:** Check the FAQ section in [`docs/analytics-and-observability.md`](./analytics-and-observability.md#9-troubleshooting--frequently-asked-questions).
 

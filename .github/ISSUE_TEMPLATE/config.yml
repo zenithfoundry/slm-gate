@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/bronz3beard/small-language-model-gate/discussions
+    url: https://github.com/zenithfoundry/slm-gate/discussions
     about: Ask questions, share architectures, and discuss routing strategies with the community.
+  - name: Report a security vulnerability
+    url: https://github.com/zenithfoundry/slm-gate/security/advisories/new
+    about: Please report security problems privately here, not in a public issue.

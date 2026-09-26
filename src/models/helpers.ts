@@ -82,7 +82,7 @@ export function handleSlmError(err: any, stage: string, model: string) {
     console.error(`\n[${stage}] ❌ SLM Error (${errorType}) - Model: ${model}`);
     console.error(`  Usually the model is too large for available RAM or is cold-loading.`);
     console.error(`  Fixes:`);
-    console.error(`  1. Switch to a smaller model (check SLM_BRAIN_MODEL/SLM_GATE_MODEL against the RAM table in README).`);
+    console.error(`  1. Switch to a smaller model (check SLM_BRAIN_MODEL/SLM_GATE_MODEL against the RAM table in docs/prerequisites-and-hardware.md).`);
     console.error(`  2. Raise SLM_TIMEOUT_MS in your .env if it is just cold-loading.`);
     console.error(`  3. Confirm the model is pulled ('ollama pull ${model}') and Ollama is running ('ollama list').`);
     console.error(`  4. Free up system RAM.\n`);

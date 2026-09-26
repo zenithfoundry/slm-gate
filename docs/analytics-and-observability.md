@@ -14,7 +14,7 @@
 5. [0-to-100% Langfuse Setup Walkthrough](#5-0-to-100-langfuse-setup-walkthrough)
 6. [Langfuse UI Configuration Guide (Dashboards & Pricing)](#6-langfuse-ui-configuration-guide-dashboards--pricing)
 7. [The `ledger:sync` Backfill Tool](#7-the-ledgersync-backfill-tool)
-8. [Data Interpretation & Product Decision Framework](#8-data-interpretation--product-decision-framework)
+8. [Data Interpretation & Product Decision Framework](#8-data-interpretation--product-decision-framework-langfuse-and-bench-test-results)
 9. [Troubleshooting & Frequently Asked Questions](#9-troubleshooting--frequently-asked-questions)
 
 ---
@@ -523,7 +523,7 @@ Each event's value is:
 estimated minutes saved = units saved × (window minutes ÷ window budget)    (capped to [0, window minutes])
 ```
 
-**These minutes are estimates within a margin of error.** Anthropic, OpenAI and Google don't publish their window limits, only multipliers between plans, so every budget is a best guess. The defaults in the `.env` examples, and where each comes from, are listed in the README's settings reference (`*_WINDOW_BUDGET`).
+**These minutes are estimates within a margin of error.** Anthropic, OpenAI and Google don't publish their window limits, only multipliers between plans, so every budget is a best guess. The defaults in the `.env` examples, and where each comes from, are listed in the [settings reference](./configuration.md#ledger--telemetry) (`*_WINDOW_BUDGET`).
 
 What a "unit" is depends on how the provider counts usage:
 - **Per token (Claude / Gemini):** the budget is *tokens per window*. Every token saved counts, including tool results shrunk by `mcp-gate`. Claude is counted this way because its limits scale with how much text is sent, not with a flat message count.

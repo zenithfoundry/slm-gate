@@ -9,7 +9,7 @@
  * tools in results. Nothing here is specific to any one toolbox.
  */
 
-/** The name slm-gate is registered under in the editor (see README → Step 4). */
+/** The name slm-gate is registered under in the editor (see docs/setup.md → Step 4). */
 export const GATE_MCP_NAME = 'slm-gate';
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

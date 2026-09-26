@@ -5,7 +5,7 @@
 > Yes, if your coding tool has a setting for the model's address: Claude Code, Codex, Gemini CLI or `agy` (with a Gemini API key), Cline, Roo Code, Kilo Code, Continue, OpenCode, Zed, Copilot's Custom Endpoint, Junie CLI or Aider.
 > You don't need an API key in `slm-gate`: your tool's own login (subscription or API key) is used.
 >
-> Cursor, Windsurf, the Claude desktop app and Antigravity IDE can't send their requests through a local gate. For them, use Layer 1 (the MCP server) only; see the main README.
+> Cursor, Windsurf, the Claude desktop app and Antigravity IDE can't send their requests through a local gate. For them, use Layer 1 (the MCP server) only; see [How It Operates](./integration-layers.md#client-compatibility-matrix).
 
 ### What is the model gate?
 The model gate (`llm-gate`) is a small server on your computer at `http://localhost:8787`. Your coding tool sends its model requests there instead of straight to Anthropic, OpenAI or Google. The gate:
@@ -18,7 +18,7 @@ You never start it yourself: `slm-gate`'s MCP server starts it when your coding 
 
 ### What you'll need before starting
 - [x] `slm-gate` is built (`pnpm run build`).
-- [x] `slm-gate` is added as an MCP server in your coding tool (README, Section 4). This is what starts the model gate.
+- [x] `slm-gate` is added as an MCP server in your coding tool ([Step-by-Step Setup](./setup.md#step-4--wire-up-your-editor--client), Step 4). This is what starts the model gate.
 - [x] Ollama is running and has your models. `node dist/cli.js doctor` checks both and prints the `ollama pull` command for anything missing.
 
 ---

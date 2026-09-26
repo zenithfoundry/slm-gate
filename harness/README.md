@@ -3,7 +3,7 @@
 >
 > This harness is **OPTIONAL** and only useful if you have an API key for a paid model (what we call the "API cloud"). 
 > 
-> If you only use a subscription model inside your editor (like **Google AI Premium / Gemini Advanced**, **Claude Pro / Max / Team**, or **Cursor Pro / Teams**), **you cannot use this harness — skip it and use the live ledger instead** (see [Step 16 in the main README](../README.md#step-16-the-ledger)). 
+> If you only use a subscription model inside your editor (like **Google AI Premium / Gemini Advanced**, **Claude Pro / Max / Team**, or **Cursor Pro / Teams**), **you cannot use this harness — skip it and use the live ledger instead** (see [Check Your Savings](../docs/daily-use.md#check-your-savings-any-time)). 
 > 
 > *Why?* The harness makes hundreds of its own automated calls, which requires an API key it can call directly. Your subscription model is locked inside your editor and can't be scripted against.
 

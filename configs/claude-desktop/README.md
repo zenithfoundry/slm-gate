@@ -30,7 +30,7 @@ Claude Desktop starts MCP servers from a working directory that does not exist. 
 - Leave `LEDGER_PATH` blank in `.env` (the default is already a full path under the install folder), **or**
 - set it to the full path on your machine, in `.env` or in the `env` block above, for example `/Users/yourname/projects/small-language-model-gate/output/ledger.sqlite`.
 
-The same rule applies to every path inside `DOWNSTREAM_MCP` and to `<ABS_PATH>` above. The main README covers this in [Ledger Path Must Be a Full Path on Your Machine](../../README.md#ledger-path-must-be-a-full-path-on-your-machine).
+The same rule applies to every path inside `DOWNSTREAM_MCP` and to `<ABS_PATH>` above. The configuration guide covers this in [Ledger Path Must Be a Full Path on Your Machine](../../docs/configuration.md#ledger-path-must-be-a-full-path-on-your-machine).
 
 ## Model gate (Layer 2): not possible in Claude Desktop
 
