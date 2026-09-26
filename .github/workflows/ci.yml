@@ -50,3 +50,9 @@ jobs:
         
       - name: Decoupling Guard Test
         run: pnpm run test:decoupling
+
+      - name: npm install end to end (packed package, new home folder, upgrade)
+        # Once per run: it tests the package as npm installs it, which does not change with the Node version.
+        # Builds again first: the decoupling step above builds without src/adapters, which users do get.
+        if: matrix.node == 22
+        run: pnpm run build && pnpm run e2e:npm-install

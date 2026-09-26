@@ -6,9 +6,11 @@
  * provider or toolbox: PROVIDER is left blank, and so are keys and DOWNSTREAM_MCP. An existing settings
  * file is never replaced.
  */
+import { parse } from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIN_RAM_GB, modelsForRam, recommendNumCtx, recommendPreset } from '../hardware.js';
+import { modelsFor } from './required-models.js';
 
 /**
  * The template lines `init` fills in for a computer with `ramGb` of RAM: the same preset, models and
@@ -16,7 +18,7 @@ import { MIN_RAM_GB, modelsForRam, recommendNumCtx, recommendPreset } from '../h
  *
  * @throws When `ramGb` is below MIN_RAM_GB, which slm-gate does not support
  */
-export function settingsForRam(ramGb: number): { preset: string; models: string[]; lines: Record<string, string> } {
+export function settingsForRam(ramGb: number): { preset: string; lines: Record<string, string> } {
   if (ramGb < MIN_RAM_GB) {
     throw new Error(`slm-gate needs at least ${MIN_RAM_GB} GB of RAM; this is set up for ${ramGb} GB.`);
   }
@@ -24,7 +26,6 @@ export function settingsForRam(ramGb: number): { preset: string; models: string[
   const { brain, gate } = modelsForRam(ramGb);
   return {
     preset,
-    models: [...new Set([brain, gate])],
     lines: {
       RAM_PRESET: preset,
       SLM_BRAIN_MODEL: brain,
@@ -55,6 +56,24 @@ export function fillSettings(template: string, lines: Record<string, string>): s
 }
 
 /**
+ * The local models a settings file needs, by the start-up check's rule (src/setup/required-models.ts), so
+ * following init's download step leaves nothing for that check to report.
+ */
+function modelsIn(settingsText: string): string[] {
+  const settings = parse(settingsText);
+  // As config.ts reads them: on, true or 1 is on; anything else, blank included, is off (both default to off).
+  const isOn = (value?: string) => ['on', 'true', '1'].includes((value ?? '').toLowerCase());
+  const models = modelsFor({
+    SLM_GATE_MODEL: settings.SLM_GATE_MODEL ?? '',
+    SLM_BRAIN_MODEL: settings.SLM_BRAIN_MODEL ?? '',
+    EMBED_MODEL: settings.EMBED_MODEL ?? '',
+    SEMCACHE: isOn(settings.SEMCACHE),
+    DISTILL_ADAPTIVE: isOn(settings.DISTILL_ADAPTIVE),
+  });
+  return [...new Set(models.map(model => model.name).filter(Boolean))];
+}
+
+/**
  * Creates the settings file for this computer, unless one exists.
  *
  * @param params.installDir The install folder, where `.env.example` is
@@ -66,13 +85,13 @@ export function initSettings(params: { installDir: string; homeDir: string; ramG
   created: boolean; envPath: string; preset: string; models: string[];
 } {
   const envPath = path.join(params.homeDir, '.env');
-  const { preset, models, lines } = settingsForRam(params.ramGb);
-  if (fs.existsSync(envPath)) return { created: false, envPath, preset, models };
+  const { preset, lines } = settingsForRam(params.ramGb);
+  if (fs.existsSync(envPath)) return { created: false, envPath, preset, models: modelsIn(fs.readFileSync(envPath, 'utf8')) };
 
   const template = fs.readFileSync(path.join(params.installDir, '.env.example'), 'utf8');
   const text = fillSettings(template, lines);
   fs.mkdirSync(params.homeDir, { recursive: true });
   // 'wx' fails rather than replace a file created meanwhile; 0o600 because the file may later hold keys.
   fs.writeFileSync(envPath, text, { flag: 'wx', mode: 0o600 });
-  return { created: true, envPath, preset, models };
+  return { created: true, envPath, preset, models: modelsIn(text) };
 }

@@ -65,6 +65,7 @@
     "e2e:resolver-ambiguities": "tsx scripts/e2e-resolver-ambiguities.ts",
     "smoke:e2e": "tsx scripts/smoke-e2e.ts",
     "e2e:tls-downstream": "tsx scripts/e2e-tls-downstream.ts",
+    "e2e:npm-install": "tsx scripts/e2e-npm-install.ts",
     "test:e2e": "pnpm run build && pnpm run e2e:standalone-mcp && pnpm run e2e:llm-gate-routing && pnpm run e2e:distill-fallback && pnpm run e2e:resolver-ambiguities && pnpm run smoke:e2e",
     "e2e": "pnpm run test:e2e",
     "bench": "tsx harness/run.ts",
