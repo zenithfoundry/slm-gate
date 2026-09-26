@@ -1,6 +1,6 @@
 import ollama from 'ollama';
 import { CONFIG } from '../config.js';
-import { detectHardware, recommendPreset, ramPresets } from '../hardware.js';
+import { detectHardware, MIN_RAM_GB, modelsForRam, recommendPreset } from '../hardware.js';
 
 /**
  * Warms up the provided SLM models by sending a single, short prompt.
@@ -116,11 +116,12 @@ export async function footprintReport(client = ollama): Promise<void> {
 
     try {
       const hw = detectHardware();
+      const workhorseRamGB = Math.max(MIN_RAM_GB, hw.totalRamGB - 8);
       const dedicatedPreset = recommendPreset(hw.totalRamGB);
-      const workhorsePreset = recommendPreset(Math.max(4, hw.totalRamGB - 8));
-      
-      const dedicatedModels = ramPresets[dedicatedPreset];
-      const workhorseModels = ramPresets[workhorsePreset];
+      const workhorsePreset = recommendPreset(workhorseRamGB);
+
+      const dedicatedModels = modelsForRam(hw.totalRamGB);
+      const workhorseModels = modelsForRam(workhorseRamGB);
 
       console.log(`\n--- Recommendations (${hw.totalRamGB}GB RAM Detected) ---\n`);
       

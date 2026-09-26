@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
+import { ramPresets } from './hardware.js';
 import { resolveHomeDir } from './home-dir.js';
 import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey } from './pricing/plans.js';
 import { isEntryPoint } from './utils/entry-point.js';
@@ -126,9 +127,9 @@ const envSchema = z.object({
   RESOLVER_CLOUD_TIER: parseBoolean(false),
   RESOLVER_CLOUD_BUDGET_USD: parseFloatNumber(0),
   PROMPT_VERSION: z.string().default('v1'),
-  // Every value recommendPreset() (src/hardware.ts) can print must be accepted here, or following
-  // doctor's advice stops slm-gate from starting.
-  RAM_PRESET: z.enum(['ram-4', 'ram-8', 'ram-12', 'ram-16', 'ram-24', 'ram-32', 'ram-64', 'ram-128', 'custom']).default('custom'),
+  // The presets in src/hardware.ts ramPresets. Every value recommendPreset() can print must be accepted
+  // here, or following doctor's advice stops slm-gate from starting. slm-gate needs 16 GB of RAM or more.
+  RAM_PRESET: z.enum(['ram-16', 'ram-24', 'ram-32', 'ram-48', 'ram-64', 'ram-128', 'custom']).default('custom'),
   TLS_ADAPTER: parseBoolean(false),
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
@@ -173,15 +174,6 @@ const envInput = Object.fromEntries(Object.entries(process.env).filter(([, value
  */
 export const CONFIG_ENV_KEYS: readonly string[] = Object.keys(envSchema.shape);
 const parsedEnv = envSchema.parse(envInput);
-
-const ramPresets: Record<string, { brain: string, gate: string }> = {
-  'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
-  'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
-  'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen2.5-coder:3b' },
-  'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
-  'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:7b' },
-  'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
-};
 
 const preset = ramPresets[parsedEnv.RAM_PRESET] || ramPresets['custom'];
 

@@ -79,7 +79,7 @@ All settings are controlled via environment variables in your `.env` file (or in
 | `SLM_BRAIN_MODEL` | `string` | Resolved by `RAM_PRESET` | The local model tag used for complex reasoning, classification, and local answering (e.g. `qwen3:14b`, `qwen2.5-coder:3b`). |
 | `SLM_GATE_MODEL` | `string` | Resolved by `RAM_PRESET` | The small fast local model tag used for prompt distillation and token compression (e.g. `qwen3:1.7b`, `qwen2.5-coder:0.5b`). |
 | `SLM_GATE_TESTING_MODEL` | `string` | Resolved by `SLM_GATE_MODEL` | The dedicated local model tag used specifically for the offline evaluation benchmark harness and test suites (`slm-gate bench`). |
-| `RAM_PRESET` | `enum` | `custom` | Hardware RAM profile (`ram-4`, `ram-8`, `ram-12`, `ram-16`, `ram-24`, `ram-32`, `custom`) that automatically assigns optimal local models. |
+| `RAM_PRESET` | `enum` | `custom` | Hardware RAM profile (`ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, `custom`) that automatically assigns optimal local models. |
 | `HEADLINE_STRICTNESS`| `number` | `4` | Verification strictness level (`0` to `5`). Higher values make the verifier more skeptical, forcing local answers to escalate to the cloud if uncertain. |
 
 ### PLAN_REGISTRY and Token Estimation
@@ -538,7 +538,7 @@ Use your analytics to make concrete engineering decisions:
 │ What the Data Shows                           │ Recommended Engineering / Product Action                   │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
 │ High % of `defer_local` (>40%) with           │ Your local SLM is handling tasks well! Consider testing     │
-│ 100% `verified` pass rate.                    │ a slightly smaller model preset (e.g. ram-8 -> ram-4) to   │
+│ 100% `verified` pass rate.                    │ a slightly smaller model preset (e.g. ram-24 -> ram-16) to │
 │                                               │ decrease local RAM and increase inference speed.            │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
 │ `verified` pass rate drops below 95%, or      │ The local model is attempting tasks that are too hard.      │

@@ -131,11 +131,17 @@ Commands:
     const { initSettings } = await import('./setup/init.js');
     const { detectHardware } = await import('./hardware.js');
     const setUpFor = ramGb ?? detectHardware().totalRamGB;
-    const result = initSettings({
-      installDir: ROOT_DIR,
-      homeDir: resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }),
-      ramGb: setUpFor,
-    });
+    let result: ReturnType<typeof initSettings>;
+    try {
+      result = initSettings({
+        installDir: ROOT_DIR,
+        homeDir: resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }),
+        ramGb: setUpFor,
+      });
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
     const self = isPackageInstall(ROOT_DIR) ? 'slm-gate' : `node ${path.join(ROOT_DIR, 'dist', 'cli.js')}`;
     if (!result.created) {
       console.log(`Your settings file already exists, so nothing was changed: ${result.envPath}`);
@@ -143,12 +149,17 @@ Commands:
       return;
     }
     console.log(`Created your settings file: ${result.envPath}`);
-    console.log(`It is set up for ${setUpFor} GB of RAM (RAM_PRESET=${result.preset}); every other setting is explained in the file.\n`);
-    console.log('Next:');
+    console.log(`It is set up for ${setUpFor} GB of RAM (RAM_PRESET=${result.preset}); every other setting is explained in the file.`);
+    if (result.preset === 'custom') {
+      console.log('That is more than 128 GB, so it starts from the 128 GB models; you can choose bigger ones (step 4).');
+    }
+    console.log('\nNext:');
     console.log(`  1. Download the local models:  ${result.models.map(model => `ollama pull ${model}`).join(' && ')}`);
     console.log(`  2. Check everything:           ${self} doctor`);
     console.log(`  3. Connect your coding tool:   add an MCP server that runs \`${self} mcp\`.`);
     console.log(`     \`${self} doctor\` also prints the address for tools that can send their AI requests through slm-gate.`);
+    console.log('  4. To pick models that fit this computer best, use llmfit: https://github.com/AlexsJones/llmfit');
+    console.log('     Then set SLM_BRAIN_MODEL and SLM_GATE_MODEL in the settings file.');
     return;
   }
 

@@ -7,6 +7,8 @@
 Instead of starting from scratch, find your machine's RAM in the table below and copy the matching preset file for your editor. These are fully commented templates with sensible defaults already filled in.
 
 > **Using 16 GB RAM?** That's the baseline configuration used throughout this guide. Copy the preset for your editor and you're most of the way there.
+>
+> **48 GB, 64 GB, 128 GB or more?** Run `slm-gate init` (in a git checkout: `node dist/cli.js init`). It writes a settings file with the right `RAM_PRESET`, models and `NUM_CTX` for your RAM, from the [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machine-model-table). `slm-gate` needs 16 GB of RAM or more.
 
 ### All Configuration Preset Files
 
@@ -212,7 +214,7 @@ When a tool response is very large, `slm-gate` compresses it and keeps only the 
 - **`ROUTING_TUNE_EXPLORE_RATE`** — How often to try local even for categories it's learned to skip — keeps it adapting to improvement. Default: `0.15`
 - **`RESOLVER_CLOUD_TIER`** — When `on`, allows the local AI to make a small, budgeted cloud call when it hits a genuinely ambiguous decision. (`on` / `off`)
 - **`RESOLVER_CLOUD_BUDGET_USD`** — Hard dollar cap on the above feature. Default: `0` (off until you set a budget)
-- **`RAM_PRESET`** — A convenience toggle that auto-selects sensible model defaults based on your RAM: `ram-8`, `ram-16`, `ram-32`, or `custom`.
+- **`RAM_PRESET`** — Picks the two local models for your RAM: `ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, or `custom`. `slm-gate` needs 16 GB or more; a size between two presets uses the smaller one, and more than 128 GB is `custom`. `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` always win. Models per preset and how it is decided: [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machine-model-table). For models that fit your computer best, use [llmfit](https://github.com/AlexsJones/llmfit).
 - **`TLS_ADAPTER`** — Enables special handling for Tech-Lead-Stack payloads. Set to `on` only if TLS is your downstream. (`on` / `off`)
 
 ---

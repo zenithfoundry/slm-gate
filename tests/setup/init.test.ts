@@ -47,6 +47,17 @@ describe('initSettings', () => {
     expect(created.SUBSCRIPTION_PLAN ?? '').toBe('');
   });
 
+  it('sets up more than 128 GB as custom, starting from the 128 GB models', () => {
+    const result = initSettings({ installDir, homeDir, ramGb: 192 });
+    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:14b', 'qwen3:8b'] });
+    expect(parse(fs.readFileSync(result.envPath))).toMatchObject({ RAM_PRESET: 'custom', SLM_BRAIN_MODEL: 'qwen3:14b', SLM_GATE_MODEL: 'qwen3:8b' });
+  });
+
+  it('refuses a computer with less than 16 GB of RAM and writes nothing', () => {
+    expect(() => initSettings({ installDir, homeDir, ramGb: 8 })).toThrow(/needs at least 16 GB/);
+    expect(fs.existsSync(path.join(homeDir, '.env'))).toBe(false);
+  });
+
   it('never replaces a settings file that already exists', () => {
     fs.mkdirSync(homeDir, { recursive: true });
     fs.writeFileSync(path.join(homeDir, '.env'), 'MINE=1\n');
@@ -68,7 +79,7 @@ describe('the file init writes', () => {
     process.env = originalEnv;
   });
 
-  it.each([8, 16, 24, 32, 64, 128])('starts slm-gate with the settings for %i GB of RAM', async ramGb => {
+  it.each([16, 24, 32, 48, 64, 128, 192])('starts slm-gate with the settings for %i GB of RAM', async ramGb => {
     const { preset, lines } = settingsForRam(ramGb);
     initSettings({ installDir, homeDir, ramGb });
     // Only the new file supplies these; LEDGER_PATH comes from tests/setup-env.ts.

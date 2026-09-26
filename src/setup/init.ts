@@ -8,12 +8,20 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { ramPresets, recommendNumCtx, recommendPreset } from '../hardware.js';
+import { MIN_RAM_GB, modelsForRam, recommendNumCtx, recommendPreset } from '../hardware.js';
 
-/** The template lines `init` fills in for a computer with `ramGb` of RAM. */
+/**
+ * The template lines `init` fills in for a computer with `ramGb` of RAM: the same preset, models and
+ * NUM_CTX doctor recommends (src/hardware.ts). Above 128 GB the preset is `custom`, with the 128 GB models.
+ *
+ * @throws When `ramGb` is below MIN_RAM_GB, which slm-gate does not support
+ */
 export function settingsForRam(ramGb: number): { preset: string; models: string[]; lines: Record<string, string> } {
+  if (ramGb < MIN_RAM_GB) {
+    throw new Error(`slm-gate needs at least ${MIN_RAM_GB} GB of RAM; this is set up for ${ramGb} GB.`);
+  }
   const preset = recommendPreset(ramGb);
-  const { brain, gate } = ramPresets[preset];
+  const { brain, gate } = modelsForRam(ramGb);
   return {
     preset,
     models: [...new Set([brain, gate])],

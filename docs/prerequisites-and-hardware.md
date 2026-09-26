@@ -86,15 +86,27 @@ pnpm run dev doctor
 
 ### RAM-by-Machine Model Table
 
-Use the table below to pick your starting models. The **RAM Preset** column maps directly to the preset `.env` files in the `configs/` folder — you can copy the matching preset instead of configuring from scratch.
+`slm-gate` needs **16 GB of RAM or more**. `slm-gate init` and `slm-gate doctor` read your RAM and use the row below: a size between two rows gets the smaller row, and more than 128 GB gets `custom`, starting from the 128 GB models. Per-tool preset files in `configs/` exist for 16, 24 and 32 GB; for any size, `slm-gate init` writes these values into your settings file for you.
 
-| RAM | RAM Preset | Brain Model (Smarter, Heavier Tasks) | Gate Model (Fast Router, Quick Decisions) |
-| :--------- | :---------- | :--------------------------------- | :---------------------------- |
-| **16 GB** | `ram-16` | `qwen2.5-coder:3b`, `tinyllama` | `qwen2.5-coder:0.5b` |
-| **24 GB** | `ram-24` | `qwen3.5:4b`, `llama3.2:3b` | `qwen2.5-coder:3b`, `phi3:mini` |
-| **32 GB** | `ram-32` | `qwen2.5:7b`, `mistral:7b` | `qwen2.5-coder:3b`, `phi3:mini` |
-| **64 GB** | `ram-64` | `qwen3.5:9b`, `llama3:8b` | `qwen3.5:4b`, `llama3.2:3b` |
-| **128 GB** | `ram-128` | `qwen3:14b`, `llama3:70b (Q4)` | `qwen3:7b`, `mistral:7b` |
+**How it is decided:** `recommendPreset`, `recommendNumCtx`, `ramPresets` and `modelsForRam` in [`src/hardware.ts`](../src/hardware.ts). That is the one table `init`, `doctor`, `models:check` and the configuration all read. `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` in your settings always win over `RAM_PRESET`.
+
+| Your RAM | `RAM_PRESET` | Brain model (smarter, shrinks long tool output) | Gate model (fast, quick decisions) | Download (both) | `NUM_CTX` |
+| :--------- | :---------- | :--------------------------------- | :---------------------------- | :-- | :-- |
+| **16–23 GB** | `ram-16` | `qwen2.5-coder:3b` | `qwen2.5-coder:0.5b` | 2.3 GB | 4096 |
+| **24–31 GB** | `ram-24` | `qwen3.5:4b` | `qwen2.5-coder:3b` | 5.3 GB | 8192 |
+| **32–47 GB** | `ram-32` | `qwen2.5:7b` | `qwen2.5-coder:3b` | 6.6 GB | 8192 |
+| **48–63 GB** | `ram-48` | `qwen3.5:9b` | `qwen2.5-coder:3b` | 8.5 GB | 8192 |
+| **64–127 GB** | `ram-64` | `qwen3.5:9b` | `qwen3.5:4b` | 10.0 GB | 8192 |
+| **128 GB** | `ram-128` | `qwen3:14b` | `qwen3:8b` | 14.5 GB | 8192 |
+| **More than 128 GB** | `custom` | starts from `qwen3:14b` | starts from `qwen3:8b` | 14.5 GB | 8192 |
+
+> [!TIP]
+> **For models that fit your exact computer better, use [llmfit](https://github.com/AlexsJones/llmfit).** This table is a safe default for each RAM size. llmfit measures your actual RAM, GPU and speed and ranks the models that run best on them. `slm-gate` keeps **two** models loaded and needs replies within a few seconds, so choose ones llmfit rates as a good fit with plenty of tokens per second, not simply the largest that fits. Put them in `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL`.
+>
+> ```bash
+> llmfit fit --perfect -n 5              # the best fits for this computer
+> llmfit --ram=48G fit --perfect -n 5    # for a computer with 48 GB of RAM
+> ```
 
 > **What is the "Brain" vs. "Gate" model?** `slm-gate` uses two local models:
 > - The **Gate model** is tiny and fast. Its only job is to make split-second routing decisions: "Can I handle this locally, or does it need to go to the cloud?" Speed is everything here.
@@ -113,8 +125,8 @@ export OLLAMA_MAX_LOADED_MODELS=2
 ```
 
 > **Note on Memory Limits:** Loading two models simultaneously means Ollama must allocate memory for both their caches at once. On Apple Silicon Macs, this is strictly capped by the amount of unified memory (RAM) you have.
-> - **24 GB Mac:** Set `NUM_CTX=8192` to safely fit both models.
-> - **16 GB Mac:** Set `NUM_CTX=4096` to safely fit both models.
+> - **24 GB or more:** Set `NUM_CTX=8192` to safely fit both models.
+> - **16 GB:** Set `NUM_CTX=4096` to safely fit both models.
 >
 > If one model keeps getting unloaded to make room for the other, lower your `NUM_CTX` value.
 
