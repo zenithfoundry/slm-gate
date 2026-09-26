@@ -15,8 +15,8 @@ Responses are best effort.
 - **The latest [release](https://github.com/zenithfoundry/slm-gate/releases) and `main`.** Fixes, security fixes
   included, land on `main` and ship in the next release. Older releases are not patched: a release is supported
   until the next one is published.
-- **Installing from git**, as the [Quick Start](README.md#quick-start) shows. The package is not published to npm
-  yet.
+- **Installing from npm** ([Install from npm](docs/install-from-npm.md)) **or from git** ([Quick Start](README.md#quick-start)),
+  on macOS or Linux with 16 GB of RAM or more.
 
 Problems in the tools and models you connect (Ollama, your coding tool, a downstream MCP server) belong with those
 projects.
