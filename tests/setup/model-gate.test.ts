@@ -18,12 +18,26 @@ function listen(server: http.Server): Promise<number> {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)));
 }
 
-/** A port nothing listens on. */
-async function freePort(): Promise<number> {
-  const server = http.createServer();
-  const port = await listen(server);
-  await new Promise(resolve => server.close(resolve));
-  return port;
+function canListen(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const server = http.createServer();
+    server.once('error', () => resolve(false));
+    server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)));
+  });
+}
+
+/**
+ * A port nothing listens on, which no other test can take. Other suites listen on port 0, which the OS
+ * serves from its ephemeral range (macOS 49152+, Linux 32768+), so they can never be handed a port below
+ * it, not even in the moment between a gate stopping and the check that nothing is left on it. Each Jest
+ * worker gets its own block of 100, and ports already in use on this computer are skipped.
+ */
+async function uniquePort(): Promise<number> {
+  const base = 21000 + Number(process.env.JEST_WORKER_ID ?? 1) * 100;
+  for (let port = base; port < base + 100; port++) {
+    if (await canListen(port)) return port;
+  }
+  throw new Error(`No free port in ${base}-${base + 99}`);
 }
 
 const servers: http.Server[] = [];
@@ -69,7 +83,7 @@ describe('probeGate', () => {
   });
 
   it('reports a port nothing listens on as nothing', async () => {
-    expect(await gate.probeGate({ port: await freePort() })).toEqual({ kind: 'nothing' });
+    expect(await gate.probeGate({ port: await uniquePort() })).toEqual({ kind: 'nothing' });
   });
 });
 
@@ -84,7 +98,7 @@ describe('launching and stopping a real gate', () => {
   let port: number;
 
   beforeAll(async () => {
-    port = await freePort();
+    port = await uniquePort();
   });
 
   afterAll(async () => {
@@ -128,7 +142,7 @@ describe('the "stopped by you" marker', () => {
   afterAll(() => fs.rmSync(marker, { force: true }));
 
   (hasOsBootId ? it : it.skip)('keeps a stop in force when the clock jumps (keyed to the OS boot ID)', async () => {
-    await gate.stopModelGate({ port: await freePort() });
+    await gate.stopModelGate({ port: await uniquePort() });
     expect(fs.readFileSync(marker, 'utf8')).not.toMatch(/^\d+$/);
     const now = Date.now();
     const clock = jest.spyOn(Date, 'now').mockReturnValue(now + 5 * 60_000);

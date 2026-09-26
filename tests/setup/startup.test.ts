@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 type Probe = { kind: 'slm-gate'; health: object; stale: boolean } | { kind: 'nothing' } | { kind: 'other' };
 type Problem = { message: string; fix: string; transient?: boolean };
 
-const config = { LLM_GATE_AUTOSTART: true, MODEL_GATE_PORT: 8787, ROOT_DIR: '/slm-gate' };
+const config = { LLM_GATE_AUTOSTART: true, MODEL_GATE_PORT: 8787, ROOT_DIR: '/slm-gate', HOME_DIR: '/slm-gate' };
 const probeGate = jest.fn(async (): Promise<Probe> => ({ kind: 'nothing' }));
 const isStoppedByUser = jest.fn(() => false);
 const launchModelGate = jest.fn(() => ({ launched: true }));

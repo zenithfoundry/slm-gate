@@ -31,7 +31,7 @@ function portTakenNotice(): Notice {
   return {
     key: 'port-taken',
     message: `Port ${port()} is used by another program, so the model gate cannot run there and coding tools pointed at http://localhost:${port()} cannot reach their AI provider.`,
-    fix: `Quit that program (\`${cliCommand('doctor')}\` names it). Or set LLM_GATE_PORT to a free port in ${path.join(CONFIG.ROOT_DIR, '.env')}, run \`${cliCommand('restart')}\`, change the address in each coding tool (\`${cliCommand('doctor')}\` prints the lines) and restart them.`,
+    fix: `Quit that program (\`${cliCommand('doctor')}\` names it). Or set LLM_GATE_PORT to a free port in ${path.join(CONFIG.HOME_DIR, '.env')}, run \`${cliCommand('restart')}\`, change the address in each coding tool (\`${cliCommand('doctor')}\` prints the lines) and restart them.`,
   };
 }
 

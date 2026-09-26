@@ -1,16 +1,21 @@
 import { config } from 'dotenv';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
+import { resolveHomeDir } from './home-dir.js';
 import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey } from './pricing/plans.js';
 import { isEntryPoint } from './utils/entry-point.js';
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
 const ROOT_DIR = path.resolve(dirname, '..');
-const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
+// Settings and data (.env, output/): the checkout for a git clone, ~/.slm-gate for an npm install,
+// or SLM_GATE_HOME (src/home-dir.ts).
+const HOME_DIR = resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() });
+const OUTPUT_DIR = path.join(HOME_DIR, 'output');
 
-// Load THIS PACKAGE'S .env, resolved module-relative. Deliberately not cwd-relative:
+// Load THIS INSTALL'S .env, from HOME_DIR. Deliberately not cwd-relative:
 // MCP hosts spawn the gate with cwd set to whatever workspace the user has open, so a
 // bare dotenv.config() silently found nothing and left LANGFUSE_*/PROVIDER undefined
 // while LEDGER_PATH's module-relative default still resolved — a gate that looked
@@ -19,7 +24,7 @@ const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 // The caller's cwd .env is deliberately NOT loaded as a fallback: it would pull an
 // unrelated project's PROVIDER, CLOUD_API_KEY and CLOUD_MODEL into this process.
 // Host-supplied process.env still wins, because dotenv never overrides an existing var.
-const envFile = config({ path: path.join(ROOT_DIR, '.env') });
+const envFile = config({ path: path.join(HOME_DIR, '.env') });
 
 // Zod pre-processors for env strings
 const parseInteger = (fallback: number) => z.string().optional().transform(v => v ? parseInt(v, 10) : fallback);
@@ -220,6 +225,7 @@ console.error(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${gemini
 export const CONFIG = Object.freeze({
   ...parsedEnv,
   ROOT_DIR,
+  HOME_DIR,
   OUTPUT_DIR,
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
