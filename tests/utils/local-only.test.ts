@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
+import fc from 'fast-check';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
@@ -24,6 +25,24 @@ describe('isLocalRequest', () => {
 
   it.each(['https://evil.test', 'null', 'http://127.0.0.1.evil.test', 'file:///tmp/page.html'])('refuses a web page from %s', origin => {
     expect(isLocalRequest({ host: 'localhost:8787', origin })).toBe(false);
+  });
+
+  // Another machine as a browser writes it in Host and Origin: a domain (lookalikes such as
+  // localhost.evil.test included), an IPv4 or an [IPv6] address, maybe a port.
+  const lookalike = fc.tuple(fc.constantFrom('localhost', '127.0.0.1'), fc.domain()).map(([local, domain]) => `${local}.${domain}`);
+  const remote = fc.tuple(
+    fc.constantFrom('http', 'https'),
+    fc.oneof(fc.domain(), lookalike, fc.ipV4(), fc.ipV6().map(ip => `[${ip}]`)),
+    fc.option(fc.integer({ min: 1, max: 65535 }), { nil: undefined }),
+  ).map(([scheme, name, port]) => new URL(`${scheme}://${name}${port === undefined ? '' : `:${port}`}`))
+    .filter(url => !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
+
+  it('refuses every Host naming another machine (a DNS-rebinding page sends its own name)', () => {
+    fc.assert(fc.property(remote, url => !isLocalRequest({ host: url.host })));
+  });
+
+  it('refuses every web page served from another machine', () => {
+    fc.assert(fc.property(remote, url => !isLocalRequest({ host: 'localhost:8787', origin: url.origin })));
   });
 });
 

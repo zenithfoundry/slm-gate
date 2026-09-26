@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
+import fc from 'fast-check';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
 import zlib from 'node:zlib';
@@ -170,6 +171,45 @@ describe('resolveUpstream', () => {
   it('returns null for paths the gate does not handle', () => {
     expect(route('/v1/embeddings')).toBeNull();
     expect(route('/v1beta/models/gemini-3:embedContent')).toBeNull();
+  });
+
+  it('never picks anything but a configured upstream, whatever target and headers a client sends', () => {
+    const bases = [
+      process.env.UPSTREAM_ANTHROPIC_URL, process.env.UPSTREAM_OPENAI_URL,
+      process.env.UPSTREAM_CHATGPT_URL, process.env.UPSTREAM_GEMINI_URL,
+    ].map(base => `${base}/`);
+    // Pieces URL parsing treats specially, so random joins probe traversal, encoding and authority tricks.
+    const piece = fc.constantFrom('/', '//', '\\', '.', '..', '%2e', '%2f', '%5c', '@', ':', '?', '#', 'evil.test', 'v1', 'v1beta', 'models', 'messages', 'api');
+    const tail = fc.array(fc.oneof(piece, fc.string()), { maxLength: 8 }).map(parts => parts.join(''));
+    // Enough plain and encoded `..` steps in a row to climb out of an upstream's base path.
+    const traversal = fc.array(fc.constantFrom('../', '..%2f', '%2e%2e%2f', '..\\', '..%5c'), { minLength: 1, maxLength: 6 }).map(steps => steps.join(''));
+    const routedPath = fc.constantFrom('/v1/messages', '/api/hello', '/v1/chat/completions', '/v1/responses');
+    const target = fc.oneof(
+      tail,
+      tail.map(t => `/${t}`),
+      fc.tuple(routedPath, tail).map(([p, t]) => p + t),
+      // A routed path behind another host: absolute-form and scheme-relative targets.
+      fc.tuple(fc.constantFrom('//', '/\\', 'http://', 'https://'), fc.domain(), routedPath).map(([prefix, host, p]) => prefix + host + p),
+      fc.tuple(fc.oneof(tail, traversal), fc.constantFrom('generateContent', 'streamGenerateContent', 'countTokens'), tail)
+        .map(([model, method, t]) => `/v1beta/models/${model}:${method}${t}`),
+      fc.webUrl({ withQueryParameters: true, withFragments: true }),
+    );
+    const headers = fc.record({ authorization: fc.string(), 'chatgpt-account-id': fc.string(), 'anthropic-version': fc.string() }, { requiredKeys: [] });
+
+    let routed = 0;
+    fc.assert(fc.property(target, headers, (pathAndQuery, hdrs) => {
+      let r: ReturnType<typeof route>;
+      try {
+        r = route(pathAndQuery, hdrs);
+      } catch (err) {
+        // A target URL cannot parse; the server answers 500 and forwards nothing.
+        return (err as NodeJS.ErrnoException).code === 'ERR_INVALID_URL';
+      }
+      if (r) routed++;
+      return r === null || bases.some(base => r.url.href.startsWith(base));
+    }), { numRuns: 2000 });
+    // Not a vacuous pass: some generated targets must have been routed.
+    expect(routed).toBeGreaterThan(0);
   });
 });
 

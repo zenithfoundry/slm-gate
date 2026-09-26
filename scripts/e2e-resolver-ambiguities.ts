@@ -94,7 +94,7 @@ async function main() {
       }
       } catch (err) {
         console.error('[mockOllama] Error:', err);
-        res.end(JSON.stringify({ error: err }));
+        res.end(JSON.stringify({ error: 'mock Ollama could not handle the request' }));
       }
     });
   });
