@@ -2,10 +2,9 @@
 # next SemVer version and its CHANGELOG entry. Merging that PR tags vX.Y.Z and publishes the GitHub
 # Release; the assets job then attaches the package tarball, an SPDX SBOM and a signed provenance bundle.
 #
-# Requires "Allow GitHub Actions to create and approve pull requests" (org and repo Actions settings),
-# or release-please cannot open its PR. Events made with the job token start no other workflows, so CI
-# does not run on the release PR; it only changes the version and CHANGELOG, and the assets job builds
-# and tests before attaching anything.
+# release-please acts as the zenithfoundry-slm-gate-release GitHub App (repo variable RELEASE_APP_CLIENT_ID, secret
+# RELEASE_APP_PRIVATE_KEY), not the job token: events made with the job token start no other workflows,
+# whereas the App's release PR runs CI and CodeQL like any other pull request.
 name: Release
 
 on:
@@ -21,18 +20,24 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write       # release branch, tag and GitHub Release
-      pull-requests: write  # open and update the release PR
-      issues: write         # label the release PR
+    # The release App's token does the writing (contents, pull requests, issues), so the job token needs
+    # nothing.
+    permissions: {}
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      - id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
+          token: ${{ steps.app-token.outputs.token }}
           release-type: node
 
   assets:
