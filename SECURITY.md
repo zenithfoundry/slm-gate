@@ -2,7 +2,8 @@
 
 ## Supported versions
 
-Security fixes land on `main`. There are no older release lines to patch.
+The latest [release](https://github.com/zenithfoundry/slm-gate/releases) and `main` are supported. Security
+fixes land on `main` and ship in the next release, whose notes name the advisory. Older releases are not patched.
 
 ## Reporting a vulnerability
 
@@ -11,6 +12,17 @@ Please report security problems privately, not in a public issue:
 
 Include what you found, the steps to reproduce it, and what an attacker could do with it. The report and
 the fix are handled in that private advisory, and the advisory is published once a fix is on `main`.
+
+## Verifying a release
+
+Every release carries a signed provenance bundle for its package tarball and SBOM, made by the workflow that built
+them. Check a download with the GitHub CLI:
+
+```bash
+gh attestation verify zenithfoundry-slm-gate-1.0.0.tgz -R zenithfoundry/slm-gate
+```
+
+The release's `slm-gate-<version>.spdx.json` is an SPDX SBOM listing every dependency.
 
 ## What counts
 

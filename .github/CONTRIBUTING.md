@@ -37,3 +37,19 @@ Before opening a pull request, please review these essential guidelines:
 
 5. **Commit Message Format**:
    Follow [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat(distill): ...`, `fix(router): ...`, `docs: ...`).
+
+6. **Open a Pull Request**:
+   Work on a branch and open a pull request against `main`; `main` accepts changes through pull requests. CI and CodeQL run on every pull request.
+
+## Releases
+
+Releases are automated by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release.yml`). It reads the commit messages on `main` and keeps a release pull request open with the next version and its `CHANGELOG.md` entry. Versions follow [Semantic Versioning](https://semver.org/), decided by the commit types:
+
+- `fix:` releases a patch (`1.0.0` → `1.0.1`).
+- `feat:` releases a minor version (`1.0.0` → `1.1.0`).
+- `!` after the type (`feat!:`), or a `BREAKING CHANGE:` footer, releases a major version (`1.0.0` → `2.0.0`).
+- `docs:`, `test:`, `chore:` and similar types alone do not make a release.
+
+Merging the release pull request tags `vX.Y.Z`, publishes the GitHub Release with those notes, and attaches the package tarball, an SPDX SBOM and a signed provenance bundle. Release tags cannot be moved or deleted.
+
+A security fix names its advisory in the commit message, e.g. `fix(router): reject absolute-form targets (GHSA-xxxx-xxxx-xxxx)`, so the release notes list it.
