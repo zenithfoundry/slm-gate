@@ -96,7 +96,7 @@
     "dotenv": "^16.4.5",
     "markdown-it": "^15.0.1",
     "ollama": "^0.5.8",
-    "zod": "^3.23.8",
+    "zod": "^4.6.5",
     "zod-to-json-schema": "^3.23.1"
   },
   "optionalDependencies": {
