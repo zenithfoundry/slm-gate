@@ -77,9 +77,142 @@ This prints a clean, offline summary showing tokens saved, compression ratio, re
 **Want a visual dashboard?** Run `pnpm run dashboard` for the built-in one-page dashboard — per-cycle window time returned per provider, tokens saved, weekly charts and routing split, straight from the local ledger, publishable to GitHub Pages for free (see [Section 6](#6-verification--day-to-day-use)). If you also set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will send traces there for session-by-session analysis. Both are optional — the local metrics command always works regardless.
 
 ### How It Works: Visual
-<img width="825" height="768" alt="Screenshot 2026-09-10 at 12 30 05 pm" src="https://github.com/user-attachments/assets/81d09734-234e-441f-9213-881ef219bedd" />
 
----
+Five small diagrams, each answering one question. Read them in order. Numbers on the arrows show the order things happen.
+
+#### 1. The big picture
+
+slm-gate is two small servers on your computer, between your coding tool and the outside world. The small local model (run by Ollama) always comes before the cloud:
+
+- **Tool calls** go through the **MCP gate**. The result from your toolbox is shrunk by the small model before your coding tool sees it.
+- **Model requests** go through the **model gate**. The small model gets the first go (answer the request itself, or shrink large tool results), and only what is left goes to the cloud.
+
+The small model only does work when it can help. If there is nothing to do, or it fails, the request carries on unchanged, so slm-gate never blocks you. Both gates log everything to a local ledger (see diagram 5).
+
+```mermaid
+flowchart LR
+  tool(("Coding tool"))
+
+  subgraph mcpRow["Tool calls: MCP gate"]
+    direction LR
+    mcp["MCP gate"] -->|"pass on"| toolbox["Downstream MCP<br/>toolbox"]
+    toolbox -->|"raw result"| slm1["Small local model<br/>shrinks the result"]
+  end
+
+  subgraph llmRow["Model requests: model gate"]
+    direction LR
+    llm["Model gate"] -->|"local model first"| slm2["Small local model<br/>answers or shrinks"]
+    slm2 -->|"only if still needed"| cloud["Cloud AI<br/>(subscription or API key)"]
+  end
+
+  tool --> mcp
+  slm1 -->|"smaller result"| tool
+  tool --> llm
+```
+
+#### 2. What happens to a tool call (MCP gate)
+
+The MCP gate passes each tool call to your downstream toolbox unchanged. When the result comes back, it cleans up the text (cuts long output, adds project context, settles unclear points) before your coding tool sees it. Pictures and structured data go back untouched.
+
+```mermaid
+flowchart LR
+  tool(("Coding tool"))
+  server["MCP server<br/>[mcp-gate/server.ts]"]
+  toolbox["Downstream MCP"]
+  cond["Condition result<br/>[mcp-gate/pipeline.ts]"]
+  helpers["Cache, repo scan,<br/>distil, resolve"]
+  ledger[("Ledger")]
+
+  tool -->|"1. tool call"| server
+  server -->|"2. pass it on"| toolbox
+  toolbox -->|"3. raw result"| server
+  server -->|"4. clean it up"| cond
+  cond -->|"5. uses"| helpers
+  cond -->|"6. log it"| ledger
+  server -->|"7. smaller result"| tool
+```
+
+| Helper | File | Job |
+| :--- | :--- | :--- |
+| Cache | `src/cache/index.ts` | Reuses an earlier result for similar text |
+| Repo scan | `src/mcp-gate/ground.ts` | Works out the project's stack |
+| Distil | `src/utils/elision.ts` | Cuts long output down |
+| Resolve | `src/resolver/index.ts` | Asks the small model to settle unclear points |
+
+#### 3. What happens to a model request (model gate)
+
+The model gate makes two tries to save you money before anything goes to the cloud. **Step A:** for the first message of a conversation, the small model answers a few times; if the answers agree (checked by `src/verifier/index.ts`), that answer is sent back and the cloud is never called. **Step B:** otherwise, large tool results the cloud has not seen yet are shrunk, and the request is forwarded to the cloud using whatever your coding tool already uses: your subscription or your API key. slm-gate never adds or swaps credentials.
+
+```mermaid
+flowchart LR
+  tool(("Coding tool"))
+  server["Model gate<br/>[llm-gate/server.ts]"]
+  stepA["Step A: answer locally?<br/>[local-first.ts]"]
+  stepB["Step B: shrink tool results<br/>[llm-gate/distill.ts]"]
+  fwd["Forward<br/>[forward.ts]"]
+  cloud["Cloud AI<br/>(subscription or API key)"]
+  ledger[("Ledger")]
+
+  tool -->|"1. request"| server
+  server -->|"2. try"| stepA
+  stepA -.->|"answers agree: reply now"| tool
+  server -->|"3. no local answer"| stepB
+  stepB -->|"4. smaller request"| fwd
+  fwd -->|"5. your subscription or API key"| cloud
+  server -->|"6. log it"| ledger
+```
+
+#### 4. How it starts, and what the CLI does
+
+You rarely start anything by hand. Your coding tool starts the MCP gate. The MCP gate then checks Ollama and your models, and starts the model gate — at start-up and again every minute, so it keeps running. The CLI is for doing this yourself and for checks and reports.
+
+```mermaid
+flowchart LR
+  tool(("Coding tool"))
+  you(("You"))
+  mcp["MCP gate"]
+  checks["Startup checks<br/>[setup/startup.ts]"]
+  ollama["Ollama"]
+  llm["Model gate"]
+  cli["CLI<br/>[cli.ts]"]
+
+  tool -->|"starts"| mcp
+  mcp -->|"at start + every minute"| checks
+  checks -->|"models ready?"| ollama
+  checks -->|"start / keep running"| llm
+  you --> cli
+  cli -->|"start, stop, restart, serve"| llm
+```
+
+| Command | Runs |
+| :--- | :--- |
+| `doctor` | `src/doctor.ts` — preflight checks |
+| `config` | `src/config.ts` — prints your settings |
+| `metrics` | `harness/metrics.ts` — reads the ledger |
+| `ledger:sync` | `src/ledger/sync.ts` — sends history to Langfuse |
+| `bench` | `harness/run.ts` — offline benchmark (not live traffic) |
+
+#### 5. Where the data goes
+
+Every request both gates handle is written to the local ledger, with its cost worked out from provider prices. The report and the dashboard read from the ledger. If Langfuse is set up, each gate also sends its records there as it runs, and `ledger:sync` sends any older ones.
+
+```mermaid
+flowchart LR
+  gates["Both gates"]
+  ledger[("Ledger<br/>[ledger/index.ts]")]
+  pricing["Pricing<br/>[pricing/index.ts]"]
+  report["Report<br/>[ledger/report.ts]"]
+  dash["Dashboard<br/>[dashboard/serve.ts]"]
+  langfuse["Langfuse"]
+
+  gates -->|"log every request"| ledger
+  ledger -->|"work out cost"| pricing
+  ledger --> report
+  ledger --> dash
+  ledger -.->|"send records"| langfuse
+```
+
+<br />
 
 ## 2. Prerequisites & Hardware Sizing
 
