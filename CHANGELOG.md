@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/zenithfoundry/slm-gate/compare/v1.2.2...v1.3.0) (2026-09-27)
+
+
+### Features
+
+* **setup:** AI setup prompt, slm-gate --version, and switching from a git checkout ([429c362](https://github.com/zenithfoundry/slm-gate/commit/429c3625e19a888342bc9a2cad610d5eac71a6ae))
+* **setup:** connect-first tool pages, init points to the AI setup prompt, npm badges; fix setup errors in tool docs ([1095495](https://github.com/zenithfoundry/slm-gate/commit/1095495bf3d05c28a5cf33f5fbddaaff74b53e44))
+
+
+### Bug Fixes
+
+* **doctor:** skip the file check for a toolbox started by a command such as npx ([e9b548e](https://github.com/zenithfoundry/slm-gate/commit/e9b548ed9f07f48c7286283b3b9405e53c217cae))
+
 ## [1.2.2](https://github.com/zenithfoundry/slm-gate/compare/v1.2.1...v1.2.2) (2026-09-26)
 
 
