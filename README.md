@@ -12,7 +12,6 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/zenithfoundry/slm-gate/badge)](https://scorecard.dev/viewer/?uri=github.com/zenithfoundry/slm-gate)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14955/badge)](https://www.bestpractices.dev/projects/14955)
 [![License](https://img.shields.io/github/license/zenithfoundry/slm-gate)](LICENSE)
-[![Version](https://img.shields.io/github/package-json/v/zenithfoundry/slm-gate)](package.json)
 [![Last commit](https://img.shields.io/github/last-commit/zenithfoundry/slm-gate)](https://github.com/zenithfoundry/slm-gate/commits/main)
 <br />
 [![Node.js](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzenithfoundry%2Fslm-gate%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](package.json)
