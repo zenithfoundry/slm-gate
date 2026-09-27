@@ -108,12 +108,13 @@ Tick each line. A run passes only if every line that applies is ticked.
 **The starting point**
 
 - [ ] Ollama not running: it stopped, told you to open Ollama, waited for `ready`, and checked again.
-- [ ] Old checkout: before copying, it asked you to quit your other coding tools and ran the old checkout's own
-      `node ~/old-slm-gate/dist/cli.js stop`.
-- [ ] Old checkout: `~/old-slm-gate/.env` and `~/old-slm-gate/output/` are still there, unchanged, and
-      `~/.slm-gate/output/` holds a copy of the history.
-- [ ] Old checkout: the assistant's `slm-gate` entry was replaced, not duplicated, and still has `TLS_ADAPTER` and
-      `DOWNSTREAM_MCP`. Tech-Lead-Stack's tools are listed under `slm-gate`.
+- [ ] Old checkout: it set up fresh with `slm-gate init`, copied nothing from `~/old-slm-gate`, and left that
+      folder unchanged.
+- [ ] Old checkout: it switched the background service with `node ~/old-slm-gate/dist/cli.js stop; slm-gate restart`
+      as one command, and the assistant kept answering afterwards.
+- [ ] Old checkout: the assistant's `slm-gate` entry was replaced, not duplicated, and now runs `slm-gate mcp`.
+      Tech-Lead-Stack's tools are listed under `slm-gate`.
+- [ ] Old checkout: its hand-over says the old folder is no longer used and can go in the Trash.
 
 **The result: check it yourself, don't take its word for it**
 

@@ -140,7 +140,11 @@ OpenCode and Aider can). Skip the optional AI-requests step: it is for cloud AI.
 
 ## Switching from a git checkout
 
-Your settings and history come with you. The [AI setup prompt](agent-setup.md) can do these steps for you.
+**Simplest: a fresh install.** Install the program (step 1 above), then paste the [AI setup prompt](agent-setup.md)
+into your AI assistant. It sets everything up again, replaces the old connections in your coding tools, and copies
+nothing from the old folder. Your old savings history stays in that folder.
+
+**To keep your settings and history instead**, follow these steps:
 
 1. **Quit your coding tools**, then install the program and stop the old background service with the old checkout's
    own command (so nothing restarts it while you copy). Replace `/path/to/slm-gate` with your checkout's folder,
@@ -160,8 +164,12 @@ Your settings and history come with you. The [AI setup prompt](agent-setup.md) c
    chmod 600 ~/.slm-gate/.env
    ```
 
-   `-n` never replaces a file that is already there. If `LEDGER_PATH` in `~/.slm-gate/.env` names a file in the
-   old folder, make it blank (`LEDGER_PATH=`), so your history is kept in `~/.slm-gate/output`.
+   `-n` never replaces a file that is already there. Then fix any line in `~/.slm-gate/.env` that names the old
+   folder, since it stops working once that folder is deleted. `grep -n /path/to/slm-gate ~/.slm-gate/.env` lists
+   them:
+   - `LEDGER_PATH`: make it blank (`LEDGER_PATH=`), so your history is kept in `~/.slm-gate/output`.
+   - `DISTILL_PRESERVE_PATH` ending in `configs/preserve/tls.json`: set it to `configs/preserve/tls.json`, which
+     the installed program ships.
 
 3. **Point each coding tool at the installed program.** In each tool's `slm-gate` entry, change only the command
    and its arguments. Keep the `env` block as it is.
