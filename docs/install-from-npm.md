@@ -6,6 +6,10 @@ subscription or API key, or fully on your own computer.
 **You need:** a Mac or Linux computer with **16 GB of RAM or more**, [Node.js 22 or newer](https://nodejs.org),
 and [Ollama](https://ollama.com/download) installed and running.
 
+**Rather answer questions than follow steps?** Install the program (step 1), then paste the
+[AI setup prompt](agent-setup.md) into any AI assistant: it does the rest with you.
+**Already using `slm-gate` from a git checkout?** See [Switching from a git checkout](#switching-from-a-git-checkout).
+
 ## 1. Install the program
 
 ```bash
@@ -68,9 +72,9 @@ For Claude Code, that is one command:
 claude mcp add --scope user slm-gate -- slm-gate mcp
 ```
 
-Where each tool keeps its MCP servers: see the tool's folder in [`configs/`](../configs/). Where those pages say
-`node <path>/dist/mcp-gate/index.js`, use the command `slm-gate` with the argument `mcp` instead. Then restart
-the tool.
+Where each tool keeps its MCP servers, and in which format: see the tool's page in [`configs/`](../configs/).
+Codex: `codex mcp add slm-gate -- slm-gate mcp`. Gemini CLI: `gemini mcp add -s user slm-gate slm-gate mcp`. Then
+restart the tool.
 
 **Optional: let `slm-gate` handle your tool's AI requests too.** Tools that let you change where their AI
 requests go (Claude Code, Codex, Gemini CLI, Cline, Continue, OpenCode, Aider and others) can send them through
@@ -105,6 +109,15 @@ Put it in the coding tool's `slm-gate` entry, so a toolbox's own installer can s
 }
 ```
 
+A toolbox published on npm needs no path. For Tech-Lead-Stack, also turn on its extra handling:
+
+```json
+"env": {
+  "DOWNSTREAM_MCP": "{\"command\":\"npx\",\"args\":[\"-y\",\"tech-lead-stack@1\"]}",
+  "TLS_ADAPTER": "on"
+}
+```
+
 A toolbox that is already running on a web address uses `{"url":"http://localhost:PORT/mcp"}` instead.
 
 ## Where settings come from
@@ -124,6 +137,67 @@ each its own `LLM_GATE_PORT`.
 
 Connect `slm-gate` as in step 5 and set your coding tool's own AI to a local Ollama model (Cline, Continue,
 OpenCode and Aider can). Skip the optional AI-requests step: it is for cloud AI.
+
+## Switching from a git checkout
+
+Your settings and history come with you. The [AI setup prompt](agent-setup.md) can do these steps for you.
+
+1. **Quit your coding tools**, then install the program and stop the old background service with the old checkout's
+   own command (so nothing restarts it while you copy). Replace `/path/to/slm-gate` with your checkout's folder,
+   here and below:
+
+   ```bash
+   npm install -g @zenithfoundry/slm-gate
+   node /path/to/slm-gate/dist/cli.js stop
+   ```
+
+2. **Copy your settings and history:**
+
+   ```bash
+   mkdir -p ~/.slm-gate/output
+   cp -pn /path/to/slm-gate/.env ~/.slm-gate/.env
+   cp -Rpn /path/to/slm-gate/output/. ~/.slm-gate/output/
+   chmod 600 ~/.slm-gate/.env
+   ```
+
+   `-n` never replaces a file that is already there. If `LEDGER_PATH` in `~/.slm-gate/.env` names a file in the
+   old folder, make it blank (`LEDGER_PATH=`), so your history is kept in `~/.slm-gate/output`.
+
+3. **Point each coding tool at the installed program.** In each tool's `slm-gate` entry, change only the command
+   and its arguments. Keep the `env` block as it is.
+
+   ```json
+   "slm-gate": { "command": "node", "args": ["/path/to/slm-gate/dist/mcp-gate/index.js"], "env": { … } }
+   ```
+
+   becomes
+
+   ```json
+   "slm-gate": { "command": "slm-gate", "args": ["mcp"], "env": { … } }
+   ```
+
+   For Claude Code: `claude mcp get slm-gate` shows the entry. Run `claude mcp remove slm-gate`, then add it again
+   with `claude mcp add --scope user slm-gate -- slm-gate mcp`, or, to keep an `env` block,
+   `claude mcp add-json --scope user slm-gate '{"command":"slm-gate","args":["mcp"],"env":{…}}'`.
+
+   A toolbox started from files in another folder keeps working as it is. Tech-Lead-Stack can also come from npm
+   now: see [Connect a toolbox](#connect-a-toolbox-optional).
+
+4. **Start it and check:**
+
+   ```bash
+   slm-gate restart
+   slm-gate doctor
+   ```
+
+   When `doctor` says `READY`, open your coding tools again.
+
+5. **The old folder is no longer used.** Once everything works, and no tool entry or setting names it any more,
+   you can delete it.
+
+**Rather keep your settings in the old folder?** Skip step 2. Add `"SLM_GATE_HOME": "/path/to/slm-gate"` to each
+tool's `env` block, and run commands as `SLM_GATE_HOME=/path/to/slm-gate slm-gate doctor`. The old folder must then
+stay.
 
 ## Update and uninstall
 

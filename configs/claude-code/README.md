@@ -1,33 +1,30 @@
 # Claude Code MCP Configuration
 
-**File Location:** `.mcp.json` (in your project root)
-
-You can add this manually, or run the following one-liner (Note: on Windows, use `cmd /c` to run this properly if not in bash):
+Add `slm-gate` for all your projects with one command:
 
 ```bash
-claude mcp add-json slm-gate '{"command":"node","args":["<ABS_PATH>/dist/mcp-gate/index.js"],"env":{"TLS_ADAPTER":"on","DOWNSTREAM_MCP":"{\\"command\\":\\"node\\",\\"args\\":[\\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\\"]}"}}'
+claude mcp add --scope user slm-gate -- slm-gate mcp
 ```
 
-Alternatively, here is the raw JSON:
+- **Without installing it:** `claude mcp add --scope user slm-gate -- npx -y @zenithfoundry/slm-gate@1 mcp`
+- **From a git checkout:** `claude mcp add --scope user slm-gate -- node /full/path/to/small-language-model-gate/dist/mcp-gate/index.js`
+- **For one project only:** leave out `--scope user`, or put the entry in `.mcp.json` in the project's folder:
 
-```json
-{
-  "mcpServers": {
-    "slm-gate": {
-      "command": "node",
-      "args": [
-        "<ABS_PATH>/dist/mcp-gate/index.js"
-      ],
-      "env": {
-        "TLS_ADAPTER": "on",
-        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}"
-      }
-    }
-  }
-}
+  ```json
+  { "mcpServers": { "slm-gate": { "command": "slm-gate", "args": ["mcp"] } } }
+  ```
+
+**A toolbox behind `slm-gate` (optional).** Add the entry with its `env` values instead. For example,
+Tech-Lead-Stack from npm:
+
+```bash
+claude mcp add-json --scope user slm-gate '{"command":"slm-gate","args":["mcp"],"env":{"DOWNSTREAM_MCP":"{\"command\":\"npx\",\"args\":[\"-y\",\"tech-lead-stack@1\"]}","TLS_ADAPTER":"on"}}'
 ```
 
-After adding this, make sure to build TLS first by running `pnpm run mcp:build` in your TLS directory, then restart/refresh MCP servers and verify with `slm-gate doctor`.
+Other toolboxes: see [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional). To change an
+existing entry, `claude mcp remove slm-gate --scope user` first; `claude mcp get slm-gate` shows what it holds.
+
+Then restart Claude Code. `claude mcp list` shows `slm-gate` as connected, and `slm-gate doctor` checks the rest.
 
 The `env` values above apply to this MCP server only. The model gate below is shared by all your coding tools and reads its settings only from `slm-gate`'s own `.env`.
 

@@ -1,25 +1,26 @@
 # Cursor MCP Configuration
 
-**File Location:** `.cursor/mcp.json` (in your project root or workspace)
+**File Location:** `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` in a project's folder (that project only)
 
 ```json
 {
   "mcpServers": {
     "slm-gate": {
-      "command": "node",
-      "args": [
-        "<ABS_PATH>/dist/mcp-gate/index.js"
-      ],
-      "env": {
-        "TLS_ADAPTER": "on",
-        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}"
-      }
+      "command": "slm-gate",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-After adding this, make sure to build TLS first by running `pnpm run mcp:build` in your TLS directory, then restart/refresh MCP servers and verify with `slm-gate doctor`.
+- **Without installing it:** `"command": "npx", "args": ["-y", "@zenithfoundry/slm-gate@1", "mcp"]`.
+- **From a git checkout:** `"command": "node", "args": ["/full/path/to/small-language-model-gate/dist/mcp-gate/index.js"]`.
+- **A toolbox behind `slm-gate` (optional):** add an `env` block to the entry, as in
+  [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional).
+- **Cursor can't start it?** Cursor needs the command on your system path, or its full path: see
+  [slm-gate shows as "Failed"](../claude-desktop/README.md#slm-gate-shows-as-failed).
+
+Then restart Cursor and check with `slm-gate doctor`.
 
 ## Model gate (Layer 2): not possible in Cursor
 

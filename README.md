@@ -4,20 +4,23 @@
 
 **[See the live savings dashboard →](https://zenithfoundry.github.io/slm-gate/)** Measured from real daily use; benchmark runs are kept separate.
 
+[![npm](https://img.shields.io/npm/v/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
+[![downloads](https://img.shields.io/npm/dm/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
+[![unpacked size](https://img.shields.io/npm/unpacked-size/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
 [![CI](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/zenithfoundry/slm-gate/badge)](https://scorecard.dev/viewer/?uri=github.com/zenithfoundry/slm-gate)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14955/badge)](https://www.bestpractices.dev/projects/14955)
 [![License](https://img.shields.io/github/license/zenithfoundry/slm-gate)](LICENSE)
-[![Version](https://img.shields.io/github/package-json/v/zenithfoundry/slm-gate)](package.json)
 [![Last commit](https://img.shields.io/github/last-commit/zenithfoundry/slm-gate)](https://github.com/zenithfoundry/slm-gate/commits/main)
 <br />
 [![Node.js](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzenithfoundry%2Fslm-gate%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/github/package-json/dependency-version/zenithfoundry/slm-gate/dev/typescript)](tsconfig.json)
-[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+[![MCP server](https://img.shields.io/badge/MCP-server-green)](https://modelcontextprotocol.io/)
 [![Runs on Ollama](https://img.shields.io/badge/runs%20on-Ollama-black)](https://ollama.com/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](docs/prerequisites-and-hardware.md)
 [![Live dashboard](https://img.shields.io/badge/savings%20dashboard-live-blue)](https://zenithfoundry.github.io/slm-gate/)
+[![AI setup prompt](https://img.shields.io/badge/AI%20setup-prompt-blueviolet)](docs/agent-setup.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/zenithfoundry/slm-gate/pulls)
 
 ---
@@ -268,6 +271,8 @@ slm-gate doctor      # after the `ollama pull` line init printed
 ```
 
 Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`; for Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. The [Install from npm](docs/install-from-npm.md) guide walks through every step: any coding tool, any AI provider or fully local, toolboxes, updates.
+
+> **Rather have an AI assistant set it up?** After `npm install -g @zenithfoundry/slm-gate`, paste the [AI setup prompt](docs/agent-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks you a few questions, and connects everything. **Using a git checkout today?** [Switching to the npm install](docs/install-from-npm.md#switching-from-a-git-checkout) keeps your settings and history.
 
 **From source** (to change `slm-gate` itself). You also need pnpm 10+. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
 

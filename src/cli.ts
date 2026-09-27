@@ -83,9 +83,15 @@ async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  if (command === '--version' || command === '-v' || command === 'version') {
+    console.log(JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).version);
+    return;
+  }
+
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(`
 Usage: slm-gate <command> [options]
+       slm-gate --version
 
 Commands:
   init           Create your settings file (.env), set up for this computer's RAM. Never replaces one
@@ -160,6 +166,8 @@ Commands:
     console.log(`     \`${self} doctor\` also prints the address for tools that can send their AI requests through slm-gate.`);
     console.log('  4. To pick models that fit this computer best, use llmfit: https://github.com/AlexsJones/llmfit');
     console.log('     Then set SLM_BRAIN_MODEL and SLM_GATE_MODEL in the settings file.');
+    console.log('\nRather have an AI assistant do steps 1 to 3 with you? Paste this prompt into it:');
+    console.log('  https://github.com/zenithfoundry/slm-gate/blob/main/docs/agent-setup.md');
     return;
   }
 

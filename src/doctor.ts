@@ -20,6 +20,7 @@ import { getModelsFootprint } from './models/footprint.js';
 import { getProviderRegistry } from './pricing/providers.js';
 import { checkLocalModels } from './setup/local-models.js';
 import { cliCommand, GATE_LOG_FILE, isStoppedByUser, portOwner, probeGate } from './setup/model-gate.js';
+import { downstreamScript } from './setup/downstream-script.js';
 import { findStrandedServers } from './setup/parent-watch.js';
 import { toolSettings, UNROUTABLE_TOOLS } from './setup/tool-settings.js';
 import { listenOnThisComputer } from './utils/local-only.js';
@@ -218,11 +219,13 @@ async function run() {
     report(true, 'DOWNSTREAM_MCP is configured');
 
     if (CONFIG.DOWNSTREAM_MCP.command) {
-      // For Stdio MCP servers, the first argument is conventionally the target script.
+      // Only a toolbox started from a file has one to check; `npx -y tech-lead-stack@1` names none.
       const cmdArgs = CONFIG.DOWNSTREAM_MCP.args || [];
-      const targetFile = cmdArgs[0]; 
-      
-      if (targetFile) {
+      const targetFile = downstreamScript(cmdArgs);
+
+      if (!targetFile) {
+        report(true, `DOWNSTREAM_MCP is started by ${path.basename(CONFIG.DOWNSTREAM_MCP.command)}; file check skipped`);
+      } else {
         const resolvedTarget = path.resolve(targetFile);
         const targetExists = fs.existsSync(resolvedTarget);
         
