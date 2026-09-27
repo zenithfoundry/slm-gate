@@ -6,9 +6,9 @@ coding tools, and any toolbox. When it is done, `slm-gate` is running with both 
 tool you chose is connected.
 
 **Use it when** you would rather answer questions than read guides, or when you are moving from a git checkout to
-the npm install: it sets everything up fresh and copies nothing from the old folder. **Read
-[Install from npm](./install-from-npm.md) instead** if you prefer to do it yourself, or to keep your old settings
-and history.
+the npm install: it sets everything up fresh and copies nothing from the old folder
+([Switch slm-gate to npm](./switch-to-npm.md) walks through that, and how to bring old settings back). **Read
+[Install from npm](./install-from-npm.md) instead** if you prefer to do it yourself.
 
 **What it can't do:** install Node.js or Ollama for you, type your passwords or keys, or quit and reopen your
 coding tools. It tells you exactly what to do for each, then waits until you say you're ready.
@@ -185,7 +185,8 @@ Tell me, in a short list:
 - How to undo each change: copy the backup back; for Claude Code, `claude mcp remove slm-gate`.
 - What I still have to do myself (for example, type a key into a file).
 - If you found an old checkout: its folder is no longer used, and I can put it in the Trash once everything
-  works (dragging it back out undoes that).
+  works (dragging it back out undoes that). To bring back its old settings or history first, I follow
+  https://github.com/zenithfoundry/slm-gate/blob/main/docs/switch-to-npm.md#optional-bring-back-your-old-settings-and-history
 - That the extras are there whenever I ask: the savings dashboard, separate work and personal settings, the
   local cache for repeated questions, and running fully on this computer.
 

@@ -142,7 +142,8 @@ OpenCode and Aider can). Skip the optional AI-requests step: it is for cloud AI.
 
 **Simplest: a fresh install.** Install the program (step 1 above), then paste the [AI setup prompt](agent-setup.md)
 into your AI assistant. It sets everything up again, replaces the old connections in your coding tools, and copies
-nothing from the old folder. Your old savings history stays in that folder.
+nothing from the old folder. Your old savings history stays in that folder. Step by step, with how to bring old
+settings and history back afterwards: [Switch slm-gate to npm](switch-to-npm.md).
 
 **To keep your settings and history instead**, follow these steps:
 
