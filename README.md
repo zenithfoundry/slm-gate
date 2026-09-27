@@ -272,7 +272,7 @@ slm-gate doctor      # after the `ollama pull` line init printed
 
 Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`; for Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. The [Install from npm](docs/install-from-npm.md) guide walks through every step: any coding tool, any AI provider or fully local, toolboxes, updates.
 
-> **Rather have an AI assistant set it up?** After `npm install -g @zenithfoundry/slm-gate`, paste the [AI setup prompt](docs/agent-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks you a few questions, and connects everything. **Using a git checkout today?** [Switching to the npm install](docs/install-from-npm.md#switching-from-a-git-checkout) keeps your settings and history.
+> **Rather have an AI assistant set it up?** After `npm install -g @zenithfoundry/slm-gate`, paste the [AI setup prompt](docs/agent-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks you a few questions, and connects everything. **Using a git checkout today?** [Switch slm-gate to npm](docs/switch-to-npm.md): a fresh install with the same prompt, and optional steps to bring back your old settings and history.
 
 **From source** (to change `slm-gate` itself). You also need pnpm 10+. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
 
