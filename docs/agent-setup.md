@@ -6,7 +6,9 @@ coding tools, and any toolbox. When it is done, `slm-gate` is running with both 
 tool you chose is connected.
 
 **Use it when** you would rather answer questions than read guides, or when you are moving from a git checkout to
-the npm install. **Read [Install from npm](./install-from-npm.md) instead** if you prefer to do it yourself.
+the npm install: it sets everything up fresh and copies nothing from the old folder. **Read
+[Install from npm](./install-from-npm.md) instead** if you prefer to do it yourself, or to keep your old settings
+and history.
 
 **What it can't do:** install Node.js or Ollama for you, type your passwords or keys, or quit and reopen your
 coding tools. It tells you exactly what to do for each, then waits until you say you're ready.
@@ -78,7 +80,8 @@ Read only; change nothing yet. Report what you find:
   (`which <name>`), and the apps Cursor, Claude (desktop) and VS Code (with Cline or Continue). Look in each
   tool's MCP settings (list in STEP 5) for an existing slm-gate entry, and note its command, arguments and env.
 - An old git checkout: an slm-gate entry whose command is node, with an argument ending in
-  dist/mcp-gate/index.js. Its folder holds the old settings file (.env) and history (output/).
+  dist/mcp-gate/index.js. Note its folder (the part before /dist). This is a fresh install: nothing is copied
+  from that folder.
 - A toolbox: DOWNSTREAM_MCP in any slm-gate entry's env, or in the settings file. Also any separate entry for a
   toolbox, such as tech-lead-stack.
 Then ask me to confirm or correct the list.
@@ -107,24 +110,16 @@ and what it does; each model download and its size (from the RAM table linked be
 
 STEP 5 — SET IT UP
 a. Settings file.
-   - No settings file and no old checkout: for OPTION A, `slm-gate init`. For OPTION B,
-     `slm-gate init --ram <GB>`, where GB is this computer's memory minus 8, and at least 16. init never
-     replaces a settings file that exists.
-   - Moving from an old checkout, with <old> being the checkout's folder: ask me to quit my other coding tools,
-     then stop its background service with the old checkout's own command, `node <old>/dist/cli.js stop`
-     (the old checkout restarts it unless it was stopped that way, and it could write to the history while you
-     copy it). Then:
-     `mkdir -p ~/.slm-gate/output`, `cp -pn <old>/.env ~/.slm-gate/.env`,
-     `cp -Rpn <old>/output/. ~/.slm-gate/output/` and `chmod 600 ~/.slm-gate/.env`. The -n never replaces a
-     file that is already there. Never move or delete the originals. If LEDGER_PATH points into the old folder,
-     make it blank.
+   - No settings file yet: for OPTION A, `slm-gate init`. For OPTION B, `slm-gate init --ram <GB>`, where GB is
+     this computer's memory minus 8, and at least 16. init never replaces a settings file that exists. With an
+     old checkout, do the same: copy nothing from its folder, and never move or delete it.
    - A settings file exists: change only the lines we agreed. For the models, use the chosen option's values
      from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL, SLM_GATE_TESTING_MODEL and NUM_CTX.
 b. Models: download each one with `ollama pull <model>`: the ones init printed, or every model
    `slm-gate doctor` says is missing. Warn me first: this can take a while.
 c. Connect each tool. Add an entry named slm-gate with the command slm-gate and the argument mcp (with npx: the
    command npx and the arguments -y, @zenithfoundry/slm-gate@1, mcp). Replace an old checkout's entry in place,
-   keeping its env values. Use the tool's own command if it has one (check `<tool> mcp --help`); otherwise edit
+   without its old env values (a toolbox is set up in e). Use the tool's own command if it has one (check `<tool> mcp --help`); otherwise edit
    its settings file, in that file's own format. Where each tool keeps its MCP servers:
    - Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`; with env values,
      `claude mcp add-json --scope user slm-gate '<the entry as JSON>'`
@@ -160,8 +155,10 @@ f. Plans, if I gave any. One plan: SUBSCRIPTION_PLAN. Plans with more than one c
    PLAN_CHATGPT and PLAN_GEMINI. Set the matching CLAUDE_WINDOW_BUDGET, CHATGPT_WINDOW_BUDGET or
    GEMINI_WINDOW_BUDGET to the estimate for my plan, from the comments above those lines in the settings file.
    Set PROVIDER to claude, chatgpt or gemini: the company whose AI my tools use most.
-g. Run `slm-gate restart`. It starts slm-gate's background service with the new settings (stopping any old one,
-   including one from an old checkout) and loads both local models.
+g. Run `slm-gate restart`. It starts slm-gate's background service with the new settings and loads both local
+   models. If you found an old checkout (<old> being its folder), run `node <old>/dist/cli.js stop; slm-gate restart`
+   instead, as one command: the old checkout restarts its own service unless it is stopped with its own command,
+   and switching in one go keeps working any tool that sends its AI requests through slm-gate, this one included.
 
 STEP 6 — PROVE IT WORKS
 Do all four. Don't say it is finished until each one passes.
@@ -187,6 +184,8 @@ Tell me, in a short list:
 - Every file you changed, and its backup.
 - How to undo each change: copy the backup back; for Claude Code, `claude mcp remove slm-gate`.
 - What I still have to do myself (for example, type a key into a file).
+- If you found an old checkout: its folder is no longer used, and I can put it in the Trash once everything
+  works (dragging it back out undoes that).
 - That the extras are there whenever I ask: the savings dashboard, separate work and personal settings, the
   local cache for repeated questions, and running fully on this computer.
 
@@ -230,12 +229,11 @@ ALLOWED COMMANDS
   `slm-gate models:check`, `slm-gate start`, `slm-gate stop`, `slm-gate restart`.
 - `slm-gate mcp` is only for a tool's entry. Never run it yourself: it waits silently for a tool to talk to it.
 - `slm-gate setup-dashboard`, only when I ask for the dashboard extra.
-- `node <old>/dist/cli.js stop`, only when moving from an old checkout.
+- `node <old>/dist/cli.js stop; slm-gate restart`, only in STEP 5 g, when you found an old checkout.
 - `ollama --version`, `ollama list`, `ollama ps`, `ollama pull <model>`.
 - `node --version`, `which node`, `npm root -g`; `npm install -g`, `npm update -g` and `npm view`, for
   @zenithfoundry/slm-gate only.
-- `uname -s`, `sysctl -n hw.memsize`, `free -g`, `which <name>`, reading files, `cp` (with -p, -R and -n) for
-  backups and copies, `mkdir -p`, and `chmod 600` on the settings file.
+- `uname -s`, `sysctl -n hw.memsize`, `free -g`, `which <name>`, reading files, and `cp -p` for backups.
 - Each coding tool's own MCP commands (such as `claude mcp add`, `list` and `remove`), after checking its --help.
 The full guide, if you need more: https://github.com/zenithfoundry/slm-gate/blob/main/docs/install-from-npm.md
 ```
