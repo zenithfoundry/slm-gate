@@ -166,6 +166,8 @@ Commands:
     console.log(`     \`${self} doctor\` also prints the address for tools that can send their AI requests through slm-gate.`);
     console.log('  4. To pick models that fit this computer best, use llmfit: https://github.com/AlexsJones/llmfit');
     console.log('     Then set SLM_BRAIN_MODEL and SLM_GATE_MODEL in the settings file.');
+    console.log('\nRather have an AI assistant do steps 1 to 3 with you? Paste this prompt into it:');
+    console.log('  https://github.com/zenithfoundry/slm-gate/blob/main/docs/agent-setup.md');
     return;
   }
 

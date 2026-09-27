@@ -27,7 +27,8 @@ Read these in order the first time.
 
 ## Editor configs
 
-Each folder holds `.env` presets for 16, 24 and 32 GB machines, and the MCP config for that tool.
+Each page shows how to connect that tool to `slm-gate`. The folders also hold example settings files for 16, 24 and 32
+GB machines, for git checkouts; `slm-gate init` makes one for your computer.
 
 - [Antigravity](../configs/antigravity/README.md)
 - [Claude Code](../configs/claude-code/README.md)

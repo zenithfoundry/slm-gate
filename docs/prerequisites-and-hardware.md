@@ -157,7 +157,7 @@ If you installed Ollama via Homebrew (`brew install ollama`), there is a well-kn
    launchctl load ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist
    ```
 
-*For more details, see the [official Ollama FAQ on memory and concurrency](https://github.com/ollama/ollama/blob/main/docs/faq.md).*
+*For more details, see the [official Ollama FAQ on memory and concurrency](https://docs.ollama.com/faq).*
 
 ### Memory Pressure Troubleshooting
 

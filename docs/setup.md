@@ -103,8 +103,7 @@ If the file doesn't exist yet, create it. Add (or merge) the following into the 
       "env": {
         "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
-        "NUM_CTX": "4096",
-        "OLLAMA_MAX_LOADED_MODELS": "2"
+        "NUM_CTX": "4096"
       }
     }
   }

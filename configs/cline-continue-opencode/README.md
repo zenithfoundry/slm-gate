@@ -1,25 +1,60 @@
 # Cline / Continue / Opencode MCP Configuration
 
-**File Location:** `cline_mcp.json` or `.continue/config.json` (depends on client, usually at the global or project root)
+Each tool adds `slm-gate` as an MCP server that runs the command `slm-gate` with the argument `mcp`; only the file
+and its format differ.
+
+**Cline:** in the extension, click the MCP Servers icon → Configure → **Configure MCP Servers**. It opens Cline's
+settings file (`cline_mcp_settings.json`). Add:
 
 ```json
 {
   "mcpServers": {
     "slm-gate": {
-      "command": "node",
-      "args": [
-        "<ABS_PATH>/dist/mcp-gate/index.js"
-      ],
-      "env": {
-        "TLS_ADAPTER": "on",
-        "DOWNSTREAM_MCP": "{\"command\":\"node\",\"args\":[\"<ABS_PATH_TO_TLS>/dist/mcp-server.mjs\"]}"
-      }
+      "command": "slm-gate",
+      "args": ["mcp"]
     }
   }
 }
 ```
 
-After adding this, make sure to build TLS first by running `pnpm run mcp:build` in your TLS directory, then restart/refresh MCP servers and verify with `slm-gate doctor`.
+**Continue:** in `~/.continue/config.yaml` (all projects). Continue uses MCP servers in agent mode only.
+
+```yaml
+mcpServers:
+  - name: slm-gate
+    command: slm-gate
+    args:
+      - mcp
+```
+
+For one project only, put the same entry in its own file in the project's `.continue/mcpServers/` folder, with
+`name: slm-gate`, `version: 0.0.1` and `schema: v1` above `mcpServers:`.
+
+**OpenCode:** in `~/.config/opencode/opencode.json` (all projects) or `opencode.json` in a project's folder. The
+command and its argument go in one list, and settings go in `environment` (not `env`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "slm-gate": {
+      "type": "local",
+      "command": ["slm-gate", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+For all three:
+
+- **Without installing it:** the command `npx` with the arguments `-y`, `@zenithfoundry/slm-gate@1`, `mcp`.
+- **From a git checkout:** the command `node` with the argument
+  `/full/path/to/small-language-model-gate/dist/mcp-gate/index.js`.
+- **A toolbox behind `slm-gate` (optional):** add its settings to the entry (`env`; for OpenCode, `environment`), as
+  in [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional).
+
+Then restart the tool and check with `slm-gate doctor`.
 
 The `env` values above apply to this MCP server only. The model gate below is shared by all your coding tools and reads its settings only from `slm-gate`'s own `.env`.
 

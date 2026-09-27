@@ -147,6 +147,27 @@ describe('SLM_GATE_HOME', () => {
   });
 });
 
+describe('DISTILL_PRESERVE_PATH', () => {
+  const originalEnv = process.env;
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('reads a relative path from the install folder, whatever folder the coding tool starts slm-gate in', async () => {
+    process.env = { ...originalEnv, DISTILL_PRESERVE_PATH: 'configs/preserve/tls.json' };
+    const { CONFIG } = await loadConfig('preserve-relative');
+    expect(CONFIG.DISTILL_PRESERVE_PATH).toBe(path.join(CONFIG.ROOT_DIR, 'configs', 'preserve', 'tls.json'));
+    expect(fs.existsSync(CONFIG.DISTILL_PRESERVE_PATH as string)).toBe(true);
+  });
+
+  it('keeps a full path as it is', async () => {
+    const own = path.join(os.tmpdir(), 'my-preserve-patterns.json');
+    process.env = { ...originalEnv, DISTILL_PRESERVE_PATH: own };
+    const { CONFIG } = await loadConfig('preserve-absolute');
+    expect(CONFIG.DISTILL_PRESERVE_PATH).toBe(own);
+  });
+});
+
 describe('RAM_PRESET', () => {
   const originalEnv = process.env;
   let home: string;

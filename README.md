@@ -4,6 +4,9 @@
 
 **[See the live savings dashboard →](https://zenithfoundry.github.io/slm-gate/)** Measured from real daily use; benchmark runs are kept separate.
 
+[![npm](https://img.shields.io/npm/v/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
+[![downloads](https://img.shields.io/npm/dm/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
+[![unpacked size](https://img.shields.io/npm/unpacked-size/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
 [![CI](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml/badge.svg)](https://github.com/zenithfoundry/slm-gate/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/zenithfoundry/slm-gate/badge)](https://scorecard.dev/viewer/?uri=github.com/zenithfoundry/slm-gate)
@@ -14,11 +17,11 @@
 <br />
 [![Node.js](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzenithfoundry%2Fslm-gate%2Fmain%2Fpackage.json&query=%24.engines.node&label=node&color=brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/github/package-json/dependency-version/zenithfoundry/slm-gate/dev/typescript)](tsconfig.json)
-[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+[![MCP server](https://img.shields.io/badge/MCP-server-green)](https://modelcontextprotocol.io/)
 [![Runs on Ollama](https://img.shields.io/badge/runs%20on-Ollama-black)](https://ollama.com/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](docs/prerequisites-and-hardware.md)
 [![Live dashboard](https://img.shields.io/badge/savings%20dashboard-live-blue)](https://zenithfoundry.github.io/slm-gate/)
-[![AI setup prompt](https://img.shields.io/badge/set%20up-with%20an%20AI%20assistant-8A2BE2)](docs/agent-setup.md)
+[![AI setup prompt](https://img.shields.io/badge/AI%20setup-prompt-blueviolet)](docs/agent-setup.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/zenithfoundry/slm-gate/pulls)
 
 ---

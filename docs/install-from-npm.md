@@ -72,9 +72,9 @@ For Claude Code, that is one command:
 claude mcp add --scope user slm-gate -- slm-gate mcp
 ```
 
-Where each tool keeps its MCP servers: see the tool's folder in [`configs/`](../configs/). Where those pages say
-`node <path>/dist/mcp-gate/index.js`, use the command `slm-gate` with the argument `mcp` instead. Then restart
-the tool.
+Where each tool keeps its MCP servers, and in which format: see the tool's page in [`configs/`](../configs/).
+Codex: `codex mcp add slm-gate -- slm-gate mcp`. Gemini CLI: `gemini mcp add -s user slm-gate slm-gate mcp`. Then
+restart the tool.
 
 **Optional: let `slm-gate` handle your tool's AI requests too.** Tools that let you change where their AI
 requests go (Claude Code, Codex, Gemini CLI, Cline, Continue, OpenCode, Aider and others) can send them through

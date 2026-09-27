@@ -131,7 +131,9 @@ const envSchema = z.object({
   // here, or following doctor's advice stops slm-gate from starting. slm-gate needs 16 GB of RAM or more.
   RAM_PRESET: z.enum(['ram-16', 'ram-24', 'ram-32', 'ram-48', 'ram-64', 'ram-128', 'custom']).default('custom'),
   TLS_ADAPTER: parseBoolean(false),
-  DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() || null),
+  // A relative path is read from the install folder, where configs/ ships: the MCP server runs in whatever
+  // folder the coding tool has open, so resolving it against the working folder never found the default.
+  DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() ? path.resolve(ROOT_DIR, v.trim()) : null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
   DISTILL_SKILLS: parseBoolean(false),
   DISTILL_ADAPTIVE: parseBoolean(false),

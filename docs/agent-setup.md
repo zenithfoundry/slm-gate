@@ -126,12 +126,19 @@ c. Connect each tool. Add an entry named slm-gate with the command slm-gate and 
    its settings file, in that file's own format. Where each tool keeps its MCP servers:
    - Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`; with env values,
      `claude mcp add-json --scope user slm-gate '<the entry as JSON>'`
-   - Codex: ~/.codex/config.toml
-   - Gemini CLI: ~/.gemini/settings.json
+   - Codex: `codex mcp add slm-gate -- slm-gate mcp` (env values go before the --, as --env KEY=VALUE), or
+     ~/.codex/config.toml
+   - Gemini CLI: `gemini mcp add -s user slm-gate slm-gate mcp` (without -s user it works in one folder only),
+     or ~/.gemini/settings.json for env values
    - Antigravity: ~/.gemini/config/mcp_config.json
    - Claude desktop app: ~/Library/Application Support/Claude/claude_desktop_config.json
    - Cursor: ~/.cursor/mcp.json (all projects) or .cursor/mcp.json (one project)
-   - Cline, Continue, OpenCode and others: find it in the tool's official MCP documentation, and tell me where.
+   - Cline: ask me to click its MCP Servers icon → Configure → Configure MCP Servers; that opens its file.
+   - Continue: ~/.continue/config.yaml, a YAML list under mcpServers:
+   - OpenCode: ~/.config/opencode/opencode.json, under "mcp", with the command and its argument in one list
+     and env values under "environment"
+   - Any other tool: find it in the tool's official MCP documentation, and tell me where.
+   Each tool's setup page: https://github.com/zenithfoundry/slm-gate/tree/main/configs
    If a file is not where this list says, look it up in the tool's official documentation. Never guess.
 d. AI requests, only for the tools I said yes to in STEP 3, question 3. Run `slm-gate doctor` and copy that
    tool's lines from its "Coding tool settings" section exactly. Never write an address from memory. Lines that
@@ -163,7 +170,10 @@ Do all four. Don't say it is finished until each one passes.
    and check again.
 3. Ask me to quit each connected tool completely and open it again. Then check it shows slm-gate as connected:
    Claude Code `claude mcp list`, Codex `codex mcp list`, Gemini CLI `gemini mcp list`, other tools their MCP
-   list or panel. With a toolbox, its tools appear under slm-gate.
+   list or panel. With a toolbox, its tools appear under slm-gate. If a desktop app shows slm-gate as failed,
+   it probably can't find Node.js: use full paths, as
+   https://github.com/zenithfoundry/slm-gate/blob/main/configs/claude-desktop/README.md#slm-gate-shows-as-failed
+   explains.
 4. For each tool whose AI requests now go through slm-gate: ask me to send it one short message, then run
    `slm-gate doctor` again. The "No model request has gone through" note is gone.
 
@@ -216,7 +226,8 @@ ALLOWED COMMANDS
 - `slm-gate mcp` is only for a tool's entry. Never run it yourself: it waits silently for a tool to talk to it.
 - `slm-gate setup-dashboard`, only when I ask for the dashboard extra.
 - `ollama --version`, `ollama list`, `ollama ps`, `ollama pull <model>`.
-- `node --version`; `npm install -g`, `npm update -g` and `npm view`, for @zenithfoundry/slm-gate only.
+- `node --version`, `which node`, `npm root -g`; `npm install -g`, `npm update -g` and `npm view`, for
+  @zenithfoundry/slm-gate only.
 - `uname -s`, `sysctl -n hw.memsize`, `free -g`, `which <name>`, reading files, `cp` (with -p, -R and -n) for
   backups and copies, `mkdir -p`, and `chmod 600` on the settings file.
 - Each coding tool's own MCP commands (such as `claude mcp add`, `list` and `remove`), after checking its --help.

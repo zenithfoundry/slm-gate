@@ -1,6 +1,6 @@
 # Generic HTTP MCP Configuration
 
-For clients that connect via SSE/HTTP. Ensure you are running `slm-gate serve --layer mcp --transport http` in the background. Note: HTTP connections do not launch the process themselves, so you must start it manually. Once running, it starts and watches the model gate (Layer 2) the same way the stdio server does.
+For clients that connect to an MCP server by web address (streamable HTTP; not the older SSE transport). Run `slm-gate serve --layer mcp --transport http` and keep it running: a client that connects by address does not start the server itself. Once running, it starts and watches the model gate (Layer 2) the same way the stdio server does.
 
 Only programs on this computer can connect. Other computers on your network, web pages from other sites, and clients inside a Docker container or virtual machine are refused, because this server's tools can read and change your files. Use `localhost` or `127.0.0.1` in the address, as below.
 
@@ -10,11 +10,10 @@ Only programs on this computer can connect. Other computers on your network, web
 {
   "mcpServers": {
     "slm-gate": {
-      "url": "http://localhost:8788/sse",
-      "serverUrl": "http://localhost:8788/sse"
+      "url": "http://localhost:8788/mcp"
     }
   }
 }
 ```
 
-After adding this, make sure to build TLS first by running `pnpm run mcp:build` in your TLS directory, then restart/refresh MCP servers and verify with `slm-gate doctor`.
+Some clients name the field `serverUrl` (Antigravity), or also need `"type": "http"` next to `url` (Gemini CLI): follow your client's MCP documentation. `8788` is `MCP_GATE_PORT`. Check with `slm-gate doctor`.
