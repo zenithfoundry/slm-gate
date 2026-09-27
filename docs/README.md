@@ -46,5 +46,6 @@ GB machines, for git checkouts; `slm-gate init` makes one for your computer.
 ## Contributing
 
 - [Contributing](../.github/CONTRIBUTING.md)
+- [Testing the AI setup prompt](./agent-setup-validation.md): the nine runs to do before the setup prompt's validation record changes
 - [Security policy](../SECURITY.md)
 - [House rules for coding agents](../AGENTS.md)

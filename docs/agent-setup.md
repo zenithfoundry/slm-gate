@@ -110,8 +110,10 @@ a. Settings file.
    - No settings file and no old checkout: for OPTION A, `slm-gate init`. For OPTION B,
      `slm-gate init --ram <GB>`, where GB is this computer's memory minus 8, and at least 16. init never
      replaces a settings file that exists.
-   - Moving from an old checkout: ask me to quit my coding tools, then run `slm-gate stop` (otherwise the old
-     history file may be written while you copy it). Then, with <old> being the checkout's folder:
+   - Moving from an old checkout, with <old> being the checkout's folder: ask me to quit my other coding tools,
+     then stop its background service with the old checkout's own command, `node <old>/dist/cli.js stop`
+     (the old checkout restarts it unless it was stopped that way, and it could write to the history while you
+     copy it). Then:
      `mkdir -p ~/.slm-gate/output`, `cp -pn <old>/.env ~/.slm-gate/.env`,
      `cp -Rpn <old>/output/. ~/.slm-gate/output/` and `chmod 600 ~/.slm-gate/.env`. The -n never replaces a
      file that is already there. Never move or delete the originals. If LEDGER_PATH points into the old folder,
@@ -168,7 +170,10 @@ Do all four. Don't say it is finished until each one passes.
 2. Wait 30 seconds; then `ollama ps` lists both SLM_BRAIN_MODEL and SLM_GATE_MODEL (`slm-gate config` shows
    their names). If one is missing: check the name matches `ollama list` exactly, run `slm-gate restart`, wait,
    and check again.
-3. Ask me to quit each connected tool completely and open it again. Then check it shows slm-gate as connected:
+3. Ask me to quit each connected tool completely and open it again. If you are running inside one of them, first
+   tell me how to come back to this conversation from the same folder: Claude Code `claude --continue`, Codex
+   `codex resume --last`, Gemini CLI `gemini --resume latest`; any other tool, check its --help. Then check it
+   shows slm-gate as connected:
    Claude Code `claude mcp list`, Codex `codex mcp list`, Gemini CLI `gemini mcp list`, other tools their MCP
    list or panel. With a toolbox, its tools appear under slm-gate. If a desktop app shows slm-gate as failed,
    it probably can't find Node.js: use full paths, as
@@ -225,6 +230,7 @@ ALLOWED COMMANDS
   `slm-gate models:check`, `slm-gate start`, `slm-gate stop`, `slm-gate restart`.
 - `slm-gate mcp` is only for a tool's entry. Never run it yourself: it waits silently for a tool to talk to it.
 - `slm-gate setup-dashboard`, only when I ask for the dashboard extra.
+- `node <old>/dist/cli.js stop`, only when moving from an old checkout.
 - `ollama --version`, `ollama list`, `ollama ps`, `ollama pull <model>`.
 - `node --version`, `which node`, `npm root -g`; `npm install -g`, `npm update -g` and `npm view`, for
   @zenithfoundry/slm-gate only.
@@ -267,7 +273,8 @@ slm-gate entry. Check it with `slm-gate doctor`; after changing a setting, run `
 
 ## Validation record
 
-Each run starts from scratch, with a fresh assistant, on a computer account that has never had `slm-gate`.
+Each run starts from scratch, with a fresh assistant, on a computer account that has never had `slm-gate`. How the
+runs are done and scored: [Testing the AI setup prompt](./agent-setup-validation.md).
 
 **Not validated yet.**
 

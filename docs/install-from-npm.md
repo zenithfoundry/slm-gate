@@ -142,14 +142,16 @@ OpenCode and Aider can). Skip the optional AI-requests step: it is for cloud AI.
 
 Your settings and history come with you. The [AI setup prompt](agent-setup.md) can do these steps for you.
 
-1. **Quit your coding tools**, then install the program and stop the old background service:
+1. **Quit your coding tools**, then install the program and stop the old background service with the old checkout's
+   own command (so nothing restarts it while you copy). Replace `/path/to/slm-gate` with your checkout's folder,
+   here and below:
 
    ```bash
    npm install -g @zenithfoundry/slm-gate
-   slm-gate stop
+   node /path/to/slm-gate/dist/cli.js stop
    ```
 
-2. **Copy your settings and history.** Replace `/path/to/slm-gate` with your checkout's folder:
+2. **Copy your settings and history:**
 
    ```bash
    mkdir -p ~/.slm-gate/output
