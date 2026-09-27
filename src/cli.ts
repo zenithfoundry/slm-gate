@@ -83,9 +83,15 @@ async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  if (command === '--version' || command === '-v' || command === 'version') {
+    console.log(JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8')).version);
+    return;
+  }
+
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     console.log(`
 Usage: slm-gate <command> [options]
+       slm-gate --version
 
 Commands:
   init           Create your settings file (.env), set up for this computer's RAM. Never replaces one

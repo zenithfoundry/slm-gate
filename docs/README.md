@@ -6,7 +6,8 @@ New here? Start with the [README](../README.md): what `slm-gate` does, and five 
 
 Read these in order the first time.
 
-- [Install from npm](./install-from-npm.md): the quickest way in: install, create your settings for this computer, and connect any coding tool
+- [Install from npm](./install-from-npm.md): the quickest way in: install, create your settings for this computer, and connect any coding tool; also, switching from a git checkout
+- [Set up with an AI assistant](./agent-setup.md): a prompt for any AI assistant that checks your computer, asks a few questions, and sets everything up with you
 - [Prerequisites & Hardware Sizing](./prerequisites-and-hardware.md): what to install, which local models fit your machine's memory, and fixing memory pressure
 - [How It Operates](./integration-layers.md): the MCP gate and the model gate, who pays for what, and which coding tools work with each
 - [Step-by-Step Setup](./setup.md): clone, build, download models, and connect Antigravity, Claude, Cursor, Cline, Continue, Codex or Gemini CLI

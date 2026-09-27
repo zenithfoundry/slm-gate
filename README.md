@@ -18,6 +18,7 @@
 [![Runs on Ollama](https://img.shields.io/badge/runs%20on-Ollama-black)](https://ollama.com/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](docs/prerequisites-and-hardware.md)
 [![Live dashboard](https://img.shields.io/badge/savings%20dashboard-live-blue)](https://zenithfoundry.github.io/slm-gate/)
+[![AI setup prompt](https://img.shields.io/badge/set%20up-with%20an%20AI%20assistant-8A2BE2)](docs/agent-setup.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/zenithfoundry/slm-gate/pulls)
 
 ---
@@ -268,6 +269,8 @@ slm-gate doctor      # after the `ollama pull` line init printed
 ```
 
 Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`; for Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. The [Install from npm](docs/install-from-npm.md) guide walks through every step: any coding tool, any AI provider or fully local, toolboxes, updates.
+
+> **Rather have an AI assistant set it up?** After `npm install -g @zenithfoundry/slm-gate`, paste the [AI setup prompt](docs/agent-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks you a few questions, and connects everything. **Using a git checkout today?** [Switching to the npm install](docs/install-from-npm.md#switching-from-a-git-checkout) keeps your settings and history.
 
 **From source** (to change `slm-gate` itself). You also need pnpm 10+. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
 
