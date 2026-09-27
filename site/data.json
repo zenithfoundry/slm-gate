@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-09-26T00:00:05.353Z",
+  "generatedAt": "2026-09-27T00:00:04.828Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-09-25T23:15:42.447Z",
-  "realEvents": 352,
+  "lastEventTs": "2026-09-26T18:02:26.588Z",
+  "realEvents": 379,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 211,
+    "distilledForwarded": 223,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -118,6 +118,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 11,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-09-26",
+      "events": 27,
+      "tokensSaved": 35515,
+      "baselineTokens": 55735,
+      "resolvedLocal": 0,
+      "distilledForwarded": 12,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -127,11 +136,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 319,
-      "tokensSaved": 556377,
-      "minutesTotal": 72.571,
-      "avgMinutesPerCycle": 2.502,
-      "medianMinutesPerCycle": 1.457,
+      "events": 346,
+      "tokensSaved": 591892,
+      "minutesTotal": 77.203,
+      "avgMinutesPerCycle": 2.573,
+      "medianMinutesPerCycle": 2.05,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -303,9 +312,15 @@
         },
         {
           "start": "2026-09-25T23:15:42.447Z",
-          "events": 1,
-          "tokensSaved": 2612,
-          "minutes": 0.341
+          "events": 13,
+          "tokensSaved": 15715,
+          "minutes": 2.05
+        },
+        {
+          "start": "2026-09-26T14:34:15.407Z",
+          "events": 15,
+          "tokensSaved": 22412,
+          "minutes": 2.923
         }
       ],
       "weeks": [
@@ -323,9 +338,9 @@
         },
         {
           "weekStart": "2026-09-21",
-          "events": 158,
-          "tokensSaved": 295876,
-          "minutes": 38.61
+          "events": 185,
+          "tokensSaved": 331391,
+          "minutes": 43.243
         }
       ]
     },
