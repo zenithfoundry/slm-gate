@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-01T00:00:05.191Z",
+  "generatedAt": "2026-10-02T00:00:06.237Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-09-30T20:31:49.718Z",
-  "realEvents": 466,
+  "lastEventTs": "2026-10-01T16:59:04.609Z",
+  "realEvents": 475,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 270,
+    "distilledForwarded": 275,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -163,6 +163,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 12,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-01",
+      "events": 9,
+      "tokensSaved": 18544,
+      "baselineTokens": 27543,
+      "resolvedLocal": 0,
+      "distilledForwarded": 5,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -172,11 +181,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 433,
-      "tokensSaved": 771835,
-      "minutesTotal": 100.672,
-      "avgMinutesPerCycle": 2.517,
-      "medianMinutesPerCycle": 2.05,
+      "events": 442,
+      "tokensSaved": 790379,
+      "minutesTotal": 103.091,
+      "avgMinutesPerCycle": 2.455,
+      "medianMinutesPerCycle": 2.039,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -417,6 +426,18 @@
           "events": 7,
           "tokensSaved": 30609,
           "minutes": 3.992
+        },
+        {
+          "start": "2026-10-01T00:15:03.554Z",
+          "events": 3,
+          "tokensSaved": 4705,
+          "minutes": 0.614
+        },
+        {
+          "start": "2026-10-01T14:21:15.461Z",
+          "events": 6,
+          "tokensSaved": 13839,
+          "minutes": 1.805
         }
       ],
       "weeks": [
@@ -440,9 +461,9 @@
         },
         {
           "weekStart": "2026-09-28",
-          "events": 57,
-          "tokensSaved": 127926,
-          "minutes": 16.693
+          "events": 66,
+          "tokensSaved": 146470,
+          "minutes": 19.112
         }
       ]
     },
