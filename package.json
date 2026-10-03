@@ -105,7 +105,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.5.2",
-    "@types/better-sqlite3": "^7.6.11",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/jest": "^29.5.12",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.14.9",
