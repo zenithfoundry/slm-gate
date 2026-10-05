@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-04T00:00:04.751Z",
+  "generatedAt": "2026-10-05T00:00:08.431Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-03T17:30:23.097Z",
-  "realEvents": 506,
+  "lastEventTs": "2026-10-04T23:24:45.545Z",
+  "realEvents": 507,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 296,
+    "distilledForwarded": 297,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -190,6 +190,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 7,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-04",
+      "events": 1,
+      "tokensSaved": 2623,
+      "baselineTokens": 4560,
+      "resolvedLocal": 0,
+      "distilledForwarded": 1,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -199,11 +208,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 473,
-      "tokensSaved": 849498,
-      "minutesTotal": 110.802,
-      "avgMinutesPerCycle": 2.409,
-      "medianMinutesPerCycle": 1.805,
+      "events": 474,
+      "tokensSaved": 852121,
+      "minutesTotal": 111.144,
+      "avgMinutesPerCycle": 2.365,
+      "medianMinutesPerCycle": 1.802,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -480,6 +489,12 @@
           "events": 11,
           "tokensSaved": 13691,
           "minutes": 1.786
+        },
+        {
+          "start": "2026-10-04T23:24:45.545Z",
+          "events": 1,
+          "tokensSaved": 2623,
+          "minutes": 0.342
         }
       ],
       "weeks": [
@@ -503,9 +518,9 @@
         },
         {
           "weekStart": "2026-09-28",
-          "events": 97,
-          "tokensSaved": 205589,
-          "minutes": 26.826
+          "events": 98,
+          "tokensSaved": 208212,
+          "minutes": 27.168
         }
       ]
     },
