@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-06T00:00:05.097Z",
+  "generatedAt": "2026-10-07T00:00:04.787Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-05T23:31:22.109Z",
-  "realEvents": 522,
+  "lastEventTs": "2026-10-06T23:36:09.755Z",
+  "realEvents": 533,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 307,
+    "distilledForwarded": 317,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -208,6 +208,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 10,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-06",
+      "events": 11,
+      "tokensSaved": 34698,
+      "baselineTokens": 53541,
+      "resolvedLocal": 0,
+      "distilledForwarded": 10,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -217,11 +226,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 489,
-      "tokensSaved": 882823,
-      "minutesTotal": 115.149,
-      "avgMinutesPerCycle": 2.303,
-      "medianMinutesPerCycle": 1.802,
+      "events": 500,
+      "tokensSaved": 917521,
+      "minutesTotal": 119.675,
+      "avgMinutesPerCycle": 2.258,
+      "medianMinutesPerCycle": 1.786,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -522,6 +531,24 @@
           "events": 5,
           "tokensSaved": 13860,
           "minutes": 1.808
+        },
+        {
+          "start": "2026-10-06T12:25:55.576Z",
+          "events": 4,
+          "tokensSaved": 13454,
+          "minutes": 1.755
+        },
+        {
+          "start": "2026-10-06T18:20:54.053Z",
+          "events": 5,
+          "tokensSaved": 19073,
+          "minutes": 2.488
+        },
+        {
+          "start": "2026-10-06T23:36:06.476Z",
+          "events": 2,
+          "tokensSaved": 2171,
+          "minutes": 0.283
         }
       ],
       "weeks": [
@@ -551,9 +578,9 @@
         },
         {
           "weekStart": "2026-10-05",
-          "events": 15,
-          "tokensSaved": 30702,
-          "minutes": 4.005
+          "events": 26,
+          "tokensSaved": 65400,
+          "minutes": 8.529
         }
       ]
     },
