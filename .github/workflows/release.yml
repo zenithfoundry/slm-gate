@@ -62,7 +62,7 @@ jobs:
         with:
           version: 10
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: 'pnpm'
@@ -113,7 +113,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       # Node 24 ships npm 11.15 or newer, which trusted publishing and `npm stage` need.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
