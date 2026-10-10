@@ -92,7 +92,7 @@
     "@langfuse/otel": "^5.11.1",
     "@langfuse/tracing": "^5.11.1",
     "@modelcontextprotocol/sdk": "^1.30.1",
-    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/sdk-node": "^0.223.0",
     "better-sqlite3": "^13.0.3",
     "dotenv": "^18.0.3",
     "markdown-it": "^15.0.2",
