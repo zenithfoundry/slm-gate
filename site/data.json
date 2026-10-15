@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-14T00:00:07.796Z",
+  "generatedAt": "2026-10-15T00:00:05.882Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-13T21:01:22.428Z",
-  "realEvents": 612,
+  "lastEventTs": "2026-10-14T23:32:55.188Z",
+  "realEvents": 648,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 363,
+    "distilledForwarded": 380,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -271,6 +271,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 10,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-14",
+      "events": 36,
+      "tokensSaved": 58459,
+      "baselineTokens": 90188,
+      "resolvedLocal": 0,
+      "distilledForwarded": 17,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -280,11 +289,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 579,
-      "tokensSaved": 1059428,
-      "minutesTotal": 138.184,
-      "avgMinutesPerCycle": 2.229,
-      "medianMinutesPerCycle": 1.802,
+      "events": 615,
+      "tokensSaved": 1117887,
+      "minutesTotal": 145.81,
+      "avgMinutesPerCycle": 2.278,
+      "medianMinutesPerCycle": 1.805,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -657,6 +666,18 @@
           "events": 10,
           "tokensSaved": 28879,
           "minutes": 3.767
+        },
+        {
+          "start": "2026-10-14T13:40:06.426Z",
+          "events": 15,
+          "tokensSaved": 30985,
+          "minutes": 4.042
+        },
+        {
+          "start": "2026-10-14T18:54:26.440Z",
+          "events": 21,
+          "tokensSaved": 27474,
+          "minutes": 3.584
         }
       ],
       "weeks": [
@@ -692,9 +713,9 @@
         },
         {
           "weekStart": "2026-10-12",
-          "events": 20,
-          "tokensSaved": 36148,
-          "minutes": 4.717
+          "events": 56,
+          "tokensSaved": 94607,
+          "minutes": 12.34
         }
       ]
     },
