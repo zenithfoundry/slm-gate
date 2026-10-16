@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-15T00:00:05.882Z",
+  "generatedAt": "2026-10-16T00:09:04.333Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-14T23:32:55.188Z",
-  "realEvents": 648,
+  "lastEventTs": "2026-10-15T18:55:23.346Z",
+  "realEvents": 673,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 380,
+    "distilledForwarded": 390,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -280,6 +280,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 17,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-15",
+      "events": 25,
+      "tokensSaved": 37256,
+      "baselineTokens": 55918,
+      "resolvedLocal": 0,
+      "distilledForwarded": 10,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -289,11 +298,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 615,
-      "tokensSaved": 1117887,
-      "minutesTotal": 145.81,
-      "avgMinutesPerCycle": 2.278,
-      "medianMinutesPerCycle": 1.805,
+      "events": 640,
+      "tokensSaved": 1155143,
+      "minutesTotal": 150.67,
+      "avgMinutesPerCycle": 2.283,
+      "medianMinutesPerCycle": 1.808,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -678,6 +687,18 @@
           "events": 21,
           "tokensSaved": 27474,
           "minutes": 3.584
+        },
+        {
+          "start": "2026-10-15T12:09:07.974Z",
+          "events": 12,
+          "tokensSaved": 17349,
+          "minutes": 2.263
+        },
+        {
+          "start": "2026-10-15T17:11:50.865Z",
+          "events": 13,
+          "tokensSaved": 19907,
+          "minutes": 2.597
         }
       ],
       "weeks": [
@@ -713,9 +734,9 @@
         },
         {
           "weekStart": "2026-10-12",
-          "events": 56,
-          "tokensSaved": 94607,
-          "minutes": 12.34
+          "events": 81,
+          "tokensSaved": 131863,
+          "minutes": 17.198
         }
       ]
     },
