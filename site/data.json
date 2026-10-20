@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-19T00:03:18.668Z",
+  "generatedAt": "2026-10-20T00:00:05.742Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-18T16:06:34.822Z",
-  "realEvents": 691,
+  "lastEventTs": "2026-10-19T20:11:14.525Z",
+  "realEvents": 717,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 398,
+    "distilledForwarded": 409,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -307,6 +307,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 1,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-19",
+      "events": 26,
+      "tokensSaved": 44129,
+      "baselineTokens": 64697,
+      "resolvedLocal": 0,
+      "distilledForwarded": 11,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -316,11 +325,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 658,
-      "tokensSaved": 1186315,
-      "minutesTotal": 154.736,
-      "avgMinutesPerCycle": 2.243,
-      "medianMinutesPerCycle": 1.805,
+      "events": 684,
+      "tokensSaved": 1230444,
+      "minutesTotal": 160.492,
+      "avgMinutesPerCycle": 2.26,
+      "medianMinutesPerCycle": 1.808,
       "cycles": [
         {
           "start": "2026-09-13T16:07:07.367Z",
@@ -735,6 +744,18 @@
           "events": 1,
           "tokensSaved": 2623,
           "minutes": 0.342
+        },
+        {
+          "start": "2026-10-19T12:12:13.985Z",
+          "events": 19,
+          "tokensSaved": 26845,
+          "minutes": 3.502
+        },
+        {
+          "start": "2026-10-19T17:53:47.616Z",
+          "events": 7,
+          "tokensSaved": 17284,
+          "minutes": 2.254
         }
       ],
       "weeks": [
@@ -773,6 +794,12 @@
           "events": 99,
           "tokensSaved": 163035,
           "minutes": 21.263
+        },
+        {
+          "weekStart": "2026-10-19",
+          "events": 26,
+          "tokensSaved": 44129,
+          "minutes": 5.755
         }
       ]
     },
