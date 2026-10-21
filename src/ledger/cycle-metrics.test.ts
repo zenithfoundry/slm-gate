@@ -105,8 +105,8 @@ describe('cycle extension requires a real denominator', () => {
   it('message metering: one locally-resolved prompt frees one message of the window', () => {
     process.env.CHATGPT_WINDOW_BUDGET = '90';
     __resetProviderRegistry();
-    // 180 minutes / 90 messages = 2 minutes per message avoided.
-    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(2, 6);
+    // Codex meters a 5h window: 300 minutes / 90 messages = 3.333 minutes per message avoided.
+    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(300 / 90, 6);
   });
 
   it('message metering: a distilled-but-forwarded prompt frees nothing — the message was still sent', () => {
