@@ -95,8 +95,7 @@ One question at a time, with your default:
 3. For each of those tools, how do I pay for its AI? (a) a subscription login (Claude Pro or Max, ChatGPT),
    (b) an API key, or (c) nothing, local models only. For (a) and (b), offer to also send that tool's AI
    requests through slm-gate, which saves more; `slm-gate doctor` lists which tools can. Default: yes, where it
-   can. Leave LLM_GATE_LOCAL_FIRST off for a coding tool: the local model would answer its first requests
-   without the context they refer to.
+   can. The gate never answers a request itself: it only shrinks what the request carries and sends it on.
 4. Which paid plan or plans do I have? Valid plans are listed below. Default: skip. This only improves the
    savings figures.
 5. Do I use a toolbox (extra tools and skills, such as Tech-Lead-Stack)? If STEP 2 found one, confirm it.
@@ -123,7 +122,7 @@ a. Settings file.
      this computer's memory minus 8, and at least 16. init never replaces a settings file that exists. With an
      old checkout, do the same: copy nothing from its folder, and never move or delete it.
    - A settings file exists: change only the lines we agreed. For the models, use the chosen option's values
-     from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL, SLM_GATE_TESTING_MODEL and NUM_CTX.
+     from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL and NUM_CTX.
    - The setup from question 6: set DISTILL_SKILLS, REPO_INDEX and CONVERSATION_MEMORY to on (SETUP A) or off
      (SETUP B). If a
      settings file already exists and I changed either model, also move PROMPT_VERSION up by one (v12 becomes
@@ -206,16 +205,14 @@ Tell me, in a short list:
 ALLOWED SETTINGS
 They go in ~/.slm-gate/.env (for every tool), or in the env of one tool's slm-gate entry (for that tool only;
 it wins). The settings file explains each one above its line.
-Most people only touch: `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`, `SLM_GATE_TESTING_MODEL`, `RAM_PRESET`, `NUM_CTX`,
+Most people only touch: `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`, `RAM_PRESET`, `NUM_CTX`,
 `DOWNSTREAM_MCP`, `TLS_ADAPTER`, `PROVIDER`, `SUBSCRIPTION_PLAN`, `LLM_GATE_PORT`.
 Every setting that exists:
 - Local models: `SLM_PROVIDER`, `OLLAMA_HOST`, `OLLAMA_KEEP_ALIVE`, `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`,
-  `SLM_GATE_TESTING_MODEL`, `RAM_PRESET`, `NUM_CTX`, `TEMPERATURE`, `SLM_TIMEOUT_MS`, `SELF_CONSISTENCY_K`,
-  `SELF_CONSISTENCY_TEMP`, `STRICTNESS_LEVELS`, `HEADLINE_STRICTNESS`, `EMBED_MODEL`, `SEMCACHE`,
-  `SEMCACHE_THRESHOLD`.
+  `RAM_PRESET`, `NUM_CTX`, `TEMPERATURE`, `SLM_TIMEOUT_MS`, `SELF_CONSISTENCY_K`, `SELF_CONSISTENCY_TEMP`,
+  `EMBED_MODEL`, `SEMCACHE`, `SEMCACHE_THRESHOLD`.
 - Background service (the model gate): `LLM_GATE_PORT`, `LLM_GATE_AUTOSTART`, `LLM_GATE_DISTILL`,
-  `LLM_GATE_LOCAL_FIRST`, `LOCAL_ATTEMPT_BUDGET_MS`, `UPSTREAM_ANTHROPIC_URL`, `UPSTREAM_OPENAI_URL`,
-  `UPSTREAM_CHATGPT_URL`, `UPSTREAM_GEMINI_URL`.
+  `UPSTREAM_ANTHROPIC_URL`, `UPSTREAM_OPENAI_URL`, `UPSTREAM_CHATGPT_URL`, `UPSTREAM_GEMINI_URL`.
 - Coding tools and toolboxes: `DOWNSTREAM_MCP`, `TLS_ADAPTER`, `MCP_GATE_TRANSPORT`, `MCP_GATE_PORT`, `REPO_INDEX`.
 - Plans and savings figures: `PROVIDER`, `SUBSCRIPTION_PLAN`, `PLAN_CLAUDE`, `PLAN_CHATGPT`, `PLAN_GEMINI`,
   `CLAUDE_WINDOW_BUDGET`, `CHATGPT_WINDOW_BUDGET`, `GEMINI_WINDOW_BUDGET`, `PROVIDER_REGISTRY_PATH`,
@@ -230,8 +227,6 @@ Every setting that exists:
   `DISTILL_FIDELITY_MIN`, `DISTILL_FIDELITY_MAX_RUNS`, `DISTILL_FIDELITY_BUDGET_MS`, `MAX_CONCURRENT_SEGMENT_CALLS`, `SLM_PIN_MODELS`,
   `CONVERSATION_MEMORY`, `MEMORY_MAX_TOKENS`, `MEMORY_FOLD_INPUT_TOKENS`, `MEMORY_FOLD_INTERVAL_MS`, `MEMORY_MATCH_WINDOW_MS`,
   `KEEP_RECENT_TOOL_TURNS`, `ELISION_MAX_ENTRIES`, `ELISION_RETENTION_DAYS`, `ELISION_MAX_MB`, `PROMPT_VERSION`.
-- Routing: `ROUTING_TUNE`, `ROUTING_TUNE_WINDOW`, `ROUTING_TUNE_MIN_SAMPLES`, `ROUTING_TUNE_THRESHOLD`,
-  `ROUTING_TUNE_EXPLORE_RATE`.
 - Where the settings file lives (only in a tool's env, for separate sets of settings): `SLM_GATE_HOME`.
 Valid values:
 - RAM_PRESET: ram-16, ram-24, ram-32, ram-48, ram-64, ram-128, custom (more than 128 GB). The models for each:

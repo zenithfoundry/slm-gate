@@ -1,8 +1,8 @@
 # slm-gate
 
-**Make your AI coding plan last longer.** A small model on your own computer shrinks the large tool output your coding assistant sends to the paid cloud, and answers easy first messages itself. Works with Claude Code, Codex, Cursor, Gemini CLI, Cline and any MCP client. Runs on [Ollama](https://ollama.com/). Free and MIT-licensed.
+**Make your AI coding plan last longer.** A small model on your own computer shrinks the large tool output your coding assistant sends to the paid cloud, and keeps a short memory of each conversation so its local steps answer with the conversation in view. Works with Claude Code, Codex, Cursor, Gemini CLI, Cline and any MCP client. Runs on [Ollama](https://ollama.com/). Free and MIT-licensed.
 
-**[See the live savings dashboard →](https://zenithfoundry.github.io/slm-gate/)** Measured from real daily use; benchmark runs are kept separate.
+**[See the live savings dashboard →](https://zenithfoundry.github.io/slm-gate/)** Measured from real daily use.
 
 [![npm](https://img.shields.io/npm/v/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
 [![downloads](https://img.shields.io/npm/dm/@zenithfoundry/slm-gate)](https://www.npmjs.com/package/@zenithfoundry/slm-gate)
@@ -44,7 +44,7 @@
 
 **It compresses the noise.** Your editor constantly packages up huge files, long logs, and sprawling system instructions and sends them to the cloud AI with every single message. Most of that is content the AI skims past. `slm-gate` intercepts this, runs a small, fast, free AI on your own computer, and strips it down to what actually matters — sending a fraction of the original text to the cloud.
 
-**It answers easy questions locally.** Many conversations open with something a small model can answer — a quick fact, a short explanation, a greeting. `slm-gate` lets your local model try the first message of each conversation; if its answer passes a check, that request never reaches your paid plan at all. Anything else, and every slash command, goes to the cloud as normal.
+**It never puts words in your assistant's mouth.** Every request still goes to the provider your coding tool uses, with your own login. `slm-gate` only makes those requests smaller. A short running memory of each conversation (the goal, what was decided, the files in play) lets its local steps answer questions about cut text and settle open questions in a skill with the conversation in view, instead of one message at a time.
 
 The result: your paid AI plan lasts dramatically longer. Whether you're on a subscription (Claude Pro, Cursor Pro, Gemini Advanced, ChatGPT Plus) or paying per-token via an API key, you spend far less on the same amount of real work.
 
@@ -70,7 +70,7 @@ On pay-per-token API plans (like `gpt-4o` or Claude Sonnet via API key), every t
 
 - How many tokens (units of text) were in the original payload
 - How many tokens remained after compression
-- Whether the request was answered locally (free) or forwarded to the cloud (answering locally is `llm-gate` only; see [How It Operates](docs/integration-layers.md))
+- Whether the request went out shrunk or unchanged (shrinking model requests is `llm-gate` only; see [How It Operates](docs/integration-layers.md))
 - How long the local processing took
 - The simulated dollar cost saved (for API key users)
 
@@ -80,7 +80,7 @@ On pay-per-token API plans (like `gpt-4o` or Claude Sonnet via API key), every t
 pnpm run slm-gate metrics
 ```
 
-This prints a clean, offline summary showing tokens saved, compression ratio, requests handled locally, and how many extra minutes of subscription headroom you've gained — no API keys, no internet connection required.
+This prints a clean, offline summary showing tokens saved, compression ratio, and how many extra minutes of subscription headroom you've gained — no API keys, no internet connection required.
 
 **Want a visual dashboard?** Run `pnpm run dashboard` for the built-in one-page dashboard — per-cycle window time returned per provider, tokens saved, weekly charts and routing split, straight from the local ledger, publishable to GitHub Pages for free (see [The Metrics Dashboard](docs/daily-use.md#the-metrics-dashboard)). If you also set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will send traces there for session-by-session analysis. Both are optional — the local metrics command always works regardless.
 
@@ -93,7 +93,7 @@ Five small diagrams, each answering one question. Read them in order. Numbers on
 slm-gate is two small servers on your computer, between your coding tool and the outside world. Both use small local models, run by Ollama:
 
 - **Tool calls** go through the **MCP gate**. It passes each call to your toolbox, then trims long text in the result before your coding tool sees it: fixed rules first, then the small model summarises what is still too long. It also adds a short note on what your project uses, and lists any open decisions it found in the text, answered where it can.
-- **Model requests** go through the **model gate**. It shrinks new command, search and listing output, and sends the request to your AI provider with your own login. Optionally (`LLM_GATE_LOCAL_FIRST=on`, off by default) the small model may answer a plain first question itself; leave that off for coding tools, whose first requests carry context the small model cannot see. The gate also keeps a short running memory of each conversation (goal, decisions, files in play), folded by the brain model while the gate is idle, so the local steps answer with the conversation in view; `slm-gate memory` shows it.
+- **Model requests** go through the **model gate**. It shrinks new command, search and listing output, and sends the request to your AI provider with your own login. The gate also keeps a short running memory of each conversation (goal, decisions, files in play), folded by the brain model while the gate is idle, so the local steps answer with the conversation in view; `slm-gate memory` shows it.
 
 If the small model fails or runs out of time, the text it was working on goes on as it was. Both gates record what they did in a local ledger (diagram 5).
 
@@ -109,9 +109,8 @@ flowchart LR
 
   subgraph llmRow["Model requests: model gate"]
     direction LR
-    llm["Model gate"] -.->|"first message, only if<br/>LLM_GATE_LOCAL_FIRST=on"| answer["Small model<br/>tries to answer"]
-    llm -->|"later messages"| shrink["Shrink new command,<br/>search and listing output"]
-    answer -->|"no answer"| shrink
+    llm["Model gate"] -->|"every request"| shrink["Shrink new command,<br/>search and listing output"]
+    llm -.->|"after each reply,<br/>while idle"| memory["Brain model folds the turn<br/>into the conversation memory"]
     shrink --> cloud["Your AI provider<br/>(your login or API key)"]
   end
 
@@ -157,36 +156,32 @@ flowchart LR
 
 #### 3. What happens to a model request (model gate)
 
-The model gate is a small server at `http://localhost:8787`. It reads four request formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini) and makes two tries to save you money before anything goes to your AI provider:
+The model gate is a small server at `http://localhost:8787`. It reads four request formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini) and makes one change to save you money before anything goes to your AI provider:
 
-- **Step A, answer locally** (`LLM_GATE_LOCAL_FIRST=on`; off by default, and leave it off for Claude Code and other coding tools: their first requests, and the short helper requests they send on your behalf, refer to context the local model never sees, whatever its size, so a confident wrong reply is the likely outcome). It suits a plain chat client asking plain questions. First message of a conversation only. Skipped for slash commands, for requests that demand a set output format or a tool call, and, when the coding tool offers the model tools, for messages that mention your code or files or ask about the assistant itself. Otherwise the gate model sorts the question by type, and only simple types are tried: short facts and formatting, plus yes/no, extraction, classification and spelling fixes when no tools are offered. The brain model answers 3 times by default, and the verifier (`src/verifier/index.ts`) rejects an empty answer, a hedging one ("I'm not sure") or answers that disagree. A passing answer goes back in the provider's own format and the cloud is never called. One try at a time, at most 6 seconds. `SEMCACHE=on` also reuses a saved answer to a very similar question, and `ROUTING_TUNE=on` stops trying types that usually fail.
-- **Step B, shrink** (every request not answered locally). New command, search and listing output of at least `DISTILL_MIN_TOKENS` is trimmed the same way as in the MCP gate. File reads (including `cat` and similar run from a shell), web fetches and MCP tool results are never changed. Each decision is saved and resent unchanged on every later turn, so the provider's prompt cache keeps working. At most 3 seconds; after that, the original goes.
+- **Shrink.** New command, search and listing output of at least `DISTILL_MIN_TOKENS` is trimmed the same way as in the MCP gate. File reads (including `cat` and similar run from a shell), web fetches and MCP tool results are never changed. Each decision is saved and resent unchanged on every later turn, so the provider's prompt cache keeps working. At most 3 seconds; after that, the original goes.
 
-The request then goes to the provider its address belongs to, with every header your coding tool sent, so your own subscription login or API key is used; slm-gate never adds or swaps credentials. The reply streams back unchanged. Token counts, model lists and hello pings skip both steps.
+The request then goes to the provider its address belongs to, with every header your coding tool sent, so your own subscription login or API key is used; slm-gate never adds or swaps credentials. The reply streams back unchanged. Once the reply is done, the turn is noted for the conversation memory; the brain model folds it into the summary later, only while the gate has no request in flight. Token counts, model lists and hello pings skip all of this.
 
 ```mermaid
 flowchart LR
   tool(("Coding tool"))
   server["Model gate<br/>[llm-gate/server.ts]"]
-  stepA["Step A: answer locally?<br/>[llm-gate/local-first.ts]"]
-  stepB["Step B: shrink new output<br/>[llm-gate/distill.ts]"]
-  classify["Sort the typed turn<br/>(ROUTING_TUNE, off the request path)"]
+  shrink["Shrink new output<br/>[llm-gate/distill.ts]"]
+  memory["Conversation memory<br/>[llm-gate/memory.ts]"]
   fwd["Forward<br/>[llm-gate/forward.ts]"]
   cloud["Your AI provider<br/>(your login or API key)"]
   ledger[("Ledger")]
 
   tool -->|"1. request"| server
-  server -->|"2. first message only"| stepA
-  stepA -.->|"passed the check: reply now"| tool
-  server -->|"3. not answered locally"| stepB
-  stepB -->|"4. smaller request"| fwd
-  fwd -->|"5. same headers"| cloud
-  cloud -->|"6. reply"| fwd
-  fwd -->|"7. reply, unchanged"| tool
-  server -->|"8. log it: route, tokens,<br/>tool schemas counted"| ledger
-  stepB -.->|"saved decisions"| ledger
-  server -.->|"later turns, beside the forward"| classify
-  classify -.->|"category"| ledger
+  server -->|"2. every request"| shrink
+  shrink -->|"3. smaller request"| fwd
+  fwd -->|"4. same headers"| cloud
+  cloud -->|"5. reply"| fwd
+  fwd -->|"6. reply, unchanged"| tool
+  server -->|"7. log it: route, tokens,<br/>tool schemas counted"| ledger
+  shrink -.->|"saved decisions"| ledger
+  server -.->|"8. note the turn; fold it<br/>while idle (brain model)"| memory
+  memory -.->|"summary row"| ledger
 ```
 
 #### 4. How it starts, and what the CLI does
@@ -220,15 +215,14 @@ flowchart LR
 | `doctor` | `src/doctor.ts` | Preflight checks, and the exact line to paste into each coding tool |
 | `config` | `src/config.ts` | Prints your settings |
 | `models:check` | `src/models/check.ts` | Checks your models are downloaded and fit in memory |
-| `metrics` | `harness/metrics.ts` | Rows, tokens and cost in the ledger, gate on vs off |
+| `metrics` | `harness/metrics.ts` | Rows, tokens and cost in the ledger |
 | `ledger:sync` | `src/ledger/sync.ts` | Sends ledger history to Langfuse |
 | `setup-dashboard` | `src/ledger/setup-dashboard.ts` | Builds the Langfuse dashboard |
-| `ledger:reset` | `src/cli.ts` | Deletes the local ledger and benchmark output |
-| `bench` | `harness/run.ts` | Offline benchmark with an API key (not live traffic) |
+| `ledger:reset` | `src/cli.ts` | Deletes the local ledger |
 
 #### 5. Where the data goes
 
-Both gates write one row to the local ledger, a SQLite file (`output/ledger.sqlite` by default): one for each tool result the MCP gate conditions, and one for each model request the model gate answers or forwards. A row holds token counts, the route taken and timings, not the text itself. Rows for your coding tool's traffic carry no price; only the optional resolver cloud call and the benchmark record one. Cost saved (from the price list) and minutes saved (from each provider's usage-window size) are worked out for Langfuse as each row is written and again by `ledger:sync`; the dashboard works out minutes saved each time it loads. The same file also keeps saved results, the original of anything cut (for `expand_elision`), and the model gate's shrink decisions.
+Both gates write one row to the local ledger, a SQLite file (`output/ledger.sqlite` by default): one for each tool result the MCP gate conditions, and one for each model request the model gate forwards (and one for each memory fold). A row holds token counts, the route taken and timings, not the text itself. Rows for your coding tool's traffic carry no price; only the optional resolver cloud call records one. Cost saved (from the price list) and minutes saved (from each provider's usage-window size) are worked out for Langfuse as each row is written and again by `ledger:sync`; the dashboard works out minutes saved each time it loads. The same file also keeps saved results, the original of anything cut (for `expand_elision`), and the model gate's shrink decisions.
 
 If all three Langfuse keys are set, each gate sends its new rows there as it runs (at start-up, every 15 seconds and at shutdown), and `ledger:sync` re-sends history.
 
@@ -239,11 +233,11 @@ flowchart LR
   pricing["Prices and window sizes<br/>[pricing/]"]
   metrics["slm-gate metrics<br/>[harness/metrics.ts]"]
   report["Tokens saved per day<br/>[ledger/report.ts]"]
-  dash["Dashboard: savings, routing,<br/>accuracy, tool definitions,<br/>skill fidelity<br/>[dashboard/serve.ts]"]
+  dash["Dashboard: savings, routing,<br/>tool definitions, skill fidelity<br/>[dashboard/serve.ts]"]
   site["site/ folder for GitHub Pages<br/>[dashboard/export.ts]"]
   langfuse["Langfuse (optional)"]
 
-  gates -->|"1. a row per request:<br/>route, tokens, fidelity,<br/>tool schemas, category"| ledger
+  gates -->|"1. a row per request:<br/>route, tokens, fidelity,<br/>tool schemas, memory state"| ledger
   ledger --> metrics
   ledger --> report
   ledger --> dash
@@ -255,9 +249,9 @@ flowchart LR
 
 | Reader | Command | Shows |
 | :--- | :--- | :--- |
-| Metrics | `slm-gate metrics` | Rows, tokens and cost, gate on vs off |
+| Metrics | `slm-gate metrics` | Rows, tokens and cost in the ledger |
 | Report | `pnpm run ledger:report` | Tokens saved per day and all-time |
-| Dashboard | `pnpm run dashboard` | Minutes of each provider's usage window returned, tokens saved, weekly charts, routing split, local-answer accuracy |
+| Dashboard | `pnpm run dashboard` | Minutes of each provider's usage window returned, tokens saved, weekly charts, routing split, tool definitions, skill fidelity |
 | Static copy | `pnpm run dashboard:export` | The dashboard with numbers and dates only, written to `site/` for the Pages workflow |
 | Langfuse | runs by itself; `slm-gate ledger:sync` for history | A trace per request, with cost, tokens and minutes saved |
 

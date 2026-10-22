@@ -25,7 +25,6 @@ Read these in order the first time.
 ## Measuring
 
 - [Analytics & observability](./analytics-and-observability.md): the local SQLite ledger, the dashboard, and Langfuse setup
-- [Benchmark harness](../harness/README.md): the offline benchmark (API key needed)
 
 ## Editor configs
 

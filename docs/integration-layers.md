@@ -2,12 +2,11 @@
 
 `slm-gate` has two independent operating modes — think of them as two different places where the gate can be inserted into your workflow. You can use one, the other, or both at the same time.
 
-> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. It can't answer your questions locally. `llm-gate` sits between your coding tool and the model, so it sees every request. It lets the small model try the first message of a conversation, and shrinks large command, search and listing output in every later request before it leaves your machine.
+> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. `llm-gate` sits between your coding tool and the model, so it sees every request. It shrinks large command, search and listing output in every request before it leaves your machine, and keeps a short memory of each conversation that the local steps of both layers read. Neither layer ever answers a request itself.
 >
 > | Dashboard card | Needs |
 > |---|---|
 > | Tokens Saved, Cost Saved, Routing Decision | either layer |
-> | SLM Accuracy Rate | `llm-gate` (or `pnpm run bench`, shown under Env = `bench`) |
 > | Claude / Gemini Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | either layer **and** that provider's `*_WINDOW_BUDGET` |
 > | ChatGPT Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | `llm-gate` **and** `CHATGPT_WINDOW_BUDGET` |
 
@@ -69,9 +68,9 @@ To use Tech-Lead-Stack as your downstream:
 
 **How it works:** `llm-gate` (the "model gate") is a small server on your machine at `http://localhost:8787`. You change one setting in your coding tool so it sends its model requests there instead of straight to Anthropic, OpenAI or Google. For each request the gate:
 
-1. **First message of a conversation:** lets your local model try to answer. If it can't, or its answer fails the check, the request carries on as below. Slash commands and coding tasks that need the tool's own tools always carry on.
-2. **Every other request, tool steps included:** shrinks large command, search and listing output (tool results) before the request leaves your machine. Each result is shrunk once and the same shorter text is resent every later turn, so the provider's prompt cache keeps working. Nothing else in the request is changed.
-3. **Sends the request to the provider the tool would have used anyway, with the tool's own login** (your Claude Pro/Max or ChatGPT login, or your API key). You are billed exactly as without the gate; there are just fewer, smaller requests.
+1. **Shrinks large command, search and listing output** (tool results) before the request leaves your machine. Each result is shrunk once and the same shorter text is resent every later turn, so the provider's prompt cache keeps working. Nothing else in the request is changed.
+2. **Sends the request to the provider the tool would have used anyway, with the tool's own login** (your Claude Pro/Max or ChatGPT login, or your API key). You are billed exactly as without the gate; the requests are just smaller.
+3. **Remembers what the conversation is about.** After each reply, while no request is in flight, the brain model folds the turn into a short summary (goal, decisions, files in play). `ask_elision` and the resolver read it; `slm-gate memory` shows it.
 
 ```
 Your coding tool
@@ -79,7 +78,6 @@ Your coding tool
     ▼
 slm-gate (llm-gate)       ← on http://localhost:8787, started for you
     │ every request        → large tool output shrunk
-    │ (first message       → local model tries to answer; LLM_GATE_LOCAL_FIRST=on only, not for coding tools)
     │ after each reply     → the brain model folds the turn into a short conversation memory (off the request path)
     ▼
 The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
@@ -99,7 +97,7 @@ The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 
 Neither layer needs an API key of its own. Every request that reaches the cloud is billed exactly as it would be without `slm-gate`: to the subscription or API key your coding tool is logged in with. `slm-gate` only makes those requests fewer and smaller.
 
-The `CLOUD_*` settings are optional and separate. They are read only by the benchmark (`slm-gate bench`), the resolver's optional cloud tier (`RESOLVER_CLOUD_TIER`) and a hosted small model (`SLM_PROVIDER=openai`). Most people leave them blank.
+The `CLOUD_*` settings are optional and separate. They are read only by the resolver's optional cloud tier (`RESOLVER_CLOUD_TIER`) and a hosted small model (`SLM_PROVIDER=openai`). Most people leave them blank.
 
 ---
 

@@ -41,7 +41,7 @@ Ollama should be reachable at `http://localhost:11434` (its default address).
 These are not required to get started, but unlock additional capabilities:
 
 - **[Langfuse](https://langfuse.com/)** — A free, open-source web dashboard for visualising your AI usage and token savings. Self-hostable or use the cloud version. You only need this if you want richer visual analytics beyond the CLI metrics command.
-- **Cloud API Key** — An `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or similar. Only needed if you plan to use Layer 2 (`llm-gate` for model endpoint routing) or run the offline benchmarking harness. For Layer 1 subscription users, no API key is needed.
+- **Cloud API Key** — An `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or similar. Only needed for the resolver's optional cloud tier or a hosted small model; the model gate forwards your coding tool's own login. For Layer 1 subscription users, no API key is needed.
 - **[Tech-Lead-Stack](https://github.com/bronz3beard/ai.tech-lead-stack)** — An optional companion MCP server that `slm-gate` can sit in front of. See [How It Operates](integration-layers.md) for details.
 
 ---

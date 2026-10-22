@@ -2,12 +2,14 @@
 
 > [!NOTE]
 > **Is this guide for me?**
-> This guide is for **EVERYONE**, whether you use an API key or a flat-fee subscription model. 
-> 
-> The tool keeps a local logbook (called the "ledger") of every request. This guide will show you how to read that logbook to compare your usage "with the gate on" versus "with the gate off."
+> This guide is for **EVERYONE**, whether you use an API key or a flat-fee subscription model.
+>
+> The tool keeps a local logbook (called the "ledger") of every request. This guide shows you how to read that logbook: what each request would have cost without the gate, what it cost with it, and the difference.
 
 ### The Goal
-We want to see fewer tokens and less quota used, WITHOUT the answers getting worse. 
+We want to see fewer tokens and less quota used, WITHOUT the answers getting worse.
+
+The gate never answers a request itself, so the answers come from the same model as before. What changes is the size of what reaches it. Every ledger row records the request before and after shrinking, so you do not need a separate "gate off" run: the comparison is inside each row.
 
 ### What you'll need before starting
 - [x] The `llm-gate` or `mcp-gate` setup completed from the previous guides.
@@ -15,40 +17,15 @@ We want to see fewer tokens and less quota used, WITHOUT the answers getting wor
 
 ---
 
-## Step 1: Collect a "Before" Sample (Gate OFF)
+## Step 1: Do some normal work
 
-First, we need to gather a baseline of how many tokens you use normally without the gate's help.
+Use your coding tool for about 10 tasks you would typically do in your day-to-day work (refactoring a file, asking for an explanation, writing a test, running the tests and fixing what fails). Tasks that run commands, search the code or list folders are the ones that produce large tool output, which is what the gate shrinks.
 
-**How to turn the gate OFF:**
-- **If using a chat client (Cursor/Cline):** Remove the `http://localhost:8787/v1` Base URL from your settings to point back directly to the real API.
-- **If using Claude Code:** Close your terminal and open a new one without the `ANTHROPIC_BASE_URL` export.
-- **If using an advanced client that supports custom headers:** You can send the HTTP header `x-slm-route: raw` with your requests to force the gate to bypass the local model.
-- **If using the MCP Gate (Layer 1):** Remove the MCP gate from your editor's config and point it back to the original tool server.
-
-**Do 10 normal tasks:**
-Use your client to do about 10 tasks that you would typically do in your day-to-day work (e.g., refactoring a file, asking for an explanation, writing a test).
-
-*What just happened: You generated real-world traffic that bypassed the local SLM, logging the pure "cloud-only" cost and token usage to your ledger.*
+*What just happened: every model request your tool sent went through the gate, and every tool result your toolbox returned went through the MCP gate. Each one wrote a row to the ledger with the size before and after.*
 
 ---
 
-## Step 2: Collect an "After" Sample (Gate ON)
-
-Now, we need to gather data with the gate actively protecting your quota.
-
-**How to turn the gate ON:**
-Restore the `http://localhost:8787/v1` Base URL in your client settings, or restore the MCP gate in your editor configuration.
-
-**Do 10 more tasks:**
-Perform 10 *similar* tasks to the ones you did in Step 1. They don't have to be identical, but they should be of similar complexity.
-
-*What just happened: You generated traffic that was intercepted by the local SLM, logging the new, optimized token usage and cost to the ledger.*
-
----
-
-## Step 3: Read the Results
-
-Now let's compare the "Before" and "After" data.
+## Step 2: Read the totals
 
 Open your terminal and run the metrics command:
 ```bash
@@ -58,46 +35,38 @@ npx slm-gate metrics
 **What you should see:**
 ```text
 --- Local SQLite Ledger Metrics ---
-┌─────────┬──────────────────────────┬────────────┬────────┬─────────────┬───────┐
-│ (index) │ Arm                      │ Cost (USD) │ Tokens │ Avg Quality │ Count │
-├─────────┼──────────────────────────┼────────────┼────────┼─────────────┼───────┤
-│ 0       │ slm_gate=off (Baseline)  │ 0.1500     │ 45000  │ 0.95        │ 10    │
-│ 1       │ slm_gate=on (Router)     │ 0.0300     │ 9000   │ 0.95        │ 10    │
-└─────────┴──────────────────────────┴────────────┴────────┴─────────────┴───────┘
-
---- Deltas (on - off) ---
-Cost Saved: $0.1200
-Tokens Saved: 36000
-Quality Change: +0.00
+┌─────────┬──────────────────────────────────┬────────────┬────────┬─────────────┬───────┐
+│ (index) │ Rows                             │ Cost (USD) │ Tokens │ Avg Quality │ Count │
+├─────────┼──────────────────────────────────┼────────────┼────────┼─────────────┼───────┤
+│ 0       │ slm_gate=off (old benchmark rows)│ 0.0000     │ 0      │ 0.00        │ 0     │
+│ 1       │ slm_gate=on (the gate)           │ 0.0000     │ 9000   │ 0.00        │ 24    │
+└─────────┴──────────────────────────────────┴────────────┴────────┴─────────────┴───────┘
 ```
 
 **How to read this table:**
-- **Cost (USD):** The actual money spent. **Note for subscription users:** Since you pay a flat monthly fee, this column will be near zero ($0.00). This is expected!
-- **Tokens:** The total number of tokens sent to and received from the cloud. **For subscription users, this is the number that matters.** Saving tokens means you are staying under your rate limits and preventing your quota from running out.
-- **Avg Quality:** A score of how good the answers were.
-- **What "Good" looks like:** You want to see **Tokens** drop significantly, while **Avg Quality** stays the same or goes up.
-
-*What just happened: The metrics command analyzed the SQLite ledger and aggregated the rows into a simple before/after comparison.*
+- **Cost (USD):** Only the resolver's optional cloud call records a price. Your coding tool's own requests are billed to your subscription or key exactly as before, so this column is usually zero. That is expected.
+- **Tokens:** The tokens the gate's rows recorded. For subscription users this is the number that matters: fewer tokens sent means you stay under your rate limits and your quota lasts longer.
+- **slm_gate=off:** Rows written by the router benchmark that versions before 1.4 shipped. A fresh ledger has none.
 
 ---
 
-## Optional: Advanced Offline Evaluation (API-Key Only)
+## Step 3: Read the savings
 
-If you have a paid API key set in `CLOUD_API_KEY`, you can run a simulated batch test without having to manually do 20 tasks.
+The totals above do not say how much was saved. That is what the report and the dashboard are for.
 
-Run the bench command:
 ```bash
-npx slm-gate bench --n 10
+pnpm run ledger:report
 ```
 
-This runs 10 offline dataset tasks against both the local and cloud models and outputs two files:
-1. `output/leaderboard.md`: A detailed breakdown of which model answered which question.
-2. `output/deferral_curve.svg`: A chart showing the router's performance. 
+This prints tokens saved per day and all-time, from the ledger alone: for each row, the size before shrinking minus the size that went out. A day here equals the "Tokens Saved" card in Langfuse for the same UTC day.
 
-**How to read the deferral curve:**
-Open the SVG file in your browser. The chart shows cost on the X-axis and quality on the Y-axis. The router's dot (the performance of `slm-gate`) should sit above the diagonal "random routing" line, meaning it is making smart decisions. If the "small-model-only" baseline is at the exact same quality as the "big-model-only" baseline, your test tasks were too easy! 
+```bash
+pnpm run dashboard
+```
 
-For deeper analysis, read `harness/README.md`.
+This opens the local dashboard: minutes of each provider's usage window returned per cycle, tokens saved per provider and per week, the routing split (shrunk, sent unchanged), the tool definitions each request carried, and what shrinking a skill cost in requirement sentences (the fidelity card). [Analytics and observability](analytics-and-observability.md) explains each card.
+
+**What "good" looks like:** `forward_compressed` rows with a clear gap between the size before and after, and a fidelity card that shows nothing lost. Rows that are all `forward_raw` mean nothing in those requests was large enough to shrink; that is normal for short conversations.
 
 ---
 
@@ -120,6 +89,6 @@ For the complete, beginner-to-advanced guide detailing how to build custom ROI d
 ## Troubleshooting
 
 - **"The table is empty" or "Count is 0":** You haven't done any tasks yet, or you are pointing at the wrong ledger path. Check your `LEDGER_PATH` in `.env`.
-- **"Quality went down!":** The local model is answering questions it shouldn't. You need to tell it to be more strict and *escalate* more often. Open your `.env` file and raise the `HEADLINE_STRICTNESS` setting (e.g., from 4 to 5). This makes the verifier more skeptical of the local model's answers.
+- **"Tokens saved is 0":** Nothing large enough to shrink has gone through yet (`DISTILL_MIN_TOKENS`), or your coding tool is not sending its model requests through the gate. `slm-gate doctor` prints the line to paste into each tool.
+- **"A skill lost a sentence":** the fidelity card names it, and the guard protects that sentence by code on every later run. `pnpm run protections` lists what it has learned.
 - **For more troubleshooting:** Check the FAQ section in [`docs/analytics-and-observability.md`](./analytics-and-observability.md#9-troubleshooting--frequently-asked-questions).
-

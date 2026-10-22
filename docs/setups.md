@@ -26,7 +26,7 @@ ledger is lost.
 | `SLM_PIN_MODELS` | `on` | keeps the pair loaded; evicts a third model that displaced one of them |
 | `NUM_CTX` | `8192` | must match the Ollama launch file (`OLLAMA_CONTEXT_LENGTH`) |
 | `OLLAMA_KEEP_ALIVE` | `12h` | must match the Ollama launch file (`OLLAMA_KEEP_ALIVE`) |
-| `LLM_GATE_DISTILL` / `LLM_GATE_LOCAL_FIRST` | `on` / `off` | shrink tool output; never let the local model answer a coding tool's first request (it cannot see the context it refers to) |
+| `LLM_GATE_DISTILL` | `on` | shrink large tool output in model requests |
 | `DISTILL_SKILLS` | `on` | skill shrinking under the fidelity guard |
 | `REPO_INDEX` | `on` | the `find_existing` tool, index-backed answers, the "Existing code" section |
 | `CONVERSATION_MEMORY` | `on` | a short running summary per conversation, read by `ask_elision` and the resolver; `slm-gate memory` shows it |
@@ -35,9 +35,7 @@ ledger is lost.
 
 Keys you do not need to set, because their defaults are the values this setup wants:
 `DISTILL_FIDELITY_MIN=1.0` (nothing missing is ever accepted), `DISTILL_FIDELITY_MAX_RUNS=8`,
-`DISTILL_FIDELITY_BUDGET_MS=60000`, `MAX_CONCURRENT_SEGMENT_CALLS=2`, `RESOLVER_PROMPT_TOKENS=3000`,
-`ROUTING_TUNE=off`. Turn `ROUTING_TUNE` on only if you want per-turn routing data collected; it is one gate-model
-call per message you type.
+`DISTILL_FIDELITY_BUDGET_MS=60000`, `MAX_CONCURRENT_SEGMENT_CALLS=2`, `RESOLVER_PROMPT_TOKENS=3000`.
 
 Optional, for this setup: write decisions once in `.slm-gate/decisions/` in each repository (see
 [Decision memory](daily-use.md#decision-memory-answer-a-question-once-per-repository)); run `pnpm run fidelity`
@@ -52,7 +50,7 @@ to see what shrinking does to your skills, and `pnpm run protections` to see wha
 | `SLM_PIN_MODELS` | `on` | keeps the pair loaded; worth having in both setups |
 | `NUM_CTX` | `8192` | must match the Ollama launch file |
 | `OLLAMA_KEEP_ALIVE` | `12h` | must match the Ollama launch file |
-| `LLM_GATE_DISTILL` / `LLM_GATE_LOCAL_FIRST` | `on` / `off` | shrink tool output; never let the local model answer a coding tool's first request (it cannot see the context it refers to) |
+| `LLM_GATE_DISTILL` | `on` | shrink large tool output in model requests |
 | `DISTILL_SKILLS` | `off` | skills go out word for word |
 | `REPO_INDEX` | `off` | no index, no `find_existing`, no "Existing code" section |
 | `CONVERSATION_MEMORY` | `off` | the local steps answer from a single message, as before |
@@ -74,10 +72,9 @@ see the [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machin
 (`NUM_CTX` 32k to 64k; the key-value cache grows with it, roughly 2 to 3 GB per 32k tokens for a 4B model, more
 for bigger ones; `ollama ps` shows the context each loaded model actually got). Put the headroom into the
 fidelity guard, decision memory and the repository index first: a bigger brain with a bigger window loses fewer
-sentences and answers more questions from your code. It does not, on its own, make `LLM_GATE_LOCAL_FIRST` safe
-for a coding tool: the local model is still handed one message, not the conversation. The conversation memory
-(`CONVERSATION_MEMORY`, on in setup A) is what narrows that gap: it hands every local step a few hundred tokens
-of what the conversation is about.
+sentences and answers more questions from your code. The conversation memory (`CONVERSATION_MEMORY`, on in
+setup A) hands every local step a few hundred tokens of what the conversation is about; a bigger brain folds
+it faster and keeps more of it.
 
 **Reading a whole coding-tool request locally.** A Claude Code request routinely runs 60k to 80k tokens, most
 of it history and tool schemas. A 64k window on a 64 GB machine can hold one, but reading it through a local

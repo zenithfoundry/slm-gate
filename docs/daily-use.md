@@ -107,7 +107,6 @@ To see `slm-gate` working in real-time, check your editor's MCP logs for the str
 ## Cloud API Keys
 
 Neither layer needs a `CLOUD_API_KEY`: the model gate sends each request on with your coding tool's own login. The `CLOUD_*` variables are only required if:
-- You run the offline testing harness (`slm-gate bench`), or
 - You turn on the resolver's cloud tier (`RESOLVER_CLOUD_TIER`), or use `SLM_PROVIDER=openai`
 
 ---
@@ -157,8 +156,8 @@ slm-gate memory
 ```
 
 Who reads it: `ask_elision` (so "which step are we on?" has a here), the resolver (it stops asking questions the
-conversation already settled, and offers an earlier decision as the suggested answer, never applied on its own),
-and Step A when you turn it on. The MCP gate cannot know which conversation a tool call belongs to, so it takes
+conversation already settled, and offers an earlier decision as the suggested answer, never applied on its own).
+The MCP gate cannot know which conversation a tool call belongs to, so it takes
 the newest memory for the same workspace from a conversation that began after the session did, within ten
 minutes; two sessions in the same repository at once can cross, and every ledger row says which memory it used
 (`memory.match`). The summary text stays in the ledger file on this machine: it is never written to event rows,
