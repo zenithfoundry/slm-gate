@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect } from '@jest/globals';
 import { getE2EEnv } from '../../scripts/ollama-helper.js';
 
 const LANGFUSE_KEYS = ['LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY', 'LANGFUSE_HOST'] as const;

@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { detectHardware, recommendPreset, recommendNumCtx, getPresetRank, MIN_RAM_GB, modelsForRam, ramPresets } from '../hardware.js';
 
 describe('hardware.ts', () => {

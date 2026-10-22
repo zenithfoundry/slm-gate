@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { __resetProviderRegistry } from '../pricing/providers.js';
 import { computeCycleRates, computeTotals, computeTotalsByProvider, forgetProtection, formatEventForLangfuse, learnedProtections, LedgerEvent, listProtections, normaliseProtection, perEventBaselineTokens, perEventTokensSaved, providerFromAgent, providerFromModel, recordLostSentences } from './index.js';
 

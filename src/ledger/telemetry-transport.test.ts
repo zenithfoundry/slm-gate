@@ -6,6 +6,7 @@
  * that differed between SQLite and Langfuse.
  */
 
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { formatEventForLangfuse, LedgerEvent, SLM_GATE_SOURCE_TAG } from './index.js';
 import { __resetProviderRegistry } from '../pricing/providers.js';
 

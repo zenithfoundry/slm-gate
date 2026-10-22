@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { expectedScoreCounts, parseWindow, scoreDeltas } from '../../src/ledger/verify.js';
 import type { LedgerEvent } from '../../src/ledger/index.js';
 

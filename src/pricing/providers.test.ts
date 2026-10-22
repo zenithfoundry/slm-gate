@@ -6,6 +6,7 @@
  * mis-attributing traffic or dropping it from every per-provider metric.
  */
 
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
 import { providerFromModelId, providerFromAgentName, getProviderRegistry, __resetProviderRegistry, DEFAULT_PROVIDER_REGISTRY } from './providers.js';
 import { calculateCostUsd, normalizeModelId, PRICING } from './index.js';
 

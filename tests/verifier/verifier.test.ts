@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { verify, VerifyConstraints, VerifyResult } from '../../src/verifier/index.js';
 
 describe('Verifier', () => {
