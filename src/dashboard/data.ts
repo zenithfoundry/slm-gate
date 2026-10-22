@@ -109,9 +109,21 @@ export interface FidelitySection {
   expansionRate: number | null;
   /** The three measured skills with the lowest recall. */
   worst: { skill: string; recall: number }[];
+  /** Learned protections stored in the ledger (slice 5b); null when the loader did not supply the count. */
+  learned: number | null;
 }
 
-function fidelitySection(events: LedgerEvent[]): FidelitySection {
+/** Figures that live outside the events table; the loader supplies them, tests may omit them. */
+export interface DashboardExtras {
+  learnedProtections?: number;
+}
+
+/**
+ * Aggregates `meta.fidelity` over condition rows for the "Skill fidelity" card. Only rows where a model shortened
+ * text (summarize or not_shrunk) count as measured; cache hits and verbatim rows are counted but not scored, so
+ * an unmeasured share never inflates recall. Expansions are rated per conditioning over all real traffic.
+ */
+function fidelitySection(events: LedgerEvent[], extras: DashboardExtras): FidelitySection {
   let conditionings = 0;
   let measured = 0;
   let deterministicPass = 0;
@@ -144,6 +156,7 @@ function fidelitySection(events: LedgerEvent[]): FidelitySection {
     notShrunk,
     expansionRate: conditionRows === 0 ? null : Number((feedbackRows / conditionRows).toFixed(2)),
     worst: [...recalls].sort((a, b) => a.recall - b.recall).slice(0, 3),
+    learned: extras.learnedProtections ?? null,
   };
 }
 
@@ -161,6 +174,11 @@ export interface ToolDefsSection {
 
 const TOOL_DEFS_WARN_ABOVE = 20;
 
+/**
+ * Aggregates the tool-definition counts the model gate records on each request (`meta.tools_*`) for the "Tool
+ * definitions in context" card. The warning keys on the LATEST request: many tools listed and none deferred means
+ * server-side tool search is not working through the gate right now, whatever earlier requests did.
+ */
 function toolDefsSection(events: LedgerEvent[]): ToolDefsSection {
   const rows: { count: number; deferred: number; tokEst: number }[] = [];
   for (const e of events) {
@@ -240,7 +258,7 @@ export function clusterCycles(params: { events: LedgerEvent[]; windowMinutes: nu
 }
 
 /** Pure aggregation over ledger events, so it is testable without a database. */
-export function computeDashboardData(events: LedgerEvent[]): DashboardData {
+export function computeDashboardData(events: LedgerEvent[], extras: DashboardExtras = {}): DashboardData {
   const sorted = [...events].sort((a, b) => a.ts.localeCompare(b.ts));
   const real = sorted.filter(e => e.environment !== 'bench');
   const bench = sorted.filter(e => e.environment === 'bench');
@@ -312,7 +330,7 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
     routing,
     accuracy: { real: accuracySlice(real), bench: accuracySlice(bench) },
     toolDefs: toolDefsSection(real),
-    fidelity: fidelitySection(real),
+    fidelity: fidelitySection(real, extras),
     days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     providers,
   };
@@ -322,7 +340,11 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
 export function loadDashboardData(): DashboardData {
   const db = new Database(CONFIG.LEDGER_PATH, { readonly: true, fileMustExist: true });
   try {
-    return computeDashboardData(db.prepare('SELECT * FROM events').all() as LedgerEvent[]);
+    const events = db.prepare('SELECT * FROM events').all() as LedgerEvent[];
+    // Older ledgers have no distill_protect table; the card then shows the count as not measured.
+    let learnedProtections: number | undefined;
+    try { learnedProtections = db.prepare('SELECT count(*) FROM distill_protect').pluck().get() as number; } catch { learnedProtections = undefined; }
+    return computeDashboardData(events, { learnedProtections });
   } finally {
     db.close();
   }

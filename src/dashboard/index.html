@@ -253,6 +253,11 @@ function accuracyCard() {
   return card;
 }
 
+/**
+ * "Tool definitions in context per request" (slice 1b): averages of the tool counts the model gate records on
+ * each request, with a warning when the latest request listed many tools and deferred none — the sign that
+ * server-side tool search is not working through the gate. Hidden when no request has reported counts.
+ */
 function toolDefsCard() {
   const t = DATA.toolDefs;
   if (!t || !t.requests) return null;
@@ -276,6 +281,12 @@ function toolDefsCard() {
   return card;
 }
 
+/**
+ * "Skill fidelity" (slice 5): what the shrinking guard measured on real conditionings — average recall of the
+ * requirement sentences the brain checked, the share with every protected block and tracked token intact, how
+ * many conditionings were measured or sent unshrunk, expansions per conditioning, and the lowest-recall skills.
+ * Hidden when no conditioning carries a measurement.
+ */
 function fidelityCard() {
   const f = DATA.fidelity;
   if (!f || !f.conditionings) return null;
@@ -297,6 +308,7 @@ function fidelityCard() {
   }
   card.append(tiles);
   if (f.worst.length) card.append(el('p', { class: 'sub', text: 'Lowest recall: ' + f.worst.map(w => w.skill + ' ' + (w.recall * 100).toFixed(0) + '%').join(' · ') }));
+  if (f.learned !== null && f.learned !== undefined) card.append(el('p', { class: 'sub', text: 'Learned protections: ' + fmtInt(f.learned) + ' sentences the brain once reported missing are now protected by code (pnpm run protections).' }));
   return card;
 }
 

@@ -1,5 +1,20 @@
 import { __resetProviderRegistry } from '../pricing/providers.js';
-import { computeCycleRates, computeTotals, computeTotalsByProvider, formatEventForLangfuse, LedgerEvent, perEventBaselineTokens, perEventTokensSaved, providerFromAgent, providerFromModel } from './index.js';
+import { computeCycleRates, computeTotals, computeTotalsByProvider, forgetProtection, formatEventForLangfuse, learnedProtections, LedgerEvent, listProtections, normaliseProtection, perEventBaselineTokens, perEventTokensSaved, providerFromAgent, providerFromModel, recordLostSentences } from './index.js';
+
+describe('learned protections (slice 5b) in the ledger', () => {
+  const sentence = '  You should run the   checks before merging.  ';
+
+  it('stores a lost sentence once in normalised form, counts repeats, and forgets on request', () => {
+    forgetProtection(sentence);
+    expect(recordLostSentences({ sentences: [sentence, 'tiny'], toolName: 'get_skill' })).toBe(1);
+    expect(recordLostSentences({ sentences: [sentence], toolName: 'get_skill' })).toBe(0);
+    const row = listProtections().find(r => r.pattern === normaliseProtection(sentence));
+    expect(row?.hits).toBe(2);
+    expect(learnedProtections()).toContain('you should run the checks before merging.');
+    expect(forgetProtection(sentence)).toBe(true);
+    expect(learnedProtections()).not.toContain('you should run the checks before merging.');
+  });
+});
 
 describe('expansion rows charge the page the cloud model re-read against the savings', () => {
   const row = (o: Partial<LedgerEvent>): LedgerEvent => ({

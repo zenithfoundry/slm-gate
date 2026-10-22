@@ -108,6 +108,18 @@ export async function createServer(options: { notices?: readonly { message: stri
           required: ["elisionId"]
         }
       });
+      // Advertise find_existing (slice 8, REPO_INDEX=on): symbols the repository already defines, no model.
+      if (CONFIG.REPO_INDEX) {
+        tools.push({
+          name: "find_existing",
+          description: "Before writing something new: the functions, classes and types this repository already defines that match a few words (a symbol index, no model call). Returns path:line per hit.",
+          inputSchema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"]
+          }
+        });
+      }
       // Advertise ask_elision (slice 6): a local model answers from the stored original.
       tools.push({
         name: "ask_elision",
@@ -128,6 +140,22 @@ export async function createServer(options: { notices?: readonly { message: stri
       const name = request.params.name;
       const args = request.params.arguments;
       const task = typeof args?.task === 'string' ? args.task : 'Unknown task';
+
+      if (name === "find_existing") {
+        const query = String(args?.query ?? '').trim();
+        if (!query) throw new Error("query is required");
+        if (!CONFIG.REPO_INDEX) throw new Error("find_existing is off (set REPO_INDEX=on)");
+        if (!rootUri) throw new Error("find_existing needs a workspace root; the editor sent none");
+        const { fileURLToPath } = await import('node:url');
+        const { findExisting, refreshRepoIndex } = await import('../index/repo-index.js');
+        const root = rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri;
+        refreshRepoIndex(root);
+        const hits = findExisting({ root, query, limit: 10 });
+        const text = hits.length === 0
+          ? `No existing symbol matches "${query}".`
+          : hits.map(h => `${h.path}:${h.line}  ${h.kind} ${h.name}  —  ${h.signature}`).join('\n');
+        return { content: [{ type: "text", text }] };
+      }
 
       if (name === "ask_elision") {
         const elisionId = String(args?.elisionId ?? '');

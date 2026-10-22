@@ -1,4 +1,9 @@
-import { jest } from '@jest/globals';
+/**
+ * @fileoverview `ask_elision` (slice 6): the MCP gate answers a question about elided text from the stored
+ * original with the brain model, caches the answer, and records what the cloud model would have read instead.
+ * The brain is faked; no Ollama. The marker-wording test pairs `formatElisionMarker` with `rewriteElisionHint`.
+ */
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 jest.unstable_mockModule('../../src/config.js', () => ({
@@ -35,6 +40,7 @@ jest.unstable_mockModule('@modelcontextprotocol/sdk/client/index.js', () => ({
   }))
 }));
 
+const { CONFIG } = await import('../../src/config.js');
 const { writeElision, getDb } = await import('../../src/ledger/index.js');
 const { formatElisionMarker, rewriteElisionHint } = await import('../../src/utils/elision.js');
 const { createServer } = await import('../../src/mcp-gate/server.js');
@@ -46,6 +52,7 @@ const lines = Array.from({ length: 400 }, (_, i) =>
 const ID = 'ask-under-test';
 writeElision({ id: ID, tool_name: 'get_skill', args: '{}', original_text: lines.join('\n'), ranges: JSON.stringify({ startLine: 0, endLine: 399 }), content_hash: 'h', size_bytes: lines.join('\n').length });
 
+/** Calls one gate tool through the real MCP request handler and returns its first text block. */
 const call = async (name: string, args: Record<string, unknown>) => {
   const { server } = await createServer();
   const handler = (server as any)._requestHandlers.get(CallToolRequestSchema.shape.method.value);
@@ -53,14 +60,23 @@ const call = async (name: string, args: Record<string, unknown>) => {
   return result.content[0].text as string;
 };
 
-beforeEach(() => answerFromText.mockClear());
+beforeEach(() => {
+  answerFromText.mockClear();
+});
 
 describe('ask_elision', () => {
-  it('is advertised next to expand_elision', async () => {
+  it('is advertised next to expand_elision; find_existing only with REPO_INDEX on', async () => {
     const { server } = await createServer();
     const list = (server as any)._requestHandlers.get(ListToolsRequestSchema.shape.method.value);
-    const { tools } = await list({ method: 'tools/list' }, {});
-    expect(tools.map((t: { name: string }) => t.name)).toEqual(expect.arrayContaining(['expand_elision', 'ask_elision']));
+    const names = async () => ((await list({ method: 'tools/list' }, {})).tools as { name: string }[]).map(t => t.name);
+    expect(await names()).toEqual(expect.arrayContaining(['expand_elision', 'ask_elision']));
+    expect(await names()).not.toContain('find_existing');
+    (CONFIG as any).REPO_INDEX = true;
+    try {
+      expect(await names()).toContain('find_existing');
+    } finally {
+      (CONFIG as any).REPO_INDEX = false;
+    }
   });
 
   it('answers from the part of the original that holds the answer and cites its lines', async () => {

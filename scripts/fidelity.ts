@@ -23,6 +23,9 @@ import Database from 'better-sqlite3';
 import { config as loadEnv } from 'dotenv';
 
 const refresh = process.argv.includes('--refresh');
+/** `--json`: one JSON object on stdout instead of the table, for `scripts/bench-gate.ts`. */
+const asJson = process.argv.includes('--json');
+const say = (line: string) => { if (!asJson) console.log(line); };
 const liveEnv = loadEnv({ path: '.env', processEnv: {} }).parsed ?? {};
 const liveLedger = process.env.FIDELITY_LIVE_LEDGER ?? liveEnv.LEDGER_PATH ?? path.join('output', 'ledger.sqlite');
 const outDir = 'output';
@@ -39,6 +42,7 @@ const { SLM } = await import('../src/models/slm.js');
 const { buildPreserveList } = await import('../src/utils/preserve-patterns.js');
 const { distillToolResultWithStats, estimateTokens } = await import('../src/utils/elision.js');
 const { checkKept, compressNarrativeRun } = await import('../src/models/reasoning.js');
+const { learnedProtections } = await import('../src/ledger/index.js');
 
 type Entry = { id: string; source: 'elision_cache' | 'fixture'; hash?: string; file?: string };
 type Outcome = 'pass' | 'deterministic_fail' | 'recall_fail' | 'model_error' | 'timeout' | 'not_shrunk';
@@ -46,6 +50,7 @@ type Outcome = 'pass' | 'deterministic_fail' | 'recall_fail' | 'model_error' | '
 const SKILL_TOOL = /skill/i;
 const fixturesDir = path.join('tests', 'fixtures', 'skills');
 
+/** Content hashes of every distinct cached skill text in the live ledger (read-only), by the generic tool-name test. */
 function liveSkillHashes(): string[] {
   if (!fs.existsSync(liveLedger)) return [];
   const db = new Database(liveLedger, { readonly: true, fileMustExist: true });
@@ -57,6 +62,7 @@ function liveSkillHashes(): string[] {
   }
 }
 
+/** The original text behind one content hash, read from the live ledger at run time (the snapshot stores hashes only). */
 function liveText(hash: string): string | null {
   const db = new Database(liveLedger, { readonly: true, fileMustExist: true });
   try {
@@ -67,6 +73,10 @@ function liveText(hash: string): string | null {
   }
 }
 
+/**
+ * The fixed corpus: the snapshot's cached skill texts (written on the first run or with `--refresh`) plus every
+ * fixture in tests/fixtures/skills. Stable between runs, so a pass line means the same thing tomorrow.
+ */
 function corpus(): Entry[] {
   let entries: Entry[];
   if (!refresh && fs.existsSync(snapshotPath)) {
@@ -74,7 +84,7 @@ function corpus(): Entry[] {
   } else {
     entries = liveSkillHashes().map(hash => ({ id: hash.slice(0, 12), source: 'elision_cache' as const, hash }));
     fs.writeFileSync(snapshotPath, JSON.stringify(entries, null, 2) + '\n');
-    console.log(`snapshot written: ${snapshotPath} (${entries.length} cached skill texts)`);
+    say(`snapshot written: ${snapshotPath} (${entries.length} cached skill texts)`);
   }
   for (const file of fs.readdirSync(fixturesDir).filter(f => f.endsWith('.md')).sort()) {
     entries.push({ id: file.replace(/\.md$/, ''), source: 'fixture', file: path.join(fixturesDir, file) });
@@ -82,6 +92,10 @@ function corpus(): Entry[] {
   return entries;
 }
 
+/**
+ * One outcome per entry, most serious first: a local-model failure, then a lost protected block or token, then
+ * a run the brain found lossy, then a skill still over budget, else pass. Only the first four fail the bench.
+ */
 function outcomeOf(result: Awaited<ReturnType<typeof distillToolResultWithStats>>['fidelity']): Outcome {
   // A local-model failure inside the distiller keeps that run verbatim (safe) but is still a failed bench entry.
   if (result.errors.length > 0) return result.errors.some(e => /timed out|timeout/i.test(e)) ? 'timeout' : 'model_error';
@@ -98,7 +112,7 @@ const counts: Record<Outcome, number> = { pass: 0, deterministic_fail: 0, recall
 const rows: { id: string; outcome: Outcome; mode: string; recall: string; lost: number; runs: string; ms: number; tokens: string }[] = [];
 const worst: { id: string; recall: number }[] = [];
 
-console.log(`fidelity bench: ${entries.length} entries, brain ${CONFIG.SLM_BRAIN_MODEL}, gate ${CONFIG.SLM_GATE_MODEL}, min recall ${CONFIG.DISTILL_FIDELITY_MIN}`);
+say(`fidelity bench: ${entries.length} entries, brain ${CONFIG.SLM_BRAIN_MODEL}, gate ${CONFIG.SLM_GATE_MODEL}, concurrency ${CONFIG.MAX_CONCURRENT_SEGMENT_CALLS}, min recall ${CONFIG.DISTILL_FIDELITY_MIN}`);
 for (const entry of entries) {
   const text = entry.source === 'fixture' ? fs.readFileSync(entry.file!, 'utf8') : liveText(entry.hash!);
   if (text === null) { console.warn(`${entry.id}: no longer in the live ledger, skipped`); continue; }
@@ -125,12 +139,17 @@ for (const entry of entries) {
     console.error(`${entry.id}: ${outcome}: ${message}`);
   }
   const last = rows[rows.length - 1];
-  console.log(`${last.id.padEnd(18)} ${last.outcome.padEnd(18)} ${last.mode.padEnd(11)} recall ${last.recall.padStart(4)} lost ${String(last.lost).padStart(2)} runs ${last.runs.padStart(5)} ${String(last.ms).padStart(6)} ms ${last.tokens}`);
+  say(`${last.id.padEnd(18)} ${last.outcome.padEnd(18)} ${last.mode.padEnd(11)} recall ${last.recall.padStart(4)} lost ${String(last.lost).padStart(2)} runs ${last.runs.padStart(5)} ${String(last.ms).padStart(6)} ms ${last.tokens}`);
 }
 
 const failed = counts.deterministic_fail + counts.recall_fail + counts.model_error + counts.timeout;
 const notShrunkMode = rows.filter(r => r.mode === 'not_shrunk').length;
-console.log(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, recall_fail ${counts.recall_fail}, model_error ${counts.model_error}, timeout ${counts.timeout}, not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode})`);
-if (worst.length) console.log(`lowest recall: ${worst.sort((a, b) => a.recall - b.recall).slice(0, 3).map(w => `${w.id} ${(w.recall * 100).toFixed(0)}%`).join(' · ')}`);
-if (notShrunkMode) console.log(`not shrunk (authors' to-do for <!-- slm-gate:verbatim-start/end --> markers or shorter prose): ${rows.filter(r => r.mode === 'not_shrunk').map(r => r.id).join(', ')}`);
+if (asJson) {
+  console.log(JSON.stringify({ gate: CONFIG.SLM_GATE_MODEL, brain: CONFIG.SLM_BRAIN_MODEL, concurrency: CONFIG.MAX_CONCURRENT_SEGMENT_CALLS, counts, notShrunkMode, rows }));
+} else {
+  say(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, recall_fail ${counts.recall_fail}, model_error ${counts.model_error}, timeout ${counts.timeout}, not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode})`);
+  if (worst.length) say(`lowest recall: ${worst.sort((a, b) => a.recall - b.recall).slice(0, 3).map(w => `${w.id} ${(w.recall * 100).toFixed(0)}%`).join(' · ')}`);
+  say(`learned protections in this bench ledger: ${learnedProtections().length} (the live ledger learns on real traffic; see pnpm run protections)`);
+  if (notShrunkMode) say(`not shrunk (authors' to-do for <!-- slm-gate:verbatim-start/end --> markers or shorter prose): ${rows.filter(r => r.mode === 'not_shrunk').map(r => r.id).join(', ')}`);
+}
 process.exit(failed > 0 ? 1 : 0);

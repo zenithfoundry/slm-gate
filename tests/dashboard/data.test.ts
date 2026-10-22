@@ -71,7 +71,11 @@ describe('dashboard skill fidelity card data', () => {
 
   it('reports nothing measured when no row carries fidelity', () => {
     const data = computeDashboardData([ev({})]);
-    expect(data.fidelity).toEqual({ conditionings: 0, measured: 0, avgRecall: null, deterministicPassPct: null, notShrunk: 0, expansionRate: 0, worst: [] });
+    expect(data.fidelity).toEqual({ conditionings: 0, measured: 0, avgRecall: null, deterministicPassPct: null, notShrunk: 0, expansionRate: 0, worst: [], learned: null });
+  });
+
+  it('passes the learned-protection count through when the loader supplies it', () => {
+    expect(computeDashboardData([ev({})], { learnedProtections: 7 }).fidelity.learned).toBe(7);
   });
 });
 

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Slice 1b through the real gate server: the ledger row of a forwarded Anthropic-format request
+ * carries how many tool definitions it listed, how many were deferred, and the size of the rest; a request
+ * without tools carries no such fields. A mock provider answers upstream; no local model is involved.
+ */
 import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -11,6 +16,7 @@ let gate: http.Server;
 let gatePort: number;
 let getDb: typeof import('../../src/ledger/index.js').getDb;
 
+/** Starts a server on a free loopback port and resolves with that port. */
 function listen(server: http.Server): Promise<number> {
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)));
 }
@@ -36,6 +42,7 @@ afterAll(async () => {
   await new Promise(resolve => upstream.close(resolve));
 });
 
+/** Posts one Anthropic-format request through the gate and resolves with its ledger request id. */
 function send(body: unknown): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: gatePort, method: 'POST', path: '/v1/messages', headers: { 'content-type': 'application/json' }, agent: false }, res => {
@@ -47,9 +54,11 @@ function send(body: unknown): Promise<string> {
   });
 }
 
+/** The parsed `meta` JSON of the ledger row the gate wrote for a request. */
 const meta = (requestId: string): Record<string, unknown> =>
   JSON.parse((getDb().prepare('SELECT meta FROM events WHERE request_id = ?').get(requestId) as { meta: string }).meta);
 
+/** A minimal Anthropic tool definition, optionally marked for server-side tool search. */
 const tool = (name: string, deferred: boolean) => ({
   name, description: `The ${name} tool`, input_schema: { type: 'object', properties: {} }, ...(deferred ? { defer_loading: true } : {}),
 });

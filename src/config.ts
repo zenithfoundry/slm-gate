@@ -138,6 +138,9 @@ const envSchema = z.object({
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() ? path.resolve(ROOT_DIR, v.trim()) : null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
   DISTILL_SKILLS: parseBoolean(false),
+  // Repository symbol index (slice 8): the find_existing tool, index-backed resolver evidence and the
+  // "Existing code that may already cover this" section on conditioned skills. Disk only, no model.
+  REPO_INDEX: parseBoolean(false),
   DISTILL_ADAPTIVE: parseBoolean(false),
   DISTILL_ADAPTIVE_THRESHOLD: parseFloatNumber(0.86),
   DISTILL_ADAPTIVE_EXPLORE_RATE: parseFloatNumber(0.15),
@@ -155,6 +158,9 @@ const envSchema = z.object({
   DISTILL_FIDELITY_MAX_RUNS: parseInteger(8),
   // Wall-clock budget for one document's shrinking; runs past it stay verbatim.
   DISTILL_FIDELITY_BUDGET_MS: parseInteger(60000),
+  // Prose runs the gate model shortens at the same time. One GPU: two calls share it, so 2 is not twice as
+  // fast as 1; `pnpm run bench:gate` measures both on this machine.
+  MAX_CONCURRENT_SEGMENT_CALLS: parseInteger(2),
   KEEP_RECENT_TOOL_TURNS: parseInteger(2),
   ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),

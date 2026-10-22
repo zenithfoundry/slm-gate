@@ -4,11 +4,40 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
-import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
+import { cacheDepsFresh, cacheGet, cacheSet, writeCacheDeps, writeEvent } from '../ledger/index.js';
 import { handleSlmError } from '../models/helpers.js';
 import { checkKept, compressNarrativeRun } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { prepareSkillContext, resolveAmbiguities } from '../resolver/index.js';
+import type { ResolverOutput } from '../resolver/types.js';
+import { existingCodeSection, refreshRepoIndex } from '../index/repo-index.js';
+import { repoIndexRevision } from '../ledger/index.js';
+
+/** The repo root as a path, from the editor's root URI. */
+function rootPathOf(rootUri: string): string {
+  if (!rootUri.startsWith('file://')) return rootUri;
+  try { return fileURLToPath(rootUri); } catch { return rootUri.substring(7); }
+}
+
+/**
+ * The "Existing code that may already cover this" section (slice 8): computed on every call from the current
+ * index, hit or miss, and never cached — a code edit therefore never invalidates a cached conditioning by
+ * itself. Empty when REPO_INDEX is off, there is no root, or nothing matches.
+ */
+function existingCodeFor(params: { rootUri?: string; task: string }): string {
+  if (!CONFIG.REPO_INDEX || !params.rootUri) return '';
+  try {
+    const root = rootPathOf(params.rootUri);
+    refreshRepoIndex(root);
+    return existingCodeSection({ root, task: params.task });
+  } catch (err) {
+    console.error(`[pipeline] repo index skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return '';
+  }
+}
+
+/** Resolves the `index:<root>` pseudo-dependency (slice 8) from the ledger; real paths fall through to a stat. */
+const depValue = (depPath: string): number | undefined => (depPath.startsWith('index:') ? repoIndexRevision(depPath.slice('index:'.length)) : undefined);
 import { distillToolResultWithStats, FidelityStats, FidelityVerify } from '../utils/elision.js';
 import { scan } from './ground.js';
 import { buildPreserveList } from '../utils/preserve-patterns.js';
@@ -83,7 +112,7 @@ function emitConditionEvent(params: {
   cacheHit?: 'exact' | 'semantic';
   errorKinds?: { distill: SlmErrorKind; resolver: SlmErrorKind };
   /** What the resolver was given and found; absent on cache hits (no resolver work). */
-  resolver?: { context_tok_est: number; skill_tok_est: number; trimmed: 0 | 1; questions: number };
+  resolver?: { context_tok_est: number; skill_tok_est: number; trimmed: 0 | 1; questions: number; stale_decisions: string[] };
   /** What the fidelity guard measured; `{ mode: 'cache_hit' }` on hits (no measurement), null after a distil error. */
   fidelity?: FidelityStats | { mode: 'cache_hit' } | null;
 }): void {
@@ -146,20 +175,26 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION)
     .digest('hex');
   const cacheKey = `condition_${hash}`;
-  const cached = cacheGet(cacheKey);
+  // A hit is served only while the repository state it relied on (decision files, slice 7; the symbol index,
+  // slice 8) is unchanged; rows without dependencies are served as before. The index is brought up to date
+  // first, so an `index:<root>` dependency is compared against the revision AFTER any code edit.
+  if (CONFIG.REPO_INDEX && rootUri) {
+    try { refreshRepoIndex(rootPathOf(rootUri)); } catch (err) { console.error(`[pipeline] repo index refresh skipped: ${err instanceof Error ? err.message : String(err)}`); }
+  }
+  const cached = cacheDepsFresh(cacheKey, { statMtime: depValue }) ? cacheGet(cacheKey) : null;
   if (cached) {
     // A cache hit is the BEST outcome — full compression at zero SLM compute — yet it used
     // to return before any writeEvent, making it invisible to every metric and biasing all
     // savings figures toward the slow path.
     emitConditionEvent({ text, conditioned: cached, args, startTime, cacheHit: 'exact', fidelity: { mode: 'cache_hit' } });
-    return cached;
+    return cached + existingCodeFor({ rootUri, task });
   }
   
   if (CONFIG.SEMCACHE) {
     const semCached = await checkSemanticCache(text);
     if (semCached && typeof semCached === 'string') {
       emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic', fidelity: { mode: 'cache_hit' } });
-      return semCached;
+      return semCached + existingCodeFor({ rootUri, task });
     }
   }
 
@@ -209,7 +244,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   }
 
   const startResolver = Date.now();
-  let resolveOut = { autoApplied: [] as any[], askUser: [] as any[] };
+  let resolveOut: ResolverOutput = { autoApplied: [], askUser: [] };
   let resolverErrorKind: SlmErrorKind = null;
   // Slice 4: the resolver's prompt must fit the local context; a whole skill often does not.
   const skillContext = prepareSkillContext(text, CONFIG.RESOLVER_PROMPT_TOKENS);
@@ -233,17 +268,18 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     conditioned += `\n\n# Environment Context\n${groundCtx}`;
   }
 
+  // Provenance (slice 7): an answer from a decision file says so, with who verified it and when.
   if (resolveOut.autoApplied.length > 0) {
     conditioned += `\n\n# Auto-Resolved Decisions\n`;
     for (const res of resolveOut.autoApplied) {
-      conditioned += `- **${res.question}**: ${res.answer}\n`;
+      conditioned += `- **${res.question}**: ${res.answer}${res.provenance ? ` (${res.provenance})` : ''}\n`;
     }
   }
 
   if (resolveOut.askUser.length > 0) {
     conditioned += `\n\n# Pending Clarifications (Ask User)\n`;
     for (const ask of resolveOut.askUser) {
-      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'})\n`;
+      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'}${ask.provenance ? `; ${ask.provenance}` : ''})\n`;
     }
   }
   
@@ -271,6 +307,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
       skill_tok_est: skillContext.originalTokEst,
       trimmed: skillContext.trimmed ? 1 : 0,
       questions: resolveOut.autoApplied.length + resolveOut.askUser.length,
+      stale_decisions: resolveOut.staleDecisions ?? [],
     },
   });
 
@@ -283,10 +320,13 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // longer blocks caching.
   if (!distillErrorKind) {
     cacheSet(cacheKey, conditioned);
+    // The repository state this result relied on (slice 7); a change makes the next call a miss.
+    writeCacheDeps(cacheKey, resolveOut.dependencies ?? []);
     if (CONFIG.SEMCACHE) {
       await setSemanticCache(text, conditioned);
     }
   }
 
-  return conditioned;
+  // Appended after caching on purpose: the section follows the index, not the cache (slice 8).
+  return conditioned + existingCodeFor({ rootUri, task });
 }

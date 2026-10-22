@@ -1,4 +1,8 @@
-import { jest } from '@jest/globals';
+/**
+ * @fileoverview `expand_elision` paging, and (slice 3b) its ledger row: the feedback event is written after
+ * paging with the tokens of the exact returned text, and an expansion never asks Ollama for an embedding model.
+ */
+import { describe, expect, it, jest } from '@jest/globals';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // A tiny page budget so a 100-line document needs several pages.

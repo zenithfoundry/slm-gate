@@ -18,6 +18,10 @@ jest.unstable_mockModule('../../src/ledger/index.js', () => ({
   writeElision: () => undefined,
   getDistillPolicy: () => 'summarize',
   getDistillFeedback: () => [{ embedding_blob: Buffer.alloc(0) }],
+  // Learned protections (slice 5b): none stored, nothing recorded — this suite is about the adaptive loop.
+  learnedProtections: () => [],
+  normaliseProtection: (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim(),
+  recordLostSentences: () => 0,
 }));
 
 const embedText = jest.fn(async (_line: string) => [1, 0]);

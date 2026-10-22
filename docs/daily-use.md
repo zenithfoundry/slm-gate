@@ -106,3 +106,31 @@ Neither layer needs a `CLOUD_API_KEY`: the model gate sends each request on with
 ---
 
 [README](../README.md) · [All docs](README.md) · Next: [Architecture & Advanced Features](advanced.md)
+
+## Decision memory: answer a question once per repository
+
+The resolver finds open questions in a skill ("API-first or UI-first?") and tries to answer them from your
+repository. Write the answer down once and it is never asked again in that repo:
+
+```text
+.slm-gate/decisions/architecture-direction.md
+```
+```markdown
+---
+type: Decision
+title: Architecture direction
+verified_by: human:<your name>
+verified_at: 2026-10-21
+stale_after: 2027-04-01
+---
+API-first. The primary product boundary is the MCP protocol and the wire formats.
+```
+
+How it is used: the question is matched against the titles and bodies of your decision files (full-text search
+in the ledger, no embeddings), the brain model confirms the decision really answers it, and the answer goes
+through the same risk gate as every answer read from your code — a security or destructive question is never
+auto-applied from a file. A file with a `human:` `verified_by` line that is not past `stale_after` is applied
+under `# Auto-Resolved Decisions`, with the file name and who verified it printed next to the answer; any other
+file is only offered as a recommendation under `# Pending Clarifications`. Editing, adding or removing a decision
+file, or a file passing its `stale_after` date, makes the next conditioning recompute instead of using its cache.
+Commit the folder with the repository.

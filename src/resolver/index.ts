@@ -6,6 +6,9 @@ import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
 import { withSlmTimeout } from '../models/helpers.js';
 import { estimateTokens } from '../utils/elision.js';
+import { DecisionMemory, decisionAnswer, loadDecisionMemory } from './decisions.js';
+import { findExisting, linesAround, refreshRepoIndex } from '../index/repo-index.js';
+import { repoIndexRevision } from '../ledger/index.js';
 import {
   RiskLevel,
   SourceKind,
@@ -215,7 +218,9 @@ export async function resolveEach(
   slm: SLM,
   fsRead: FsReadFn,
   decisions: OpenDecision[],
-  repoRoot?: string
+  repoRoot?: string,
+  /** The repo's decision files (slice 7); null or absent keeps the evidence path only. */
+  memory?: DecisionMemory | null
 ): Promise<ResolvedItem[]> {
   const results: ResolvedItem[] = [];
 
@@ -227,6 +232,53 @@ export async function resolveEach(
       confidence: 0,
       source: 'unresolved'
     };
+
+    // (0) DECISION MEMORY (slice 7): an answer the owner wrote down once, as evidence under the same risk
+    // gate as everything else. Null means nothing matched or the brain said it does not apply: fall through.
+    if (memory) {
+      const hit = await decisionAnswer({ slm, memory, question: dec.question });
+      if (hit) {
+        results.push({
+          id: dec.id,
+          question: dec.question,
+          answer: hit.answer,
+          confidence: hit.confidence,
+          source: 'decision',
+          evidence: hit.provenance,
+          provenance: hit.provenance,
+          dependency: hit.dependency,
+        });
+        continue;
+      }
+    }
+
+    // (a0) INDEX EVIDENCE (slice 8, REPO_INDEX=on): the symbols the question names, read around their
+    // definitions, instead of a guessed file path. One brain call; the index revision is the cache dependency.
+    if (repoRoot && CONFIG.REPO_INDEX) {
+      try {
+        refreshRepoIndex(repoRoot);
+        const hits = findExisting({ root: repoRoot, query: dec.question, limit: 3 });
+        if (hits.length > 0) {
+          const evidence = hits.map(h => `${h.path}:${h.line} (${h.kind} ${h.name})\n${linesAround(repoRoot, h)}`).join('\n\n');
+          const ansSchema = z.object({ answer: z.string(), options: z.array(z.string()) });
+          const ansPrompt = `Given this evidence from the repository:\n${evidence.slice(0, 3000)}\nAnswer the question: ${dec.question}`;
+          const ansRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+          results.push({
+            id: dec.id,
+            question: dec.question,
+            answer: ansRes.answer,
+            confidence: 0.95,
+            source: 'evidence',
+            evidence: `index: ${hits.map(h => `${h.path}:${h.line}`).join(', ')}`,
+            options: ansRes.options,
+            dependency: { path: `index:${repoRoot}`, mtime: repoIndexRevision(repoRoot), expiresAt: null },
+          });
+          continue;
+        }
+      } catch (err) {
+        // ignore and fall through to the pattern path
+      }
+    }
 
     // (a) EVIDENCE
     if (repoRoot) {
@@ -350,6 +402,7 @@ Categories:
         id: item.id,
         question: item.question,
         answer: item.answer || 'Unknown',
+        provenance: item.provenance,
         note: `Auto-resolved based on ${item.source}`
       });
     } else {
@@ -359,7 +412,8 @@ Categories:
         recommendedAnswer: item.answer,
         confidence: item.confidence,
         options: item.options || [],
-        evidence: item.evidence
+        evidence: item.evidence,
+        provenance: item.provenance
       });
     }
   }
@@ -372,12 +426,17 @@ export async function resolveAmbiguities(
   fsRead: FsReadFn,
   input: ResolveInput
 ): Promise<ResolverOutput> {
+  // Decision memory (slice 7) is read once per run; a repo without the folder gets an empty memory.
+  const memory = input.repoRoot ? loadDecisionMemory(input.repoRoot) : null;
+  const dependencies = memory?.dirDependency ? [memory.dirDependency] : [];
+  const staleDecisions = memory?.stale ?? [];
+
   const decisions = await extractAmbiguities(slm, input.skillText, input.task);
   if (decisions.length === 0) {
-    return { autoApplied: [], askUser: [] };
+    return { autoApplied: [], askUser: [], dependencies, staleDecisions };
   }
 
-  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot);
+  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot, memory);
 
   // Cloud API Tier
   const unresolved = resolved.filter(r => r.confidence < 0.8);
@@ -385,5 +444,7 @@ export async function resolveAmbiguities(
     await batchCloudResolve(unresolved, input.skillText, input.task);
   }
 
-  return gateDecisions(slm, resolved);
+  const output = await gateDecisions(slm, resolved);
+  for (const item of resolved) if (item.dependency) dependencies.push(item.dependency);
+  return { ...output, dependencies, staleDecisions };
 }

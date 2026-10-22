@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Slice 3c through the real gate server: with ROUTING_TUNE on, a later typed turn is classified by
+ * the gate model off the request path (category and outcome on the ledger row, forwarded bytes untouched);
+ * tool-result and short turns are skipped without a model call; a slow classifier is cancelled at the cap and
+ * recorded as a timeout. The companion case with ROUTING_TUNE off lives in server-local-first.test.ts.
+ */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -42,6 +48,7 @@ afterAll(async () => {
 
 beforeEach(() => ollama.reset());
 
+/** Posts raw request bytes through the gate and resolves with the ledger request id; `lastBody` holds what went upstream. */
 function send(raw: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: gatePort, method: 'POST', path: '/v1/messages', headers: { 'content-type': 'application/json' }, agent: false }, res => {
@@ -68,7 +75,9 @@ const earlier = [
   { role: 'user', content: [{ type: 'text', text: 'What does this repository build?' }] },
   { role: 'assistant', content: [{ type: 'text', text: 'A local gate.' }] },
 ];
+/** A later turn (an assistant message already exists, so Step A never runs) whose latest entry is typed text. */
 const typedTurn = (text: string) => JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 10, messages: [...earlier, { role: 'user', content: [{ type: 'text', text }] }] });
+/** A later turn whose latest entry is a tool result: never classified. */
 const toolResultTurn = JSON.stringify({
   model: 'claude-sonnet-5', max_tokens: 10, messages: [
     ...earlier,

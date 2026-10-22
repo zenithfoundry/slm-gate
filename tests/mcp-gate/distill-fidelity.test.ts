@@ -1,4 +1,11 @@
-import { jest } from '@jest/globals';
+/**
+ * @fileoverview The skill-shrinking fidelity guard (slice 5), without a local model: a fake compressor that keeps
+ * only each run's first sentence, and a scripted verifier. Proves (1) the deterministic classes survive by
+ * construction and never reach the model, (2) the brain check fails closed on any missing sentence, wrong-length
+ * answer, error, run cap or time budget, and (3) a skill still over budget after shrinking goes out as the original.
+ * The fixtures in tests/fixtures/skills are generic skill-shaped documents, not toolbox text.
+ */
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +29,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 }));
 
 const { CONFIG } = await import('../../src/config.js');
+const { getDb } = await import('../../src/ledger/index.js');
 const { buildPreserveList } = await import('../../src/utils/preserve-patterns.js');
 const { distillToolResultWithStats, requirementInventory, fidelityTokens } = await import('../../src/utils/elision.js');
 type Verify = import('../../src/utils/elision.js').FidelityVerify;
@@ -47,6 +55,9 @@ const distil = (text: string, opts: { verify?: Verify; skill?: boolean; slm?: ty
 
 beforeEach(() => {
   firstSentence.mockClear();
+  // Learned protections persist in this suite's in-memory ledger; each test starts with none so an earlier
+  // test's lesson cannot protect the lines a later test expects the compressor to see.
+  getDb().prepare('DELETE FROM distill_protect').run();
   (CONFIG as any).DISTILL_FIDELITY_BUDGET_MS = 60_000;
   (CONFIG as any).DISTILL_FIDELITY_MAX_RUNS = 8;
   (CONFIG as any).DISTILL_MAX_TOKENS = 4000;
@@ -167,6 +178,23 @@ describe('model-judged recall, fail closed', () => {
     expect(fidelity.runsChecked).toBe(0);
     expect(fidelity.recall).toBeNull();
     expect(fidelity.runs).toBeGreaterThan(8);
+  });
+});
+
+describe('learned protections (slice 5b): a loss the brain reported once never recurs', () => {
+  it('stores the missing sentences, then protects their lines on the next run without showing them to the model', async () => {
+    const doc = fixtures[0].text;
+    const dropFirst: Verify = async ({ inventory }) => inventory.map((_, i) => i !== 0);
+    const first = await distil(doc, { verify: dropFirst });
+    expect(first.fidelity.lost.length).toBeGreaterThan(0);
+    expect(first.fidelity.learnedNew).toBeGreaterThan(0);
+
+    firstSentence.mockClear();
+    const second = await distil(doc, { verify: allKept });
+    const shown = firstSentence.mock.calls.map(c => c[0]).join('\n').toLowerCase();
+    expect(second.fidelity.learnedProtected).toBeGreaterThan(0);
+    for (const sentence of first.fidelity.lost) expect(shown).not.toContain(sentence.toLowerCase());
+    for (const sentence of first.fidelity.lost) expect(second.text).toContain(sentence);
   });
 });
 

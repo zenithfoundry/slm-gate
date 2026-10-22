@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
-import { getDb, getDistillFeedback, getDistillPolicy, writeElision } from '../ledger/index.js';
+import { getDb, getDistillFeedback, getDistillPolicy, learnedProtections, normaliseProtection, recordLostSentences, writeElision } from '../ledger/index.js';
 import { bufferToFloat64Array, cosineSimilarity, embedText } from '../utils/embedding.js';
 import { TOOL_RESULT_PREFIXES } from './constants.js';
 
@@ -23,7 +23,8 @@ const MIN_COMPRESSIBLE_SEGMENT_CHARS = 400;
  * up — starving the runs still queued behind them. A run is now handed to the model only when a
  * slot frees up, so its timer starts when its generation can actually start.
  */
-const MAX_CONCURRENT_SEGMENT_CALLS = 2;
+// Prose runs shortened at the same time; a setting since slice 9 so the bench can compare 1 and 2.
+const MAX_CONCURRENT_SEGMENT_CALLS = Math.max(1, CONFIG.MAX_CONCURRENT_SEGMENT_CALLS ?? 2);
 
 /**
  * Computes a deterministic SHA-256 ID for a tool elision.
@@ -330,6 +331,10 @@ export interface FidelityStats {
   runsSkippedBudget: number;
   /** Local-model failures (compression or check) that kept a run verbatim; each message says which. */
   errors: string[];
+  /** Lines protected because they contain a sentence the brain once reported missing (slice 5b). */
+  learnedProtected: number;
+  /** Sentences stored as new learned protections by this distillation. */
+  learnedNew: number;
   elapsedMs: number;
 }
 
@@ -341,8 +346,9 @@ const REQUIREMENT_WORDS = /\b(?:must|should|never|always|do not|don't|only|befor
 const PATH_LIKE = /(?:^|\s)\.?\/?[\w.-]+\/[\w./-]+/;
 const TRACKED_TOKENS = [/\bmcp__\w+/g, /\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|min|mins|h|hours?|%|KB|MB|GB|tokens?|lines?|chars?|turns?)\b/g];
 
+/** Fresh stats for a distillation that has done no model work yet (or never will, for the given mode). */
 function blankFidelity(mode: FidelityStats['mode']): FidelityStats {
-  return { mode, deterministic: 1, recall: null, lost: [], runs: 0, runsChecked: 0, runsKept: 0, runsSkippedBudget: 0, errors: [], elapsedMs: 0 };
+  return { mode, deterministic: 1, recall: null, lost: [], runs: 0, runsChecked: 0, runsKept: 0, runsSkippedBudget: 0, errors: [], learnedProtected: 0, learnedNew: 0, elapsedMs: 0 };
 }
 
 /**
@@ -610,6 +616,22 @@ export async function distillToolResultWithStats(params: {
       }
     }
 
+    // Phase 2b (slice 5b): learned protections. Every sentence the brain once reported missing from a
+    // shortened run is stored in the ledger; a line that contains one is protected by code from now on, so
+    // the same loss never recurs and the list grows with use instead of with pattern edits. Skills only
+    // (the verifier is what learns), matched on the normalised line.
+    const learned = verify ? learnedProtections() : [];
+    if (learned.length > 0) {
+      for (let i = 0; i < slmLines.length; i++) {
+        if (protectedLineIndices.has(i)) continue;
+        const line = normaliseProtection(slmLines[i]);
+        if (line.length >= 12 && learned.some(pattern => line.includes(pattern))) {
+          protectedLineIndices.add(i);
+          stats.learnedProtected++;
+        }
+      }
+    }
+
     // Phase 3: Adaptive Semantic Feedback Loop. Probabilistically sample unprotected lines; if
     // one closely matches text a user previously pulled back with expand_elision, protect it
     // preemptively. (The list is empty unless DISTILL_ADAPTIVE is on.)
@@ -669,6 +691,8 @@ export async function distillToolResultWithStats(params: {
     }
     const deadline = verify ? started + CONFIG.DISTILL_FIDELITY_BUDGET_MS : Number.POSITIVE_INFINITY;
     let recallSum = 0;
+    // Sentences the brain reported missing: kept verbatim now, and learned (Phase 2b) for every later run.
+    const lostSentences: string[] = [];
     const keepVerbatim = (why: string) => { stats.runsKept++; stats.lost.push(why); };
 
     const compressRun = async (segment: { lines: string[] }) => {
@@ -700,6 +724,7 @@ export async function distillToolResultWithStats(params: {
             if (recall < CONFIG.DISTILL_FIDELITY_MIN) {
               stats.runsKept++;
               stats.lost.push(...missing);
+              lostSentences.push(...missing);
               return;
             }
           }
@@ -748,6 +773,7 @@ export async function distillToolResultWithStats(params: {
       console.warn(`distill_fallback: ${lost.length} protected block(s) and ${lostTokens.length} tracked token(s) missing after reassembly; keeping the original text`);
     }
     stats.recall = stats.runsChecked > 0 ? Number((recallSum / stats.runsChecked).toFixed(3)) : null;
+    if (lostSentences.length > 0) stats.learnedNew = recordLostSentences({ sentences: lostSentences, toolName: resolvedToolName });
 
     // Constraint: a fidelity guard fails closed. A skill still over budget after shrinking would now be cut
     // in the middle by the hard truncation below, after passing the guard. Send the ORIGINAL instead (cut
