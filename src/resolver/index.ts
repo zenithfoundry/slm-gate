@@ -5,6 +5,7 @@ import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
 import { withSlmTimeout } from '../models/helpers.js';
+import { estimateTokens } from '../utils/elision.js';
 import {
   RiskLevel,
   SourceKind,
@@ -16,6 +17,47 @@ import {
 } from './types.js';
 
 export type FsReadFn = (pattern: string) => Promise<string[]>;
+
+const HEADING = /^#{1,6}\s/;
+const MIN_SECTION_TOKENS = 150;
+
+/**
+ * The skill text the resolver may put in one prompt. A whole skill plus the prompt can exceed the local
+ * model's context (NUM_CTX), and Ollama then truncates silently: the reply is cut off or empty and the call
+ * is recorded as a `format` error. Over the budget, every heading is kept (the outline survives) and each
+ * section keeps its first share of the budget; what is cut is marked with an ellipsis line. Pure.
+ */
+export function prepareSkillContext(skillText: string, maxTokens: number): { text: string; tokEst: number; originalTokEst: number; trimmed: boolean } {
+  const originalTokEst = estimateTokens(skillText);
+  if (originalTokEst <= maxTokens) return { text: skillText, tokEst: originalTokEst, originalTokEst, trimmed: false };
+
+  const sections: string[][] = [[]];
+  for (const line of skillText.split('\n')) {
+    if (HEADING.test(line) && sections[sections.length - 1].length > 0) sections.push([]);
+    sections[sections.length - 1].push(line);
+  }
+  const perSection = Math.max(MIN_SECTION_TOKENS, Math.floor(maxTokens / sections.length));
+
+  const out: string[] = [];
+  let total = 0;
+  for (const section of sections) {
+    let used = 0;
+    let cut = false;
+    for (const line of section) {
+      const cost = estimateTokens(line) + 1;
+      const isHeading = HEADING.test(line);
+      if (!isHeading && (used + cost > perSection || total + cost > maxTokens)) {
+        if (!cut) { out.push('…'); cut = true; }
+        continue;
+      }
+      out.push(line);
+      used += cost;
+      total += cost;
+    }
+  }
+  const text = out.join('\n');
+  return { text, tokEst: estimateTokens(text), originalTokEst, trimmed: true };
+}
 
 export interface ResolveInput {
   skillText: string;

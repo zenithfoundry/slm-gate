@@ -29,8 +29,16 @@ export const BUILTIN_PATTERNS: RegExp[] = [
   /(?:format:|respond with|output must|Answer:)/i,
   // hard quantities
   /(?:no more than \d|at most|exactly \d|maximum|minimum)/i,
-  // YAML frontmatter block markers
+  // YAML frontmatter block markers (the whole block is protected by the distiller's segmentation)
   /^---/,
+  // softer requirement words the first pattern does not cover
+  /\b(?:required|forbidden)\b/i,
+  // MCP tool names, with or without backticks
+  /\bmcp__\w+/,
+  // file paths: at least one slash between path-like parts (src/a/b.ts, ./x/y, /usr/bin/z)
+  /(?:^|\s)\.?\/?[\w.-]+\/[\w./-]+/,
+  // quantities with a unit
+  /\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|min|mins|h|hours?|%|KB|MB|GB|tokens?|lines?|chars?|turns?)\b/,
 ];
 
 /**

@@ -7,11 +7,11 @@ import { estimateTokens } from '../utils/elision.js';
 import { DistillStats, distilRequest } from './distill.js';
 import * as anthropic from './formats/anthropic.js';
 import * as chatCompletions from './formats/chat-completions.js';
-import { JsonObject, WireFormatModule } from './formats/contract.js';
+import { JsonObject, ToolStats, WireFormatModule } from './formats/contract.js';
 import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
-import { answerFirstRequestLocally } from './local-first.js';
+import { answerFirstRequestLocally, classifyTypedTurn } from './local-first.js';
 import { HEALTH_PATH } from '../setup/model-gate.js';
 import { requiredModels } from '../setup/local-models.js';
 import { isLocalRequest } from '../utils/local-only.js';
@@ -120,6 +120,46 @@ async function localFirst(params: { route: UpstreamRoute; parsed: JsonObject; bo
   return { ...step, reply: { ...reply, answer, model: attempt.model } };
 }
 
+/** How long the ledger write waits for a turn classification once the response is done. */
+const TURN_CLASSIFY_CAP_MS = 2000;
+/** Shorter typed turns ("ok", "yes") carry no routing signal worth a model call. */
+const TURN_CLASSIFY_MIN_CHARS = 20;
+
+interface TurnClassification {
+  category: string | null;
+  outcome: 'ok' | 'timeout' | 'error' | 'skipped';
+}
+
+/**
+ * ROUTING_TUNE data for every later turn the person typed (Step A only ever sees first requests). Regex gates
+ * first and free: a tool-result turn or a short text is 'skipped' with no model call. Otherwise the gate-model
+ * call starts beside the upstream call and is never awaited on the request path; `settle` waits at most
+ * TURN_CLASSIFY_CAP_MS once the response is done, then cancels the call and records 'timeout'.
+ */
+function startTurnClassification(params: { route: UpstreamRoute; parsed: JsonObject }): { settle: () => Promise<TurnClassification> } {
+  const text = FORMATS[params.route.format].typedTurnText?.(params.parsed) ?? null;
+  if (!text || text.length < TURN_CLASSIFY_MIN_CHARS) return { settle: async () => ({ category: null, outcome: 'skipped' }) };
+
+  const controller = new AbortController();
+  const work: Promise<TurnClassification> = classifyTypedTurn({ text, signal: controller.signal })
+    .then(category => ({ category, outcome: 'ok' as const }))
+    .catch(() => ({ category: null, outcome: controller.signal.aborted ? 'timeout' as const : 'error' as const }));
+
+  return {
+    settle: () => {
+      let timer: NodeJS.Timeout | undefined;
+      const cap = new Promise<TurnClassification>(resolve => {
+        timer = setTimeout(() => {
+          controller.abort();
+          resolve({ category: null, outcome: 'timeout' });
+        }, TURN_CLASSIFY_CAP_MS);
+        timer.unref();
+      });
+      return Promise.race([work, cap]).finally(() => clearTimeout(timer));
+    },
+  };
+}
+
 /**
  * Step B: the bytes to forward. The original bytes go out whenever nothing changed, the body is not
  * JSON, or distillation fails in any way — it can make a request smaller, never break it.
@@ -151,6 +191,10 @@ function recordRequest(params: {
   distill?: DistillStats | null;
   /** A Step A attempt that ended without a local reply. */
   local?: LocalStep | null;
+  /** Tool-definition counts of the request, when its format has them. */
+  tools?: ToolStats | null;
+  /** The typed turn's classification, when ROUTING_TUNE asked for one. */
+  turn?: TurnClassification | null;
 }): void {
   recordSafely({ reqId: params.reqId, path: params.path, write: () => writeLedgerRow(params) });
 }
@@ -194,7 +238,7 @@ function recordLocalAnswer(params: { reqId: string; path: string; body: Buffer; 
 }
 
 function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
-  const { reqId, path, body, route, outcome, distill = null, local = null } = params;
+  const { reqId, path, body, route, outcome, distill = null, local = null, tools = null, turn = null } = params;
   const sent = params.sent ?? body;
   const distilled = sent !== body;
   writeEvent({
@@ -217,6 +261,8 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
     meta: JSON.stringify({
       // A Step A attempt that did not answer: ROUTING_TUNE learns from local_attempted/local_accepted.
       ...(local?.meta ?? {}),
+      // A later typed turn's category (never set together with a Step A attempt's category above).
+      ...(turn ? { category: turn.category, category_outcome: turn.outcome } : {}),
       format: route?.format ?? null,
       path,
       status: outcome.status,
@@ -228,6 +274,8 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
       tokens_estimated: 1,
       // The metrics read raw_in_tok as "input before distillation" on forward_compressed rows.
       ...(distilled ? { raw_in_tok: estimateTokens(body.toString('utf8')) } : {}),
+      // Tool definitions carried by the request (dashboard card "Tool definitions in context").
+      ...(tools ? { tools_count: tools.count, tools_deferred: tools.deferred, tools_tok_est: tools.tokEst } : {}),
       distill,
     }),
   });
@@ -263,6 +311,8 @@ async function handleRequest(params: {
   }
 
   const parsed = route.generation ? parseJsonObject(body) : null;
+  // Measurement only (slice 1b): how many tool schemas this request carries and how many stay deferred.
+  const tools = parsed ? FORMATS[route.format].toolStats?.(parsed) ?? null : null;
 
   const local = parsed && CONFIG.LLM_GATE_LOCAL_FIRST ? await localFirst({ route, parsed, body }) : null;
   if (local?.reply) {
@@ -276,10 +326,14 @@ async function handleRequest(params: {
   const { sent, distill } = CONFIG.LLM_GATE_DISTILL
     ? await distilBody({ route, parsed, body })
     : { sent: body, distill: null };
+  // Slice 3c: a Step A attempt already classified a first request; every other typed turn is classified here,
+  // beside the upstream call (after distillation, so it never competes with it for the gate model).
+  const turn = parsed && !local && CONFIG.ROUTING_TUNE ? startTurnClassification({ route, parsed }) : null;
   const outcome = await forwardRequest({ req, res, body: sent, route });
   const saved = sent === body ? '' : `, distilled ${body.length} -> ${sent.length} bytes`;
   console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${saved}${outcome.clientAborted ? ' (client aborted)' : ''}`);
-  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local });
+  const turnResult = turn ? await turn.settle() : null;
+  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local, tools, turn: turnResult });
 }
 
 /**

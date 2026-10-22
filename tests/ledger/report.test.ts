@@ -27,10 +27,11 @@ describe('ledger:report savings by day', () => {
   ]);
 
   it('splits days on UTC midnight and uses the per-event savings arithmetic', () => {
+    // Row d is an expansion (route feedback) whose page was 200 tokens: it is charged against the day.
     expect(rows.map(r => [r.day, r.events, r.tokensSaved])).toEqual([
       ['2026-09-21', 1, 800],
-      ['2026-09-22', 3, 400 + 800 + 0],
-      ['all-time', 4, 2000],
+      ['2026-09-22', 3, 400 + 800 - 200],
+      ['all-time', 4, 1800],
     ]);
   });
 

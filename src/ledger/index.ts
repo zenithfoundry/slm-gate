@@ -382,8 +382,9 @@ export function perEventCycleMinutes(e: LedgerEvent, providerId: string): number
 }
 
 export function perEventTokensSaved(e: LedgerEvent): number {
-  // 'feedback' rows record a user action (an elision expansion), not model work.
-  if (e.route === 'feedback') return 0;
+  // 'feedback' rows record an elision expansion: the cloud model re-reads text the gate had cut, so the
+  // page it received (out_tok) is charged against the savings. Rows written before this had out_tok 0.
+  if (e.route === 'feedback') return e.out_tok ? -e.out_tok : 0;
   const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
   if (e.route === 'defer_local') {
     return (e.in_tok || 0) + (e.out_tok || 0);

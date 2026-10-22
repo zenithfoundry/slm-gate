@@ -109,6 +109,48 @@ export async function compress(
  * @param params.task Optional task context for the model
  * @returns The compressed run
  */
+/**
+ * The fidelity check for one shortened prose run (slice 5): the brain model answers, for each requirement
+ * sentence the CODE listed from the original, whether the shortened text still states it. The model never
+ * writes the list, so it cannot leave anything out; the schema pins the answer count. One call, the standard
+ * ceiling, SLM_TIMEOUT_MS.
+ */
+export async function checkKept(params: { slm: SLM; inventory: string[]; compressed: string }): Promise<boolean[]> {
+  const { slm, inventory, compressed } = params;
+  const schema = z.object({ kept: z.array(z.boolean()).length(inventory.length) });
+  const prompt = `A text was shortened. For each numbered sentence of the ORIGINAL, answer true only if the SHORTENED text still states it: the same instruction, name, number or path. Answer false when it is missing, weakened or changed. Return exactly ${inventory.length} answers, in order.
+
+ORIGINAL sentences:
+${inventory.map((sentence, i) => `${i + 1}. ${sentence}`).join('\n')}
+
+SHORTENED text:
+${compressed}`;
+  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'fidelity', CONFIG.SLM_TIMEOUT_MS);
+  return result.kept;
+}
+
+/**
+ * Answers a question from one chunk of an elided original (`ask_elision`, slice 6): the brain model says
+ * whether the chunk holds the answer and gives it in a few sentences, with the chunk-relative lines it used.
+ * One call per chunk, the standard ceiling, SLM_TIMEOUT_MS; the schema bounds the answer.
+ */
+export async function answerFromText(params: { slm: SLM; question: string; text: string }): Promise<{ found: boolean; answer: string; lines: [number, number] | null }> {
+  const { slm, question, text } = params;
+  const schema = z.object({
+    found: z.boolean(),
+    answer: z.string().max(1200),
+    lines: z.array(z.number().int().min(0)).length(2).nullable(),
+  });
+  const prompt = `Answer the question ONLY from the TEXT below. If the text does not contain the answer, set found to false and leave answer empty. Keep the answer under 80 words; quote names, numbers, paths and commands exactly. "lines" is the 0-based [first, last] line of the text the answer comes from, or null.
+
+QUESTION: ${question}
+
+TEXT:
+${text}`;
+  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'ask_elision', CONFIG.SLM_TIMEOUT_MS);
+  return { found: result.found, answer: result.answer, lines: result.lines ? [result.lines[0], result.lines[1]] : null };
+}
+
 export function compressNarrativeRun(params: { slm: SLM; text: string; task?: string }): Promise<string> {
   const { slm, text, task } = params;
   const wordCount = text.trim().split(/\s+/).length;

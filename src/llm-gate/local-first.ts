@@ -91,6 +91,16 @@ export function servableCacheHit(hit: unknown, toolsListed: boolean): string | n
 }
 
 /** A local-model client whose every request is cancelled when `signal` aborts (ollama-js takes a custom fetch). */
+/**
+ * Classifies the text a person typed on a later turn, so ROUTING_TUNE has per-category data beyond first
+ * requests. Never on the request path: the caller starts it beside the upstream call and waits a bounded time
+ * at ledger-write time; `signal` cancels the model call when that time is up. The classifier's own call carries
+ * the standard token ceiling and SLM_TIMEOUT_MS.
+ */
+export function classifyTypedTurn(params: { text: string; signal: AbortSignal }): Promise<string> {
+  return classify(localModelClient(params.signal), params.text);
+}
+
 function localModelClient(signal?: AbortSignal): SLM {
   if (!signal) return new SLM();
   const abortableFetch = ((input: any, init?: any) => fetch(input, { ...init, signal })) as typeof fetch;

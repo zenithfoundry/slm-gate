@@ -126,6 +126,8 @@ const envSchema = z.object({
   // STEP 6
   RESOLVER_CLOUD_TIER: parseBoolean(false),
   RESOLVER_CLOUD_BUDGET_USD: parseFloatNumber(0),
+  // The most skill text the resolver puts in one local-model prompt; longer skills are trimmed by section.
+  RESOLVER_PROMPT_TOKENS: parseInteger(3000),
   PROMPT_VERSION: z.string().default('v1'),
   // The presets in src/hardware.ts ramPresets. Every value recommendPreset() can print must be accepted
   // here, or following doctor's advice stops slm-gate from starting. slm-gate needs 16 GB of RAM or more.
@@ -146,6 +148,13 @@ const envSchema = z.object({
   // How long the model gate may hold one request to distil its new tool results. Past it, a result is
   // sent (and kept, forever) as the original. Warm local-model runs take ~0.5 s per ~600 words.
   DISTILL_BUDGET_MS: parseInteger(3000),
+  // Skill shrinking fidelity guard (slice 5). A compressed prose run is kept only when the brain model
+  // confirms every code-listed requirement sentence survived: recall >= MIN (1.0 = nothing missing).
+  DISTILL_FIDELITY_MIN: parseFloatNumber(1.0),
+  // At most this many prose runs per document are compressed and checked; the rest stay verbatim.
+  DISTILL_FIDELITY_MAX_RUNS: parseInteger(8),
+  // Wall-clock budget for one document's shrinking; runs past it stay verbatim.
+  DISTILL_FIDELITY_BUDGET_MS: parseInteger(60000),
   KEEP_RECENT_TOOL_TURNS: parseInteger(2),
   ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),

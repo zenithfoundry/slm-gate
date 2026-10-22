@@ -28,12 +28,12 @@ describe('leaderboard window impact', () => {
 
   it('uses the dashboard formula: tokens for Claude, local prompts for ChatGPT', () => {
     process.env.CLAUDE_WINDOW_BUDGET = '1000000'; // 6,000 tokens saved * 300 / 1e6 = 1.8 min
-    process.env.CHATGPT_WINDOW_BUDGET = '90';     // 6 local prompts * 180 / 90 = 12 min
+    process.env.CHATGPT_WINDOW_BUDGET = '90';     // 6 local prompts * 300 / 90 = 20 min (Codex meters a 5h window)
     __resetProviderRegistry();
     const report = renderReport();
-    // Rendered as real durations: 1.8 min and 12 min, not decimals the reader must convert.
+    // Rendered as real durations: 1.8 min and 20 min, not decimals the reader must convert.
     expect(report).toContain('**Claude** (5-hour window): estimated **~1m 48s** of window time saved');
-    expect(report).toContain('**ChatGPT** (3-hour window): estimated **~12m 00s** of window time saved');
+    expect(report).toContain('**ChatGPT** (5-hour window): estimated **~20m 00s** of window time saved');
     expect(report).toContain('margin of error');
   });
 

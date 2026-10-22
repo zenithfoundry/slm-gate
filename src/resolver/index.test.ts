@@ -1,5 +1,35 @@
 import { jest } from '@jest/globals';
-import { extractAmbiguities, resolveEach, gateDecisions, resolveAmbiguities } from './index.js';
+import { extractAmbiguities, resolveEach, gateDecisions, resolveAmbiguities, prepareSkillContext } from './index.js';
+import { estimateTokens } from '../utils/elision.js';
+
+describe('prepareSkillContext (the skill text one resolver prompt may hold)', () => {
+  const section = (title: string, lines: number) => [`## ${title}`, ...Array.from({ length: lines }, (_, i) => `${title} body line ${i} with some words in it`)].join('\n');
+  const long = ['# Skill', 'intro line', section('Steps', 120), section('Rules', 120), section('Notes', 120)].join('\n');
+
+  it('returns a short skill unchanged', () => {
+    const out = prepareSkillContext('# Small\none line', 3000);
+    const tokEst = estimateTokens('# Small\none line');
+    expect(out).toEqual({ text: '# Small\none line', tokEst, originalTokEst: tokEst, trimmed: false });
+  });
+
+  it('trims a long skill under the budget and keeps every heading', () => {
+    const budget = 400;
+    const out = prepareSkillContext(long, budget);
+    expect(out.trimmed).toBe(true);
+    expect(out.tokEst).toBe(estimateTokens(out.text));
+    expect(out.originalTokEst).toBe(estimateTokens(long));
+    expect(out.tokEst).toBeLessThanOrEqual(budget + 20);
+    for (const heading of ['# Skill', '## Steps', '## Rules', '## Notes']) expect(out.text).toContain(heading);
+    expect(out.text).toContain('Notes body line 0');
+    expect(out.text).toContain('…');
+  });
+
+  it('gives each section its own share instead of only the head of the document', () => {
+    const out = prepareSkillContext(long, 400);
+    expect(out.text).not.toContain('Steps body line 119');
+    expect(out.text).toContain('Rules body line 0');
+  });
+});
 import { SLM } from '../models/slm.js';
 import { ResolvedItem } from './types.js';
 import { CONFIG } from '../config.js';

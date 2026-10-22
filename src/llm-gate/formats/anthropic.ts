@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, typedText } from './contract.js';
+import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, ToolStats, typedText } from './contract.js';
 import { InternalRequest, InternalMessage } from './internal.js';
 
 /**
@@ -162,6 +162,24 @@ export function replaceToolResultText(params: { body: JsonObject; location: Anth
   return { ...body, messages };
 }
 
+/**
+ * Counts the request's tool definitions and how many carry `defer_loading: true` (Anthropic's server-side
+ * tool search keeps those out of the context). A read-only measure for the ledger: behind a non-Anthropic
+ * address Claude Code stops marking tools deferred unless ENABLE_TOOL_SEARCH is set, and the only way to see
+ * whether that worked is to count.
+ */
+export function toolStats(body: JsonObject): ToolStats | null {
+  const tools = Array.isArray(body?.tools) ? body.tools : null;
+  if (!tools) return null;
+  let deferred = 0;
+  let chars = 0;
+  for (const tool of tools) {
+    if (tool?.defer_loading === true) { deferred++; continue; }
+    chars += JSON.stringify(tool ?? null).length;
+  }
+  return { count: tools.length, deferred, tokEst: Math.ceil(chars / 4) };
+}
+
 export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null {
   const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
   if (messages.some(message => message?.role === 'assistant')) return null;
@@ -178,6 +196,18 @@ export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null 
       : [];
   const text = typedText(texts);
   return text ? { text, toolsListed: Array.isArray(body.tools) && body.tools.length > 0 } : null;
+}
+
+/** The typed text of the latest turn when it is a user message with text blocks only (see the contract). */
+export function typedTurnText(body: JsonObject): string | null {
+  const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return null;
+  const content = last.content;
+  if (typeof content === 'string') return typedText([content]);
+  if (!Array.isArray(content)) return null;
+  if (content.some((block: any) => block?.type === 'tool_result')) return null;
+  return typedText(content.filter((block: any) => block?.type === 'text' && typeof block.text === 'string').map((block: any) => block.text));
 }
 
 export function buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply {

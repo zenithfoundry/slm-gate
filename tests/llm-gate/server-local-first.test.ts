@@ -129,3 +129,18 @@ describe('llm-gate Step A', () => {
     expect(ledgerRow(res.headers['x-correlation-id']).meta).toMatchObject({ local_outcome: 'timeout' });
   });
 });
+
+describe('per-turn classification stays off with ROUTING_TUNE off (slice 3c)', () => {
+  it('forwards a later typed turn without any classifier call', async () => {
+    const body = {
+      model: 'claude-sonnet-5', max_tokens: 10, messages: [
+        { role: 'user', content: [{ type: 'text', text: 'What does this repository build?' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'A local gate.' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Which of these two approaches is simpler to maintain?' }] },
+      ],
+    };
+    const res = await send({ path: '/v1/messages', body });
+    expect(ledgerRow(res.headers['x-correlation-id']).meta).not.toHaveProperty('category_outcome');
+    expect(ollama.calls).toHaveLength(0);
+  });
+});

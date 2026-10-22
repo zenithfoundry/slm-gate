@@ -6,10 +6,10 @@ import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
 import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
 import { handleSlmError } from '../models/helpers.js';
-import { compressNarrativeRun } from '../models/reasoning.js';
+import { checkKept, compressNarrativeRun } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
-import { resolveAmbiguities } from '../resolver/index.js';
-import { distillToolResult } from '../utils/elision.js';
+import { prepareSkillContext, resolveAmbiguities } from '../resolver/index.js';
+import { distillToolResultWithStats, FidelityStats, FidelityVerify } from '../utils/elision.js';
 import { scan } from './ground.js';
 import { buildPreserveList } from '../utils/preserve-patterns.js';
 
@@ -82,12 +82,18 @@ function emitConditionEvent(params: {
   startTime: number;
   cacheHit?: 'exact' | 'semantic';
   errorKinds?: { distill: SlmErrorKind; resolver: SlmErrorKind };
+  /** What the resolver was given and found; absent on cache hits (no resolver work). */
+  resolver?: { context_tok_est: number; skill_tok_est: number; trimmed: 0 | 1; questions: number };
+  /** What the fidelity guard measured; `{ mode: 'cache_hit' }` on hits (no measurement), null after a distil error. */
+  fidelity?: FidelityStats | { mode: 'cache_hit' } | null;
 }): void {
-  const { text, conditioned, args, startTime, cacheHit, errorKinds } = params;
+  const { text, conditioned, args, startTime, cacheHit, errorKinds, resolver, fidelity } = params;
   const meta: Record<string, unknown> = {};
   if (cacheHit) meta.cache_hit = cacheHit;
+  if (fidelity) meta.fidelity = fidelity;
   if (errorKinds?.distill) meta.distill_error = errorKinds.distill;
   if (errorKinds?.resolver) meta.resolver_error = errorKinds.resolver;
+  if (resolver) meta.resolver = resolver;
 
   writeEvent({
     ts: new Date().toISOString(),
@@ -145,28 +151,31 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     // A cache hit is the BEST outcome — full compression at zero SLM compute — yet it used
     // to return before any writeEvent, making it invisible to every metric and biasing all
     // savings figures toward the slow path.
-    emitConditionEvent({ text, conditioned: cached, args, startTime, cacheHit: 'exact' });
+    emitConditionEvent({ text, conditioned: cached, args, startTime, cacheHit: 'exact', fidelity: { mode: 'cache_hit' } });
     return cached;
   }
   
   if (CONFIG.SEMCACHE) {
     const semCached = await checkSemanticCache(text);
     if (semCached && typeof semCached === 'string') {
-      emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic' });
+      emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic', fidelity: { mode: 'cache_hit' } });
       return semCached;
     }
   }
 
   const preserveList = await getPreserveList();
 
-  // 2. Distill (the compressor is shared with the model gate; see compressNarrativeRun)
+  // 2. Distill (the compressor is shared with the model gate; see compressNarrativeRun). The brain model
+  // checks every shortened prose run against the requirement sentences the code listed (slice 5).
   const slmFunc = (t: string, taskDesc?: string) => compressNarrativeRun({ slm: slmClient, text: t, task: taskDesc });
-  
+  const verify: FidelityVerify = ({ inventory, compressed }) => checkKept({ slm: slmClient, inventory, compressed });
+
   const startDistill = Date.now();
   let conditioned = text;
   let distillErrorKind: SlmErrorKind = null;
+  let fidelity: FidelityStats | null = null;
   try {
-    conditioned = await distillToolResult(slmFunc, text, task, toolName, args, preserveList);
+    ({ text: conditioned, fidelity } = await distillToolResultWithStats({ slm: slmFunc, text, task, toolName, args, preservePatterns: preserveList, verify }));
   } catch (err: any) {
     handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
     distillErrorKind = classifySlmError(err);
@@ -202,9 +211,11 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   const startResolver = Date.now();
   let resolveOut = { autoApplied: [] as any[], askUser: [] as any[] };
   let resolverErrorKind: SlmErrorKind = null;
+  // Slice 4: the resolver's prompt must fit the local context; a whole skill often does not.
+  const skillContext = prepareSkillContext(text, CONFIG.RESOLVER_PROMPT_TOKENS);
   try {
     resolveOut = await resolveAmbiguities(slmClient, fsReadFn, {
-      skillText: text,
+      skillText: skillContext.text,
       task,
       repoRoot: rootUri ? (rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri) : undefined
     });
@@ -252,7 +263,15 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     conditioned,
     args,
     startTime,
-    errorKinds: { distill: distillErrorKind, resolver: resolverErrorKind }
+    errorKinds: { distill: distillErrorKind, resolver: resolverErrorKind },
+    fidelity,
+    resolver: {
+      // What the resolver was given (after trimming), beside the skill's full size.
+      context_tok_est: skillContext.tokEst,
+      skill_tok_est: skillContext.originalTokEst,
+      trimmed: skillContext.trimmed ? 1 : 0,
+      questions: resolveOut.autoApplied.length + resolveOut.askUser.length,
+    },
   });
 
   // 6. Cache Set.

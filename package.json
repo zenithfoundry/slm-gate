@@ -69,6 +69,7 @@
     "test:e2e": "pnpm run build && pnpm run e2e:standalone-mcp && pnpm run e2e:llm-gate-routing && pnpm run e2e:distill-fallback && pnpm run e2e:resolver-ambiguities && pnpm run smoke:e2e",
     "e2e": "pnpm run test:e2e",
     "bench": "tsx harness/run.ts",
+    "fidelity": "tsx scripts/fidelity.ts",
     "bench:reset": "rm -rf harness/.cache && pnpm run bench",
     "metrics": "tsx harness/metrics.ts",
     "migrate:provider": "tsx scripts/migrations/001-add-provider.ts",

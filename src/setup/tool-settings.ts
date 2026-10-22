@@ -18,8 +18,9 @@ export function toolSettings(port: number): ToolSetting[] {
       tool: 'Claude Code (CLI and VS Code / JetBrains extension)',
       login: 'claude.ai Pro/Max login or API key',
       lines: [
-        `~/.claude/settings.json:  { "env": { "ANTHROPIC_BASE_URL": "${base}" } }   (no /v1 at the end)`,
-        `VS Code user settings:    "claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "${base}" }]`,
+        `~/.claude/settings.json:  { "env": { "ANTHROPIC_BASE_URL": "${base}", "ENABLE_TOOL_SEARCH": "true" } }   (no /v1 at the end)`,
+        `VS Code user settings:    "claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "${base}" }, { "name": "ENABLE_TOOL_SEARCH", "value": "true" }]`,
+        '(ENABLE_TOOL_SEARCH: behind any address other than Anthropic\'s, Claude Code stops deferring MCP tool schemas unless told to; the gate passes the deferral through unchanged)',
       ],
     },
     {

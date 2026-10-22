@@ -87,8 +87,104 @@ export interface DashboardData {
   routing: { resolvedLocal: number; distilledForwarded: number; escalatedCloud: number };
   /** Verifier acceptance, split so hiding benchmark data never blanks the real figure. */
   accuracy: { real: AccuracySlice; bench: AccuracySlice };
+  /** Tool definitions carried per model-gate request (real traffic, formats that report them). */
+  toolDefs: ToolDefsSection;
+  /** Skill shrinking fidelity (real conditionings that carry a measurement). */
+  fidelity: FidelitySection;
   days: DayRow[];
   providers: ProviderSection[];
+}
+
+export interface FidelitySection {
+  /** Conditionings whose meta carries fidelity (any mode, cache hits included). */
+  conditionings: number;
+  /** Conditionings where a model shortened text (summarize or not_shrunk): the ones the guard measured. */
+  measured: number;
+  /** Average recall over measured rows where the brain checked at least one run; null when none. */
+  avgRecall: number | null;
+  /** Share of measured rows whose protected blocks and tracked tokens all survived; null when none measured. */
+  deterministicPassPct: number | null;
+  notShrunk: number;
+  /** Expansion rows per conditioning, all real traffic. */
+  expansionRate: number | null;
+  /** The three measured skills with the lowest recall. */
+  worst: { skill: string; recall: number }[];
+}
+
+function fidelitySection(events: LedgerEvent[]): FidelitySection {
+  let conditionings = 0;
+  let measured = 0;
+  let deterministicPass = 0;
+  let notShrunk = 0;
+  const recalls: { skill: string; recall: number }[] = [];
+  let conditionRows = 0;
+  let feedbackRows = 0;
+  for (const e of events) {
+    if (e.route === 'feedback') feedbackRows++;
+    if (e.route !== 'condition') continue;
+    conditionRows++;
+    if (!e.meta) continue;
+    let meta: { fidelity?: { mode?: string; deterministic?: number; recall?: number | null } };
+    try { meta = JSON.parse(e.meta); } catch { continue; }
+    const f = meta.fidelity;
+    if (!f || typeof f.mode !== 'string') continue;
+    conditionings++;
+    if (f.mode === 'not_shrunk') notShrunk++;
+    if (f.mode !== 'summarize' && f.mode !== 'not_shrunk') continue;
+    measured++;
+    if (f.deterministic === 1) deterministicPass++;
+    if (typeof f.recall === 'number') recalls.push({ skill: e.skill ?? 'unknown', recall: f.recall });
+  }
+  const pct = (n: number, d: number) => (d === 0 ? null : Number(((n / d) * 100).toFixed(1)));
+  return {
+    conditionings,
+    measured,
+    avgRecall: recalls.length === 0 ? null : Number((recalls.reduce((s, r) => s + r.recall, 0) / recalls.length).toFixed(3)),
+    deterministicPassPct: pct(deterministicPass, measured),
+    notShrunk,
+    expansionRate: conditionRows === 0 ? null : Number((feedbackRows / conditionRows).toFixed(2)),
+    worst: [...recalls].sort((a, b) => a.recall - b.recall).slice(0, 3),
+  };
+}
+
+export interface ToolDefsSection {
+  /** Requests that reported tool counts. */
+  requests: number;
+  avgCount: number | null;
+  avgDeferred: number | null;
+  /** Average estimated tokens of the definitions that entered the context. */
+  avgTokEst: number | null;
+  last: { count: number; deferred: number; tokEst: number } | null;
+  /** The latest request carried many tools and deferred none: tool search is not working through the gate. */
+  warn: boolean;
+}
+
+const TOOL_DEFS_WARN_ABOVE = 20;
+
+function toolDefsSection(events: LedgerEvent[]): ToolDefsSection {
+  const rows: { count: number; deferred: number; tokEst: number }[] = [];
+  for (const e of events) {
+    if (e.layer !== 'llm' || !e.meta) continue;
+    let meta: Record<string, unknown>;
+    try { meta = JSON.parse(e.meta); } catch { continue; }
+    if (typeof meta.tools_count !== 'number') continue;
+    rows.push({
+      count: meta.tools_count,
+      deferred: typeof meta.tools_deferred === 'number' ? meta.tools_deferred : 0,
+      tokEst: typeof meta.tools_tok_est === 'number' ? meta.tools_tok_est : 0,
+    });
+  }
+  if (rows.length === 0) return { requests: 0, avgCount: null, avgDeferred: null, avgTokEst: null, last: null, warn: false };
+  const avg = (pick: (r: typeof rows[number]) => number) => Number((rows.reduce((s, r) => s + pick(r), 0) / rows.length).toFixed(1));
+  const last = rows[rows.length - 1];
+  return {
+    requests: rows.length,
+    avgCount: avg(r => r.count),
+    avgDeferred: avg(r => r.deferred),
+    avgTokEst: avg(r => r.tokEst),
+    last,
+    warn: last.count > TOOL_DEFS_WARN_ABOVE && last.deferred === 0,
+  };
 }
 
 const PROVIDERS = [
@@ -215,6 +311,8 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
     benchEvents: bench.length,
     routing,
     accuracy: { real: accuracySlice(real), bench: accuracySlice(bench) },
+    toolDefs: toolDefsSection(real),
+    fidelity: fidelitySection(real),
     days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     providers,
   };

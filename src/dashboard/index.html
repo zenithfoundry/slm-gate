@@ -253,6 +253,53 @@ function accuracyCard() {
   return card;
 }
 
+function toolDefsCard() {
+  const t = DATA.toolDefs;
+  if (!t || !t.requests) return null;
+  const card = el('div', { class: 'card span4' });
+  card.append(el('h2', { text: 'Tool definitions in context per request' }),
+    el('p', { class: 'sub', text: 'Model-gate requests that list tools. Deferred schemas stay out of the context until the model searches for them. All-time.' }));
+  const tiles = el('div', { class: 'tiles' });
+  for (const [label, value, note] of [
+    ['Tools listed', fmtInt(Math.round(t.avgCount)), 'average per request'],
+    ['Deferred', fmtInt(Math.round(t.avgDeferred)), 'average kept out of the context'],
+    ['In context', '~' + fmtCompact(Math.round(t.avgTokEst)) + ' tok', 'average schema size sent'],
+    ['Latest request', fmtInt(t.last.deferred) + ' / ' + fmtInt(t.last.count), 'deferred / listed · n = ' + fmtInt(t.requests)],
+  ]) {
+    const tile = el('div', { class: 'tile' });
+    tile.append(el('div', { class: 'label', text: label }), el('div', { class: 'value', text: value }), el('div', { class: 'label', text: note }));
+    tiles.append(tile);
+  }
+  card.append(tiles);
+  if (t.warn) card.append(el('div', { class: 'na', text: 'Tool search is not deferring: ' + fmtInt(t.last.count) + ' schemas (~' + fmtCompact(t.last.tokEst) +
+    ' tokens) are sent on every request. Set ENABLE_TOOL_SEARCH=true next to ANTHROPIC_BASE_URL.' }));
+  return card;
+}
+
+function fidelityCard() {
+  const f = DATA.fidelity;
+  if (!f || !f.conditionings) return null;
+  const card = el('div', { class: 'card span4' });
+  card.append(el('h2', { text: 'Skill fidelity' }),
+    el('p', { class: 'sub', text: 'What survived shrinking. Protected lines never reach a model; the brain model checks the rest. All-time.' }));
+  const tiles = el('div', { class: 'tiles' });
+  for (const [label, value, note] of [
+    ['Recall', f.avgRecall === null ? null : (f.avgRecall * 100).toFixed(1) + '%', f.avgRecall === null ? 'no run checked yet' : 'requirement sentences kept'],
+    ['Deterministic', f.deterministicPassPct === null ? null : f.deterministicPassPct + '%', 'protected blocks and tokens intact'],
+    ['Measured', fmtInt(f.measured), 'of ' + fmtInt(f.conditionings) + ' conditionings · ' + fmtInt(f.notShrunk) + ' not shrunk'],
+    ['Expansions', f.expansionRate === null ? null : f.expansionRate.toFixed(2), 'per conditioning (lower is better)'],
+  ]) {
+    const tile = el('div', { class: 'tile' });
+    tile.append(el('div', { class: 'label', text: label }),
+      value === null ? el('div', { class: 'na', text: 'not measured' }) : el('div', { class: 'value', text: value }),
+      el('div', { class: 'label', text: note }));
+    tiles.append(tile);
+  }
+  card.append(tiles);
+  if (f.worst.length) card.append(el('p', { class: 'sub', text: 'Lowest recall: ' + f.worst.map(w => w.skill + ' ' + (w.recall * 100).toFixed(0) + '%').join(' · ') }));
+  return card;
+}
+
 function weekChart(provider, cut) {
   const weeks = provider.weeks.filter(w => w.weekStart >= cut.slice(0, 10));
   const useMinutes = provider.windowBudgetTokens !== null;
@@ -333,6 +380,10 @@ function render() {
   const grid = $('#grid');
   grid.hidden = false;
   grid.replaceChildren(heroCard(cut), donutCard(cut), accuracyCard());
+  const toolDefs = toolDefsCard();
+  if (toolDefs) grid.append(toolDefs);
+  const fidelity = fidelityCard();
+  if (fidelity) grid.append(fidelity);
   for (const provider of DATA.providers) if (provider.events > 0) grid.append(providerCard(provider, cut));
   const span = DATA.firstEventTs ? DATA.firstEventTs.slice(0, 10) + ' → ' + DATA.lastEventTs.slice(0, 10) : 'no events';
   $('#foot').textContent = 'Source: ' + source + ' · generated ' + DATA.generatedAt.slice(0, 16).replace('T', ' ') + 'Z · ledger span ' + span +

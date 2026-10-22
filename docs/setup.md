@@ -162,11 +162,11 @@ Alternatively, create or edit `.mcp.json` in your project root:
 
 **Layer 2 (optional — send Claude Code's model requests through `llm-gate`):** add the address to `~/.claude/settings.json`. Note there is **no `/v1`** at the end; Claude Code adds it itself.
 ```json
-{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787" } }
+{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787", "ENABLE_TOOL_SEARCH": "true" } }
 ```
 In the VS Code extension, set it in your VS Code user settings instead:
 ```json
-"claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8787" }]
+"claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8787" }, { "name": "ENABLE_TOOL_SEARCH", "value": "true" }]
 ```
 Your claude.ai login or API key keeps working. The model gate starts by itself the next time Claude Code starts `slm-gate`'s MCP server.
 

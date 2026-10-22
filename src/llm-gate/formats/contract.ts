@@ -46,6 +46,23 @@ export interface WireFormatModule<L = any> {
   firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null;
   /** A final text reply that ends the turn, streamed (SSE) or as one JSON body. */
   buildLocalReply(params: { text: string; stream: boolean; model: string; usage: { inputTokens: number; outputTokens: number } }): LocalReply;
+  /** How many tool definitions the request carries and how many stay out of the context; null when the format has no such notion. */
+  toolStats?(body: JsonObject): ToolStats | null;
+  /**
+   * What the person typed when the latest entry is a user message carrying text and no tool result; null for a
+   * tool-result turn, a slash command, or no typed text. Any turn, not only the first (contrast firstRequestPrompt).
+   */
+  typedTurnText?(body: JsonObject): string | null;
+}
+
+/** Measurement only: the body is never changed. */
+export interface ToolStats {
+  /** Tool definitions listed in the request. */
+  count: number;
+  /** Of those, the ones marked to stay out of the context until the model searches for them. */
+  deferred: number;
+  /** Rough size of the definitions that do enter the context (JSON characters / 4). */
+  tokEst: number;
 }
 
 // Coding tools inject context as blocks wrapped in one tag (<system-reminder>…</system-reminder>,

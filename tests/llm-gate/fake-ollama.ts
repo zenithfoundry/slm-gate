@@ -9,15 +9,15 @@ import { AddressInfo } from 'node:net';
  */
 export interface FakeOllama {
   url: string;
-  /** `embedDelayMs` delays /api/embeddings (used by the semantic cache). */
-  state: { category: string; answer: string; delayMs: number; status: number; embedDelayMs: number };
+  /** `embedDelayMs` delays /api/embeddings (used by the semantic cache); `classifyDelayMs` delays classification calls. */
+  state: { category: string; answer: string; delayMs: number; status: number; embedDelayMs: number; classifyDelayMs: number };
   calls: { kind: 'classify' | 'answer'; aborted: boolean }[];
   reset(): void;
   close(): Promise<void>;
 }
 
 export async function startFakeOllama(): Promise<FakeOllama> {
-  const defaults = { category: 'short_factual', answer: 'Hi! How can I help you today?', delayMs: 0, status: 200, embedDelayMs: 0 };
+  const defaults = { category: 'short_factual', answer: 'Hi! How can I help you today?', delayMs: 0, status: 200, embedDelayMs: 0, classifyDelayMs: 0 };
   const state = { ...defaults };
   const calls: FakeOllama['calls'] = [];
 
@@ -52,7 +52,8 @@ export async function startFakeOllama(): Promise<FakeOllama> {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ model: body.model, created_at: new Date().toISOString(), message: { role: 'assistant', content }, done: true }));
       };
-      if (call.kind === 'answer' && state.delayMs > 0) setTimeout(reply, state.delayMs).unref();
+      const delay = call.kind === 'answer' ? state.delayMs : state.classifyDelayMs;
+      if (delay > 0) setTimeout(reply, delay).unref();
       else reply();
     });
   });

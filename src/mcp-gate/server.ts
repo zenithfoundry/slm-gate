@@ -16,6 +16,12 @@ import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { conditionPrompt } from './pipeline.js';
 import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 
+// ask_elision (slice 6): each part of the original must fit the local context with room for the answer;
+// at most this many parts are searched per question; an answer is a few sentences, never a page.
+const ASK_CHUNK_TOKENS = 5000;
+const ASK_MAX_CHUNKS = 4;
+const ASK_MAX_ANSWER_CHARS = 1200;
+
 /**
  * @param options.notices Set-up problems from the start-up checks, passed to the AI in the instructions
  */
@@ -102,6 +108,19 @@ export async function createServer(options: { notices?: readonly { message: stri
           required: ["elisionId"]
         }
       });
+      // Advertise ask_elision (slice 6): a local model answers from the stored original.
+      tools.push({
+        name: "ask_elision",
+        description: "Ask a question about elided text; a local model answers from the full original in a few sentences instead of a 2,000-token page. If it is not found, use expand_elision.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            elisionId: { type: "string" },
+            question: { type: "string" }
+          },
+          required: ["elisionId", "question"]
+        }
+      });
       return { tools };
     });
 
@@ -110,6 +129,68 @@ export async function createServer(options: { notices?: readonly { message: stri
       const args = request.params.arguments;
       const task = typeof args?.task === 'string' ? args.task : 'Unknown task';
 
+      if (name === "ask_elision") {
+        const elisionId = String(args?.elisionId ?? '');
+        const question = String(args?.question ?? '').trim();
+        if (!elisionId || !question) throw new Error("elisionId and question are required");
+
+        const { getElision, writeEvent, cacheGet, cacheSet } = await import('../ledger/index.js');
+        const { estimateTokens, splitByHeadings } = await import('../utils/elision.js');
+        const { answerFromText } = await import('../models/reasoning.js');
+        const { SLM } = await import('../models/slm.js');
+        const crypto = await import('node:crypto');
+        const record = getElision(elisionId);
+        if (!record) throw new Error(`Elision ${elisionId} not found in cache. Cannot answer without the original.`);
+
+        const started = Date.now();
+        const lineCount = record.original_text.split('\n').length;
+        // What an expand_elision page would have cost the cloud model: the baseline this answer saves against.
+        const pageTokens = Math.min(estimateTokens(record.original_text), CONFIG.DISTILL_MAX_TOKENS || 2000);
+        const cacheKey = `ask_${elisionId}_${crypto.createHash('sha256').update(question).digest('hex').slice(0, 16)}_${CONFIG.PROMPT_VERSION}`;
+        let text = cacheGet(cacheKey);
+        let meta: Record<string, unknown> = { type: 'ask_elision', elision_id: elisionId, cache_hit: 'exact' };
+        if (text === null) {
+          // Chunks fit the local context; the first ASK_MAX_CHUNKS are searched in order, stopping at a hit.
+          const chunks = splitByHeadings(record.original_text, ASK_CHUNK_TOKENS).slice(0, ASK_MAX_CHUNKS);
+          const slm = new SLM();
+          let hit: { answer: string; lines: [number, number] | null; startLine: number } | null = null;
+          let checked = 0;
+          for (const chunk of chunks) {
+            checked++;
+            const res = await answerFromText({ slm, question, text: chunk.text });
+            if (res.found && res.answer.trim()) { hit = { answer: res.answer, lines: res.lines, startLine: chunk.startLine }; break; }
+          }
+          text = hit
+            ? hit.answer.trim().slice(0, ASK_MAX_ANSWER_CHARS) + (hit.lines ? ` (original lines ${hit.startLine + hit.lines[0]}-${hit.startLine + hit.lines[1]})` : '')
+            : `Not found in the elided text (${checked} of ${chunks.length} parts checked). Use expand_elision with this id and range {"startLine": 0, "endLine": ${lineCount - 1}} to read it.`;
+          meta = { type: 'ask_elision', elision_id: elisionId, found: hit ? 1 : 0, chunks_checked: checked, chunks: chunks.length };
+          cacheSet(cacheKey, text);
+        }
+
+        // A conditioning row: the page the cloud model would have read is the baseline, the answer the output.
+        writeEvent({
+          ts: new Date().toISOString(),
+          layer: 'mcp',
+          request_id: `ask_${crypto.randomUUID()}`,
+          route: 'condition',
+          is_local_call: 1,
+          slm_model: CONFIG.SLM_BRAIN_MODEL,
+          api_model: args?.model ? String(args.model) : undefined,
+          agent: args?.agent ? String(args.agent) : undefined,
+          in_tok: pageTokens,
+          out_tok: estimateTokens(text),
+          api_in_tok: 0,
+          api_out_tok: 0,
+          cost_usd: 0,
+          slm_latency_s: (Date.now() - started) / 1000,
+          api_latency_s: 0,
+          slm_gate: 'on',
+          meta: JSON.stringify(meta)
+        } as any);
+
+        return { content: [{ type: "text", text: rewriteToolReferences(text, downstreamToolNames) }] };
+      }
+
       if (name === "expand_elision") {
         const elisionId = args?.elisionId as string;
         const range = args?.range as any;
@@ -117,51 +198,16 @@ export async function createServer(options: { notices?: readonly { message: stri
         if (!elisionId) throw new Error("elisionId is required");
         
         // Dynamic imports to prevent circular dependencies at boot
-        const { getElision, writeElision, writeDistillFeedback, writeEvent } = await import('../ledger/index.js');
-        const { formatElisionMarker, pageLines } = await import('../utils/elision.js');
-        const { embedText, float64ArrayToBuffer } = await import('../utils/embedding.js');
+        const { getElision, writeElision, writeEvent } = await import('../ledger/index.js');
+        const { estimateTokens, formatElisionMarker, pageLines } = await import('../utils/elision.js');
         const crypto = await import('node:crypto');
         const record = getElision(elisionId);
-        
+
         if (record) {
-          // Fire-and-forget: Embed the text the user explicitly wanted expanded.
-          // This populates the Adaptive Feedback DB, teaching the engine to preserve 
-          // semantically similar lines in future compressions.
-          embedText(record.original_text).then(emb => {
-            if (emb) {
-              writeDistillFeedback({
-                id: `fd_${Date.now()}_${Math.random().toString(36).substring(2,7)}`,
-                tool_name: record.tool_name,
-                skill: '',
-                content_hash: record.content_hash,
-                region_text: record.original_text,
-                embedding_blob: float64ArrayToBuffer(emb),
-                signal: 1
-              });
-            }
-          });
-          
-          // Log the manual expansion for analytics/billing
-          writeEvent({
-            ts: new Date().toISOString(),
-            layer: 'mcp',
-            request_id: `fb_${crypto.randomUUID()}`,
-            // Its own route: this is a user feedback signal, not a conditioning event.
-            // As 'condition' it polluted route counts and collected a free accuracy score.
-            route: 'feedback',
-            is_local_call: 0,
-            api_model: args?.model ? String(args.model) : undefined,
-            agent: args?.agent ? String(args.agent) : undefined,
-            api_in_tok: 0,
-            api_out_tok: 0,
-            in_tok: 0,
-            out_tok: 0,
-            cost_usd: 0,
-            slm_latency_s: 0,
-            api_latency_s: 0,
-            slm_gate: 'on',
-            meta: JSON.stringify({ type: 'distill_feedback', elision_id: elisionId, action: 'expand' })
-          } as any);
+          // An expansion used to embed the original text here (adaptive feedback), which asked Ollama for
+          // EMBED_MODEL — a third model that evicts one of the two working models on a 24 GB machine and
+          // that this gate never requires. Removed: the adaptive feedback table keeps its readers and
+          // gains no rows from expansions.
 
           // If it's a file read, we should theoretically re-read if hash changed, but we can't easily read here without downstreamClient calling the exact same tool.
           // Let's check if downstreamClient is available to re-run
@@ -205,8 +251,34 @@ export async function createServer(options: { notices?: readonly { message: stri
           const expandedText = page.nextStart === undefined
             ? page.text
             : page.text + formatElisionMarker(elisionId, endLine - page.nextStart + 1, page.nextStart, endLine);
+          const returned = rewriteToolReferences(expandedText, downstreamToolNames);
 
-          return { content: [{ type: "text", text: rewriteToolReferences(expandedText, downstreamToolNames) }] };
+          // The expansion row, written once the page is final: the cloud model re-reads `returned`
+          // (marker and rewrites included), so its size is charged against the savings
+          // (perEventTokensSaved). Its own route: a user feedback signal, not a conditioning event.
+          writeEvent({
+            ts: new Date().toISOString(),
+            layer: 'mcp',
+            request_id: `fb_${crypto.randomUUID()}`,
+            route: 'feedback',
+            is_local_call: 0,
+            api_model: args?.model ? String(args.model) : undefined,
+            agent: args?.agent ? String(args.agent) : undefined,
+            api_in_tok: 0,
+            api_out_tok: 0,
+            in_tok: 0,
+            out_tok: estimateTokens(returned),
+            cost_usd: 0,
+            slm_latency_s: 0,
+            api_latency_s: 0,
+            slm_gate: 'on',
+            meta: JSON.stringify({
+              type: 'distill_feedback', elision_id: elisionId, action: 'expand',
+              page: { start: startLine, end: endLine, next: page.nextStart ?? null },
+            })
+          } as any);
+
+          return { content: [{ type: "text", text: returned }] };
         } else {
           // Missing or expired, try to re-run if we have args
           if (!downstreamClient) throw new Error("Elision not found and no downstream client to re-run.");
