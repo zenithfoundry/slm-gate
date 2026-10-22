@@ -145,6 +145,33 @@ Commit the folder with the repository.
 Decision memory, the fidelity guard and the repository index belong to the "local models do more" setup; see
 [The two setups](setups.md) for the keys that turn them on or off together.
 
+## What the local model remembers of a conversation
+
+Every local step used to answer from a single message. Now the model gate keeps a short memory of each
+conversation it forwards: the goal, what was decided, and the files, commands and names that keep coming up.
+It is folded by the brain model from the newest turns only, a few hundred tokens at most, and only while the
+gate is idle, so it never slows a request. See it any time:
+
+```bash
+slm-gate memory
+```
+
+Who reads it: `ask_elision` (so "which step are we on?" has a here), the resolver (it stops asking questions the
+conversation already settled, and offers an earlier decision as the suggested answer, never applied on its own),
+and Step A when you turn it on. The MCP gate cannot know which conversation a tool call belongs to, so it takes
+the newest memory for the same workspace from a conversation that began after the session did, within ten
+minutes; two sessions in the same repository at once can cross, and every ledger row says which memory it used
+(`memory.match`). The summary text stays in the ledger file on this machine: it is never written to event rows,
+sent to Langfuse, or printed in logs. `CONVERSATION_MEMORY=off` turns it off; stored summaries are then ignored
+too.
+
+What a fold is, and what it costs: one pass of the brain model that takes the previous summary plus only the
+turns since the last fold and writes the new summary; it never re-reads the whole conversation. Each fold writes
+one ledger row (route `memory_fold`: how long it took and roughly how many tokens it read; never the text), and
+`slm-gate memory` shows each conversation's fold count and last fold time. A conversation folds at most once per
+`MEMORY_FOLD_INTERVAL_MS`, and only while the gate has no request in flight. The first fold after a quiet spell
+is slower while the brain model wakes up.
+
 ## Learned protections: a lost sentence is never lost twice
 
 With `DISTILL_SKILLS=on`, whenever the brain model reports that a shortened paragraph dropped a requirement

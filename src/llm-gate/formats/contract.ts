@@ -4,6 +4,7 @@
  * Four real formats (Anthropic Messages, Chat Completions, Responses, Gemini) justify this small shared
  * shape; everything else stays local to each format module. Request bodies are plain parsed JSON.
  */
+import crypto from 'node:crypto';
 
 export type JsonObject = Record<string, any>;
 
@@ -53,6 +54,34 @@ export interface WireFormatModule<L = any> {
    * tool-result turn, a slash command, or no typed text. Any turn, not only the first (contrast firstRequestPrompt).
    */
   typedTurnText?(body: JsonObject): string | null;
+  /** The whole conversation as memory entries, in order (see HistoryEntry); formats without it fold nothing. */
+  historyEntries?(body: JsonObject): HistoryEntry[];
+  /** The workspace the request names (an absolute path), or null when it does not say. */
+  workspaceOf?(body: JsonObject): string | null;
+}
+
+/** One entry of a conversation as the memory fold sees it: who said it and the text, tool results shortened. */
+export interface HistoryEntry {
+  role: 'user' | 'assistant' | 'tool';
+  text: string;
+}
+
+/**
+ * The conversation key: sha256 of the first user entry. Coding tools resend the whole history every turn, so
+ * the first entry is stable for the life of a conversation. It is a heuristic identity — two conversations
+ * that open with the same message share it — which the memory fold tells apart with the second entry.
+ */
+export function conversationKey(body: JsonObject): string {
+  const history: any[] = body.messages ?? body.contents ?? (Array.isArray(body.input) ? body.input : []);
+  const first = history.find(entry => entry?.role === 'user') ?? history[0] ?? null;
+  return crypto.createHash('sha256').update(JSON.stringify(first)).digest('hex');
+}
+
+/** sha256 of the second user entry, or null while the conversation has only one. */
+export function conversationDiscriminator(body: JsonObject): string | null {
+  const history: any[] = body.messages ?? body.contents ?? (Array.isArray(body.input) ? body.input : []);
+  const users = history.filter(entry => entry?.role === 'user');
+  return users.length >= 2 ? crypto.createHash('sha256').update(JSON.stringify(users[1])).digest('hex') : null;
 }
 
 /** Measurement only: the body is never changed. */

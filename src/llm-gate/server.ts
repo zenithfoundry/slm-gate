@@ -2,16 +2,18 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
-import { writeEvent } from '../ledger/index.js';
+import { matchMemory, readMemoryRow, writeEvent } from '../ledger/index.js';
 import { estimateTokens } from '../utils/elision.js';
 import { DistillStats, distilRequest } from './distill.js';
 import * as anthropic from './formats/anthropic.js';
 import * as chatCompletions from './formats/chat-completions.js';
-import { JsonObject, ToolStats, WireFormatModule } from './formats/contract.js';
+import { conversationDiscriminator, conversationKey, JsonObject, ToolStats, WireFormatModule } from './formats/contract.js';
 import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
 import { answerFirstRequestLocally, classifyTypedTurn } from './local-first.js';
+import { noteTurn, parseSummary, renderSummary } from './memory.js';
+import { beginRequest, track } from '../models/busy.js';
 import { HEALTH_PATH } from '../setup/model-gate.js';
 import { requiredModels } from '../setup/local-models.js';
 import { isLocalRequest } from '../utils/local-only.js';
@@ -86,7 +88,10 @@ async function localFirst(params: { route: UpstreamRoute; parsed: JsonObject; bo
   const started = Date.now();
   let local: Awaited<ReturnType<typeof answerFirstRequestLocally>>;
   try {
-    local = await answerFirstRequestLocally({ task: prompt.text, toolsListed: prompt.toolsListed });
+    // Conversation memory for Step A: the usable summary for this conversation's key, read through the same
+    // fail-closed path as every other reader; a missing, stale or failed memory means today's behaviour.
+    const memoryText = memoryForStepA(parsed);
+    local = await track(answerFirstRequestLocally({ task: prompt.text, toolsListed: prompt.toolsListed, memory: memoryText }));
   } catch (err) {
     // Step A can only make a request cheaper; if it fails in any way the request goes on as normal.
     console.error(`LLM Gate: local answer skipped: ${err instanceof Error ? err.message : String(err)}`);
@@ -195,6 +200,8 @@ function recordRequest(params: {
   tools?: ToolStats | null;
   /** The typed turn's classification, when ROUTING_TUNE asked for one. */
   turn?: TurnClassification | null;
+  /** The conversation memory's state for this request (numbers only). */
+  memory?: MemoryNote | null;
 }): void {
   recordSafely({ reqId: params.reqId, path: params.path, write: () => writeLedgerRow(params) });
 }
@@ -238,7 +245,7 @@ function recordLocalAnswer(params: { reqId: string; path: string; body: Buffer; 
 }
 
 function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
-  const { reqId, path, body, route, outcome, distill = null, local = null, tools = null, turn = null } = params;
+  const { reqId, path, body, route, outcome, distill = null, local = null, tools = null, turn = null, memory = null } = params;
   const sent = params.sent ?? body;
   const distilled = sent !== body;
   writeEvent({
@@ -263,6 +270,8 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
       ...(local?.meta ?? {}),
       // A later typed turn's category (never set together with a Step A attempt's category above).
       ...(turn ? { category: turn.category, category_outcome: turn.outcome } : {}),
+      // Conversation memory: how much of this conversation the summary covers and how old it is. Never the text.
+      ...(memory ? { memory } : {}),
       format: route?.format ?? null,
       path,
       status: outcome.status,
@@ -282,6 +291,21 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
 }
 
 async function handleRequest(params: {
+  req: http.IncomingMessage;
+  res: http.ServerResponse;
+  reqId: string;
+  body: Buffer;
+}): Promise<void> {
+  // Counted as in flight until it returns, so background work (the memory fold) never overlaps a request.
+  const done = beginRequest();
+  try {
+    await handleRequestInner(params);
+  } finally {
+    done();
+  }
+}
+
+async function handleRequestInner(params: {
   req: http.IncomingMessage;
   res: http.ServerResponse;
   reqId: string;
@@ -333,7 +357,45 @@ async function handleRequest(params: {
   const saved = sent === body ? '' : `, distilled ${body.length} -> ${sent.length} bytes`;
   console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${saved}${outcome.clientAborted ? ' (client aborted)' : ''}`);
   const turnResult = turn ? await turn.settle() : null;
-  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local, tools, turn: turnResult });
+  // Conversation memory: note this turn now that the response is complete; the fold itself runs later, only
+  // when this process has no request in flight (src/llm-gate/memory.ts).
+  const memory = parsed && route.generation ? noteMemory({ route, parsed }) : null;
+  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local, tools, turn: turnResult, memory });
+}
+
+/** The rendered conversation memory for a first request's conversation, or null (never the raw row). */
+function memoryForStepA(parsed: JsonObject): string | null {
+  if (!CONFIG.CONVERSATION_MEMORY) return null;
+  try {
+    const found = matchMemory({ key: conversationKey(parsed), discriminator: conversationDiscriminator(parsed) });
+    const summary = found.row ? parseSummary(found.row.summary) : null;
+    return summary ? renderSummary(summary) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What the ledger row says about the conversation's memory: numbers only, never the text. */
+interface MemoryNote {
+  turns_known: number;
+  age_s: number | null;
+}
+
+function noteMemory(params: { route: UpstreamRoute; parsed: JsonObject }): MemoryNote | null {
+  if (!CONFIG.CONVERSATION_MEMORY) return null;
+  const format = FORMATS[params.route.format];
+  if (!format.historyEntries) return null;
+  try {
+    const key = conversationKey(params.parsed);
+    const entries = format.historyEntries(params.parsed);
+    const root = format.workspaceOf?.(params.parsed) ?? null;
+    noteTurn({ key, root, discriminator: conversationDiscriminator(params.parsed), entries });
+    const row = readMemoryRow(key);
+    return { turns_known: row?.turns ?? 0, age_s: row ? Math.round((Date.now() - new Date(row.folded_at).getTime()) / 1000) : null };
+  } catch (err) {
+    console.error(`[memory] turn not noted: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
 }
 
 /**

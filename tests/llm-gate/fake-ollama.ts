@@ -10,16 +10,20 @@ import { AddressInfo } from 'node:net';
 export interface FakeOllama {
   url: string;
   /** `embedDelayMs` delays /api/embeddings (used by the semantic cache); `classifyDelayMs` delays classification calls. */
-  state: { category: string; answer: string; delayMs: number; status: number; embedDelayMs: number; classifyDelayMs: number };
+  state: { category: string; answer: string; delayMs: number; status: number; embedDelayMs: number; classifyDelayMs: number; structured: string | null };
   calls: { kind: 'classify' | 'answer'; aborted: boolean }[];
+  /** Every /api/chat request body, in order, so a test can see what the models were asked. */
+  bodies: any[];
   reset(): void;
   close(): Promise<void>;
 }
 
 export async function startFakeOllama(): Promise<FakeOllama> {
-  const defaults = { category: 'short_factual', answer: 'Hi! How can I help you today?', delayMs: 0, status: 200, embedDelayMs: 0, classifyDelayMs: 0 };
+  // `structured` answers any structured (JSON-format) call that is not a classification, such as a memory fold.
+  const defaults = { category: 'short_factual', answer: 'Hi! How can I help you today?', delayMs: 0, status: 200, embedDelayMs: 0, classifyDelayMs: 0, structured: null as string | null };
   const state = { ...defaults };
   const calls: FakeOllama['calls'] = [];
+  const bodies: any[] = [];
 
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -36,6 +40,7 @@ export async function startFakeOllama(): Promise<FakeOllama> {
         return;
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      bodies.push(body);
       const call = { kind: body.format ? 'classify' as const : 'answer' as const, aborted: false };
       calls.push(call);
       res.on('close', () => {
@@ -48,7 +53,11 @@ export async function startFakeOllama(): Promise<FakeOllama> {
           res.end('{"error":"model unavailable"}');
           return;
         }
-        const content = call.kind === 'classify' ? JSON.stringify({ category: state.category }) : state.answer;
+        const promptText = String(body.messages?.map((m: any) => m.content).join('\n') ?? '');
+        const isClassification = /Categorize the following user request/.test(promptText);
+        const content = call.kind === 'classify'
+          ? (state.structured !== null && !isClassification ? state.structured : JSON.stringify({ category: state.category }))
+          : state.answer;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ model: body.model, created_at: new Date().toISOString(), message: { role: 'assistant', content }, done: true }));
       };
@@ -63,9 +72,11 @@ export async function startFakeOllama(): Promise<FakeOllama> {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     state,
     calls,
+    bodies,
     reset: () => {
       Object.assign(state, defaults);
       calls.length = 0;
+      bodies.length = 0;
     },
     close: async () => {
       server.closeAllConnections();

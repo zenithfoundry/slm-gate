@@ -22,7 +22,8 @@ import { compressNarrativeRun } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { distillToolResult, estimateTokens, rewriteElisionHint } from '../utils/elision.js';
 import { buildPreserveList } from '../utils/preserve-patterns.js';
-import { JsonObject, ToolResult, WireFormatModule } from './formats/contract.js';
+import { conversationKey, JsonObject, ToolResult, WireFormatModule } from './formats/contract.js';
+import { track } from '../models/busy.js';
 
 export type Kind = 'command' | 'search' | 'listing';
 
@@ -117,12 +118,6 @@ function distillableKind(result: ToolResult<unknown>): Kind | null {
  * (the history only grows). Two sessions that meet the same tool output must not share a decision: one
  * of them may already have sent the original.
  */
-function conversationKey(body: JsonObject): string {
-  const history: any[] = body.messages ?? body.contents ?? (Array.isArray(body.input) ? body.input : []);
-  const first = history.find(entry => entry?.role === 'user') ?? history[0] ?? null;
-  return crypto.createHash('sha256').update(JSON.stringify(first)).digest('hex');
-}
-
 /**
  * Only what cannot change for a result within a conversation. Engine version, prompt version and marker
  * wording are deliberately left out: a changed key would find no decision for history the provider has
@@ -210,7 +205,8 @@ async function decide(params: {
   let outcome: Outcome = 'distilled';
   try {
     const distilled = await beforeDeadline(
-      distilOnce(key, () => engine({ text: result.text, toolName: result.toolName, callArgs: result.callArgs, kind })),
+      // Counted as a running local call so the memory fold waits for it (src/models/busy.ts).
+      distilOnce(key, () => track(engine({ text: result.text, toolName: result.toolName, callArgs: result.callArgs, kind }))),
       deadline,
     );
     text = expandHint ? distilled : rewriteElisionHint(distilled);

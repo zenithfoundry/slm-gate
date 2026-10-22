@@ -66,6 +66,10 @@ export interface ResolveInput {
   skillText: string;
   task: string;
   repoRoot?: string;
+  /** The conversation memory's rendered summary, when a usable one exists (conversation memory). */
+  conversation?: string | null;
+  /** The summary's "Decided" lines, offered as pre-filled recommendations, never auto-applied. */
+  decided?: string[];
 }
 
 // Helper to determine if we can afford a cloud call
@@ -191,10 +195,16 @@ Respond in JSON matching this schema:
   }
 }
 
+/**
+ * Lists the open decisions in a skill. With the conversation memory's summary (`conversation`) the brain is told
+ * not to list a decision the conversation already made (docs/briefs/2026-10-22-conversation-memory.md).
+ */
 export async function extractAmbiguities(
   slm: SLM,
   skillText: string,
-  task: string
+  task: string,
+  /** The conversation so far (conversation memory); when given, decisions it already made are not listed. */
+  conversation?: string | null
 ): Promise<OpenDecision[]> {
   const schema = z.object({
     decisions: z.array(z.object({
@@ -204,7 +214,8 @@ export async function extractAmbiguities(
     }))
   });
 
-  const prompt = `Extract concrete open decisions or ambiguities from the following task and skill context.
+  const so_far = conversation ? `Conversation so far (do NOT list a decision it has already made):\n${conversation}\n\n` : '';
+  const prompt = `${so_far}Extract concrete open decisions or ambiguities from the following task and skill context.
 Task: ${task}
 Context: ${skillText}
 
@@ -220,11 +231,38 @@ export async function resolveEach(
   decisions: OpenDecision[],
   repoRoot?: string,
   /** The repo's decision files; null or absent keeps the evidence path only. */
-  memory?: DecisionMemory | null
+  memory?: DecisionMemory | null,
+  /** The conversation memory's "Decided" lines; a line that answers a question pre-fills it (never auto-applied). */
+  decided: string[] = []
 ): Promise<ResolvedItem[]> {
   const results: ResolvedItem[] = [];
 
   for (const dec of decisions) {
+    // (00) CONVERSATION MEMORY: something the session itself already settled. Offered as a recommendation
+    // with confidence 0.6 — under the auto-apply bar on purpose (owner decision) — so it lands in askUser
+    // pre-filled. Null, an error or a timeout falls through to the paths below.
+    if (decided.length > 0) {
+      const schema = z.object({ answered: z.boolean(), answer: z.string().max(300) });
+      try {
+        const prompt = `These lines were decided earlier in the same conversation:\n${decided.map((d, i) => `${i + 1}. ${d}`).join('\n')}\n\nDoes any of them settle this question? Set answered to true only when one does, and give the answer in that line's own words.\nQuestion: ${dec.question}`;
+        const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+        if (res.answered && res.answer.trim()) {
+          results.push({
+            id: dec.id,
+            question: dec.question,
+            answer: res.answer.trim(),
+            confidence: 0.6,
+            source: 'conversation',
+            evidence: 'decided earlier in this conversation',
+            provenance: 'conversation memory',
+          });
+          continue;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
     let resolved: ResolvedItem = {
       id: dec.id,
       question: dec.question,
@@ -431,12 +469,12 @@ export async function resolveAmbiguities(
   const dependencies = memory?.dirDependency ? [memory.dirDependency] : [];
   const staleDecisions = memory?.stale ?? [];
 
-  const decisions = await extractAmbiguities(slm, input.skillText, input.task);
+  const decisions = await extractAmbiguities(slm, input.skillText, input.task, input.conversation);
   if (decisions.length === 0) {
     return { autoApplied: [], askUser: [], dependencies, staleDecisions };
   }
 
-  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot, memory);
+  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot, memory, input.decided ?? []);
 
   // Cloud API Tier
   const unresolved = resolved.filter(r => r.confidence < 0.8);

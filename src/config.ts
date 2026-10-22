@@ -56,6 +56,16 @@ const envSchema = z.object({
   SLM_PROVIDER: z.enum(['ollama', 'openai']).default('ollama'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
   OLLAMA_KEEP_ALIVE: z.string().default('12h'),
+  // Conversation memory (docs/briefs/2026-10-22-conversation-memory.md): the model gate keeps a short running
+  // summary per conversation, folded by the brain model off the request path, for the local steps to read.
+  // On by default: every reader fails closed without a usable summary, so nothing changes until a fold lands.
+  CONVERSATION_MEMORY: parseBoolean(true),
+  // The summary's size, the most new text one fold reads, how often a conversation may fold, and how old a
+  // summary may be before every reader ignores it.
+  MEMORY_MAX_TOKENS: parseInteger(400),
+  MEMORY_FOLD_INPUT_TOKENS: parseInteger(3000),
+  MEMORY_FOLD_INTERVAL_MS: parseInteger(20000),
+  MEMORY_MATCH_WINDOW_MS: parseInteger(600000),
   // Keep the two local models loaded: when a model slm-gate does not use displaces one of its own, unload
   // the stranger and warm the missing one back in (src/models/pin.ts). Off leaves Ollama's memory alone.
   SLM_PIN_MODELS: parseBoolean(true),
@@ -92,8 +102,10 @@ const envSchema = z.object({
   // the gate a plain pass-through; ongoing conversations then resend their distilled history in full
   // once (one prompt-cache miss, and Claude drops its earlier thinking once).
   LLM_GATE_DISTILL: parseBoolean(true),
-  // Offer the first request of a conversation to the local model (Step A). Off sends every request on.
-  LLM_GATE_LOCAL_FIRST: parseBoolean(true),
+  // Offer the first request of a conversation to the local model (Step A). Off by default: a coding tool's
+  // first requests carry context the local model cannot see, whatever its size, and a confident wrong reply
+  // costs more than a cloud call (seen live 2026-10-22). On suits a plain chat client asking plain questions.
+  LLM_GATE_LOCAL_FIRST: parseBoolean(false),
   // How long a first request may wait for a local answer before it goes on; the attempt is then cancelled.
   // A warm local answer (3 samples) measured 3.8 s; deciding a coding task is not eligible takes ~0.25 s.
   LOCAL_ATTEMPT_BUDGET_MS: parseInteger(6000),

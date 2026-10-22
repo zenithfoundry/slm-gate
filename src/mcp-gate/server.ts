@@ -11,6 +11,7 @@ import {
   CallToolResultSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Server as HttpServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
 import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { conditionPrompt } from './pipeline.js';
@@ -21,12 +22,17 @@ import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 const ASK_CHUNK_TOKENS = 5000;
 const ASK_MAX_CHUNKS = 4;
 const ASK_MAX_ANSWER_CHARS = 1200;
+// When this MCP session started: a conversation memory can only belong to it if that conversation began
+// at or after this moment (conversation memory, the MCP gate's match rule).
+const MCP_SESSION_STARTED_AT = new Date().toISOString();
 
 /**
  * @param options.notices Set-up problems from the start-up checks, passed to the AI in the instructions
  */
-export async function createServer(options: { notices?: readonly { message: string; fix: string }[] } = {}) {
-  let rootUri: string | undefined;
+export async function createServer(options: { notices?: readonly { message: string; fix: string }[]; rootUri?: string } = {}) {
+  // The workspace root normally arrives in the client's initialize message (intercepted below); tests and
+  // embedders may pass it directly.
+  let rootUri: string | undefined = options.rootUri;
   let downstreamClient: Client | undefined;
   // Tools the connected toolbox serves. Learned at connect time and refreshed on every
   // tools/list, so any toolbox works without toolbox-specific configuration.
@@ -162,9 +168,10 @@ export async function createServer(options: { notices?: readonly { message: stri
         const question = String(args?.question ?? '').trim();
         if (!elisionId || !question) throw new Error("elisionId and question are required");
 
-        const { getElision, writeEvent, cacheGet, cacheSet } = await import('../ledger/index.js');
+        const { getElision, writeEvent, cacheGet, cacheSet, matchMemory } = await import('../ledger/index.js');
         const { estimateTokens, splitByHeadings } = await import('../utils/elision.js');
         const { answerFromText } = await import('../models/reasoning.js');
+        const { parseSummary, renderSummary } = await import('../llm-gate/memory.js');
         const { SLM } = await import('../models/slm.js');
         const crypto = await import('node:crypto');
         const record = getElision(elisionId);
@@ -174,9 +181,17 @@ export async function createServer(options: { notices?: readonly { message: stri
         const lineCount = record.original_text.split('\n').length;
         // What an expand_elision page would have cost the cloud model: the baseline this answer saves against.
         const pageTokens = Math.min(estimateTokens(record.original_text), CONFIG.DISTILL_MAX_TOKENS || 2000);
-        const cacheKey = `ask_${elisionId}_${crypto.createHash('sha256').update(question).digest('hex').slice(0, 16)}_${CONFIG.PROMPT_VERSION}`;
+        // Conversation memory: the newest usable summary for this workspace, from a conversation that began
+        // after this session did (the MCP gate has no conversation key; see matchMemory). The cache key
+        // carries the memory's fold time, or `nomem`, so an answer made with memory is never served without
+        // it, and a newer fold gives a fresh answer.
+        const root = rootUri ? (rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri) : null;
+        const memory = matchMemory({ root, startedAfter: MCP_SESSION_STARTED_AT });
+        const memoryText = memory.row ? (() => { const parsed = parseSummary(memory.row.summary); return parsed ? renderSummary(parsed) : null; })() : null;
+        const memoryPart = memory.row && memoryText ? `m${memory.row.folded_at}` : 'nomem';
+        const cacheKey = `ask_${elisionId}_${crypto.createHash('sha256').update(question).digest('hex').slice(0, 16)}_${CONFIG.PROMPT_VERSION}_${memoryPart}`;
         let text = cacheGet(cacheKey);
-        let meta: Record<string, unknown> = { type: 'ask_elision', elision_id: elisionId, cache_hit: 'exact' };
+        let meta: Record<string, unknown> = { type: 'ask_elision', elision_id: elisionId, cache_hit: 'exact', memory: { match: memoryText ? memory.match : 'none' } };
         if (text === null) {
           // Chunks fit the local context; the first ASK_MAX_CHUNKS are searched in order, stopping at a hit.
           const chunks = splitByHeadings(record.original_text, ASK_CHUNK_TOKENS).slice(0, ASK_MAX_CHUNKS);
@@ -185,13 +200,13 @@ export async function createServer(options: { notices?: readonly { message: stri
           let checked = 0;
           for (const chunk of chunks) {
             checked++;
-            const res = await answerFromText({ slm, question, text: chunk.text });
+            const res = await answerFromText({ slm, question, text: chunk.text, context: memoryText });
             if (res.found && res.answer.trim()) { hit = { answer: res.answer, lines: res.lines, startLine: chunk.startLine }; break; }
           }
           text = hit
             ? hit.answer.trim().slice(0, ASK_MAX_ANSWER_CHARS) + (hit.lines ? ` (original lines ${hit.startLine + hit.lines[0]}-${hit.startLine + hit.lines[1]})` : '')
             : `Not found in the elided text (${checked} of ${chunks.length} parts checked). Use expand_elision with this id and range {"startLine": 0, "endLine": ${lineCount - 1}} to read it.`;
-          meta = { type: 'ask_elision', elision_id: elisionId, found: hit ? 1 : 0, chunks_checked: checked, chunks: chunks.length };
+          meta = { type: 'ask_elision', elision_id: elisionId, found: hit ? 1 : 0, chunks_checked: checked, chunks: chunks.length, memory: { match: memoryText ? memory.match : 'none' } };
           cacheSet(cacheKey, text);
         }
 

@@ -109,6 +109,7 @@ Commands:
   start          Start the model gate in the background (if it is not running)
   stop           Stop the model gate; it stays stopped until start, restart or a reboot
   restart        Stop and start the model gate (e.g. after updating slm-gate)
+  memory         Show what the local model remembers of each conversation (conversation memory)
   bench          Run the offline evaluation harness
                  Options:
                    --n <number>             (number of tasks to run)
@@ -248,6 +249,9 @@ Commands:
     runCommand(cmd, cmdArgs);
   } else if (command === 'doctor') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/doctor.ts');
+    runCommand(cmd, cmdArgs);
+  } else if (command === 'memory') {
+    const { command: cmd, args: cmdArgs } = getRunPath('src/llm-gate/memory-cli.ts');
     runCommand(cmd, cmdArgs);
   } else if (command === 'start' || command === 'stop' || command === 'restart') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/setup/gate-command.ts');

@@ -20,6 +20,8 @@
  */
 import { checkAgreement } from '../models/reasoning.js';
 
+// The no-context phrases exist because Step A answers from one message. The conversation memory narrows that
+// gap by putting a short summary inside the message; this list stays as the backstop either way.
 export const HEDGING_LEXICON = [
   "i'm not sure",
   "i am not sure",

@@ -271,7 +271,8 @@ export function computeDashboardData(events: LedgerEvent[], extras: DashboardExt
     row.events += 1;
     row.tokensSaved += perEventTokensSaved(e);
     row.baselineTokens += perEventBaselineTokens(e);
-    if (e.route !== 'feedback') {
+    // Feedback clicks and memory folds are not routing decisions.
+    if (e.route !== 'feedback' && e.route !== 'memory_fold') {
       const outcome = routingOutcome(e) === 'resolved_local' ? 'resolvedLocal'
         : routingOutcome(e) === 'distilled_forwarded' ? 'distilledForwarded' : 'escalatedCloud';
       row[outcome] += 1;

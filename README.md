@@ -93,7 +93,7 @@ Five small diagrams, each answering one question. Read them in order. Numbers on
 slm-gate is two small servers on your computer, between your coding tool and the outside world. Both use small local models, run by Ollama:
 
 - **Tool calls** go through the **MCP gate**. It passes each call to your toolbox, then trims long text in the result before your coding tool sees it: fixed rules first, then the small model summarises what is still too long. It also adds a short note on what your project uses, and lists any open decisions it found in the text, answered where it can.
-- **Model requests** go through the **model gate**. On the first message of a conversation, the small model may answer by itself, and then the cloud is never called. Otherwise the gate shrinks new command, search and listing output, and sends the request to your AI provider with your own login.
+- **Model requests** go through the **model gate**. It shrinks new command, search and listing output, and sends the request to your AI provider with your own login. Optionally (`LLM_GATE_LOCAL_FIRST=on`, off by default) the small model may answer a plain first question itself; leave that off for coding tools, whose first requests carry context the small model cannot see. The gate also keeps a short running memory of each conversation (goal, decisions, files in play), folded by the brain model while the gate is idle, so the local steps answer with the conversation in view; `slm-gate memory` shows it.
 
 If the small model fails or runs out of time, the text it was working on goes on as it was. Both gates record what they did in a local ledger (diagram 5).
 
@@ -109,7 +109,7 @@ flowchart LR
 
   subgraph llmRow["Model requests: model gate"]
     direction LR
-    llm["Model gate"] -->|"first message"| answer["Small model<br/>tries to answer"]
+    llm["Model gate"] -.->|"first message, only if<br/>LLM_GATE_LOCAL_FIRST=on"| answer["Small model<br/>tries to answer"]
     llm -->|"later messages"| shrink["Shrink new command,<br/>search and listing output"]
     answer -->|"no answer"| shrink
     shrink --> cloud["Your AI provider<br/>(your login or API key)"]
@@ -159,7 +159,7 @@ flowchart LR
 
 The model gate is a small server at `http://localhost:8787`. It reads four request formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini) and makes two tries to save you money before anything goes to your AI provider:
 
-- **Step A, answer locally** (first message of a conversation only). Skipped for slash commands, for requests that demand a set output format or a tool call, and, when the coding tool offers the model tools, for messages that mention your code or files or ask about the assistant itself. Otherwise the gate model sorts the question by type, and only simple types are tried: short facts and formatting, plus yes/no, extraction, classification and spelling fixes when no tools are offered. The brain model answers 3 times by default, and the verifier (`src/verifier/index.ts`) rejects an empty answer, a hedging one ("I'm not sure") or answers that disagree. A passing answer goes back in the provider's own format and the cloud is never called. One try at a time, at most 6 seconds. `SEMCACHE=on` also reuses a saved answer to a very similar question, and `ROUTING_TUNE=on` stops trying types that usually fail.
+- **Step A, answer locally** (`LLM_GATE_LOCAL_FIRST=on`; off by default, and leave it off for Claude Code and other coding tools: their first requests, and the short helper requests they send on your behalf, refer to context the local model never sees, whatever its size, so a confident wrong reply is the likely outcome). It suits a plain chat client asking plain questions. First message of a conversation only. Skipped for slash commands, for requests that demand a set output format or a tool call, and, when the coding tool offers the model tools, for messages that mention your code or files or ask about the assistant itself. Otherwise the gate model sorts the question by type, and only simple types are tried: short facts and formatting, plus yes/no, extraction, classification and spelling fixes when no tools are offered. The brain model answers 3 times by default, and the verifier (`src/verifier/index.ts`) rejects an empty answer, a hedging one ("I'm not sure") or answers that disagree. A passing answer goes back in the provider's own format and the cloud is never called. One try at a time, at most 6 seconds. `SEMCACHE=on` also reuses a saved answer to a very similar question, and `ROUTING_TUNE=on` stops trying types that usually fail.
 - **Step B, shrink** (every request not answered locally). New command, search and listing output of at least `DISTILL_MIN_TOKENS` is trimmed the same way as in the MCP gate. File reads (including `cat` and similar run from a shell), web fetches and MCP tool results are never changed. Each decision is saved and resent unchanged on every later turn, so the provider's prompt cache keeps working. At most 3 seconds; after that, the original goes.
 
 The request then goes to the provider its address belongs to, with every header your coding tool sent, so your own subscription login or API key is used; slm-gate never adds or swaps credentials. The reply streams back unchanged. Token counts, model lists and hello pings skip both steps.

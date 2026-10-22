@@ -14,6 +14,8 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     DISTILL_MAX_TOKENS: 2000,
     PROMPT_VERSION: 'ask-test',
     SLM_BRAIN_MODEL: 'brain-under-test',
+    CONVERSATION_MEMORY: true,
+    MEMORY_MATCH_WINDOW_MS: 600000,
     ELISION_RETENTION_DAYS: 180,
     ELISION_MAX_MB: 10,
     ELISION_MAX_ENTRIES: 5000,
@@ -29,7 +31,12 @@ const answerFromText = jest.fn(async ({ text }: { text: string }) =>
   text.includes('ANSWER-HERE')
     ? { found: true, answer: 'Reviews must be answered within 30 min.', lines: [2, 2] as [number, number] }
     : { found: false, answer: '', lines: null });
-jest.unstable_mockModule('../../src/models/reasoning.js', () => ({ answerFromText }));
+jest.unstable_mockModule('../../src/models/reasoning.js', () => ({
+  answerFromText,
+  // Conversation memory's fold is never reached here; the names must still exist for the module graph.
+  MEMORY_SCHEMA: { parse: (v: unknown) => v },
+  foldSummary: jest.fn(async () => ({ goal: '', decided: [], inPlay: [] })),
+}));
 jest.unstable_mockModule('../../src/models/slm.js', () => ({ SLM: class {} }));
 
 jest.unstable_mockModule('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -41,7 +48,7 @@ jest.unstable_mockModule('@modelcontextprotocol/sdk/client/index.js', () => ({
 }));
 
 const { CONFIG } = await import('../../src/config.js');
-const { writeElision, getDb } = await import('../../src/ledger/index.js');
+const { writeElision, getDb, writeMemoryRow } = await import('../../src/ledger/index.js');
 const { formatElisionMarker, rewriteElisionHint } = await import('../../src/utils/elision.js');
 const { createServer } = await import('../../src/mcp-gate/server.js');
 
@@ -53,8 +60,8 @@ const ID = 'ask-under-test';
 writeElision({ id: ID, tool_name: 'get_skill', args: '{}', original_text: lines.join('\n'), ranges: JSON.stringify({ startLine: 0, endLine: 399 }), content_hash: 'h', size_bytes: lines.join('\n').length });
 
 /** Calls one gate tool through the real MCP request handler and returns its first text block. */
-const call = async (name: string, args: Record<string, unknown>) => {
-  const { server } = await createServer();
+const call = async (name: string, args: Record<string, unknown>, rootUri?: string) => {
+  const { server } = await createServer({ rootUri });
   const handler = (server as any)._requestHandlers.get(CallToolRequestSchema.shape.method.value);
   const result = await handler({ method: 'tools/call', params: { name, arguments: args } }, {});
   return result.content[0].text as string;
@@ -128,5 +135,58 @@ describe('the elision marker names both ways back to the original', () => {
     const rewritten = rewriteElisionHint(marker);
     expect(rewritten).not.toContain('expand_elision');
     expect(rewritten).not.toContain('ask_elision');
+  });
+});
+
+describe('ask_elision with conversation memory (slice 3)', () => {
+  const ROOT = '/repo/with-memory';
+  const future = new Date(Date.now() + 60_000).toISOString();
+  const summary = JSON.stringify({ goal: 'Finish the review step', decided: ['Reviews are answered within 30 min'], inPlay: ['review-workflow.md'] });
+  const row = (over: Partial<Parameters<typeof writeMemoryRow>[0]> = {}) => writeMemoryRow({
+    key: 'k1', root: ROOT, summary, turns: 4, discriminator: null, started_at: future, folded_at: future, fold_count: 1, fold_ms: 10, prompt_version: 'ask-test', ...over,
+  });
+  const lastPrompt = () => (answerFromText.mock.calls.at(-1)?.[0] as { context?: string | null }).context ?? null;
+  const lastMeta = () => JSON.parse((getDb().prepare("SELECT meta FROM events WHERE request_id LIKE 'ask_%' ORDER BY rowid DESC LIMIT 1").get() as { meta: string }).meta);
+
+  beforeEach(() => {
+    getDb().prepare('DELETE FROM conversation_memory').run();
+    getDb().prepare("DELETE FROM cache WHERE key LIKE 'ask_%'").run();
+    answerFromText.mockImplementation(async ({ text }: { text: string }) =>
+      text.includes('ANSWER-HERE') ? { found: true, answer: 'Reviews must be answered within 30 min.', lines: [2, 2] as [number, number] } : { found: false, answer: '', lines: null });
+  });
+
+  it('hands the brain the conversation summary when a usable memory exists for the workspace, and says so on the row', async () => {
+    row();
+    await call('ask_elision', { elisionId: ID, question: 'Which step are we on?' }, `file://${ROOT}`);
+    expect(lastPrompt()).toContain('Goal: Finish the review step');
+    expect(lastMeta().memory).toEqual({ match: 'root-recent' });
+  });
+
+  it('ignores a memory older than the window, from another workspace, or from a conversation that began before this session', async () => {
+    const old = new Date(Date.now() - 3_600_000).toISOString();
+    row({ folded_at: old });
+    await call('ask_elision', { elisionId: ID, question: 'Which step are we on? (stale)' }, `file://${ROOT}`);
+    expect(lastPrompt()).toBeNull();
+    expect(lastMeta().memory).toEqual({ match: 'none' });
+
+    row({ root: '/elsewhere' });
+    await call('ask_elision', { elisionId: ID, question: 'Which step are we on? (other root)' }, `file://${ROOT}`);
+    expect(lastPrompt()).toBeNull();
+
+    row({ started_at: new Date(Date.now() - 3_600_000).toISOString() });
+    await call('ask_elision', { elisionId: ID, question: 'Which step are we on? (older conversation)' }, `file://${ROOT}`);
+    expect(lastPrompt()).toBeNull();
+  });
+
+  it('caches with a memory part, so the same question answered without memory is not served from the memory answer', async () => {
+    row();
+    await call('ask_elision', { elisionId: ID, question: 'Cache key question?' }, `file://${ROOT}`);
+    const keys = () => (getDb().prepare("SELECT key FROM cache WHERE key LIKE 'ask_%'").all() as { key: string }[]).map(r => r.key);
+    expect(keys().some(k => k.includes('_m'))).toBe(true);
+    getDb().prepare('DELETE FROM conversation_memory').run();
+    answerFromText.mockClear();
+    await call('ask_elision', { elisionId: ID, question: 'Cache key question?' }, `file://${ROOT}`);
+    expect(answerFromText).toHaveBeenCalled();
+    expect(keys().some(k => k.endsWith('_nomem'))).toBe(true);
   });
 });

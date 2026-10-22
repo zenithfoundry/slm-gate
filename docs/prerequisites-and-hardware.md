@@ -112,6 +112,8 @@ pnpm run dev doctor
 > - The **Gate model** is tiny and fast. Its only job is to make split-second routing decisions: "Can I handle this locally, or does it need to go to the cloud?" Speed is everything here.
 > - The **Brain model** is slightly larger and smarter. It does the actual compression, summarisation, and local resolution when the Gate decides a request can be handled on-device.
 
+> **48 GB and up:** besides bigger models, more memory lets you raise `NUM_CTX` and, at 64 GB, run with no cloud model at all. See [More memory, bigger models, and running without a cloud model](setups.md#more-memory-bigger-models-and-running-without-a-cloud-model).
+
 ### Dual-Model Setup: Keeping Both Models Ready at Once
 
 When running both a Gate model and a Brain model, you want both loaded in memory at the same time — otherwise Ollama has to swap one out every time it switches, adding several seconds of latency to each request.

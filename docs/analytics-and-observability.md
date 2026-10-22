@@ -170,6 +170,8 @@ pnpm run bench:gate -- --model qwen3.5:2b   # gate models × concurrency 1 and 2
 
 Outcomes per skill: `pass` (shortened, every check passed, under budget); `recall_fail` (the brain found a sentence missing, that paragraph went out word for word — reported, not failed); `not_shrunk` (checks passed but still over budget, sent as the original); `unchanged` (no paragraph long enough to shorten); `deterministic_fail`, `model_error`, `timeout` (the only outcomes that fail the command). The bench writes to its own ledger file under `output/` and reads yours read-only. The dashboard's **Skill fidelity** card shows the same figures from real traffic.
 
+Ledger routes you will see besides the routing ones: `feedback` (an expansion the cloud model asked for; charged against savings) and `memory_fold` (one conversation-memory fold by the brain model; latency and token estimate, never the text). Neither counts as a routing decision on the dashboard.
+
 ## 5. 0-to-100% Langfuse Setup Walkthrough
 
 Follow these sequential steps if you want a live web dashboard in Langfuse.

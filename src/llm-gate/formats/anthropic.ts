@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { FirstRequestPrompt, JsonObject, LocalReply, ToolResult, ToolStats, typedText } from './contract.js';
+import { FirstRequestPrompt, HistoryEntry, JsonObject, LocalReply, ToolResult, ToolStats, typedText } from './contract.js';
 import { InternalRequest, InternalMessage } from './internal.js';
 
 /**
@@ -196,6 +196,68 @@ export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null 
       : [];
   const text = typedText(texts);
   return text ? { text, toolsListed: Array.isArray(body.tools) && body.tools.length > 0 } : null;
+}
+
+/** How much of a tool result the memory fold sees: enough to know what it was about, never the whole thing. */
+const TOOL_RESULT_PREVIEW = 200;
+
+/**
+ * The conversation as memory entries: typed user text, assistant text, and for each tool result the tool's
+ * name with a short preview. Injected blocks (system reminders and the like) are left out as `typedText` does.
+ */
+export function historyEntries(body: JsonObject): HistoryEntry[] {
+  const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
+  const calls = new Map<string, string>();
+  const out: HistoryEntry[] = [];
+  for (const message of messages) {
+    const content = message?.content;
+    if (message?.role === 'assistant') {
+      const texts: string[] = [];
+      for (const block of Array.isArray(content) ? content : []) {
+        if (block?.type === 'tool_use' && typeof block.id === 'string') calls.set(block.id, String(block.name ?? ''));
+        if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text);
+      }
+      if (typeof content === 'string') texts.push(content);
+      if (texts.length) out.push({ role: 'assistant', text: texts.join('\n') });
+      continue;
+    }
+    if (message?.role !== 'user') continue;
+    if (typeof content === 'string') {
+      const text = typedText([content]);
+      if (text) out.push({ role: 'user', text });
+      continue;
+    }
+    if (!Array.isArray(content)) continue;
+    const texts = content.filter((b: any) => b?.type === 'text' && typeof b.text === 'string').map((b: any) => b.text);
+    const typed = texts.length ? typedText(texts) : null;
+    if (typed) out.push({ role: 'user', text: typed });
+    for (const block of content) {
+      if (block?.type !== 'tool_result') continue;
+      const name = calls.get(block.tool_use_id) ?? 'tool';
+      const raw = typeof block.content === 'string'
+        ? block.content
+        : Array.isArray(block.content) ? block.content.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join('\n') : '';
+      out.push({ role: 'tool', text: `${name}: ${raw.slice(0, TOOL_RESULT_PREVIEW)}` });
+    }
+  }
+  return out;
+}
+
+/**
+ * The workspace a Claude Code request names: its system prompt states the working directory as plain text.
+ * The first absolute path on a line that mentions a working directory; null when there is no such line. Pure.
+ */
+export function workspaceOf(body: JsonObject): string | null {
+  const system = typeof body?.system === 'string'
+    ? body.system
+    : Array.isArray(body?.system) ? body.system.map((b: any) => (typeof b?.text === 'string' ? b.text : '')).join('\n') : '';
+  for (const line of system.split('\n')) {
+    if (!/working directory/i.test(line)) continue;
+    // An absolute path starts at the line start or after whitespace/punctuation, never mid-word (`repos/project`).
+    const m = /(?:^|[\s:=`'"(])(\/[^\s`'"]+)/.exec(line);
+    if (m) return m[1].replace(/[.,;:]+$/, '');
+  }
+  return null;
 }
 
 /** The typed text of the latest turn when it is a user message with text blocks only (see the contract). */

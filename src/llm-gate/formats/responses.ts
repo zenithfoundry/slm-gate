@@ -82,6 +82,27 @@ export function replaceToolResultText(params: { body: JsonObject; location: Resp
   return { ...body, input };
 }
 
+/**
+ * The workspace a Codex request names: its FIRST user entry carries an `<environment_context>` block with the
+ * working directory. The first absolute path inside that block; null when the first user entry has none. Pure.
+ */
+export function workspaceOf(body: JsonObject): string | null {
+  const input: any[] = Array.isArray(body?.input) ? body.input : [];
+  const first = input.find(entry => entry?.role === 'user');
+  for (const entry of first ? [first] : []) {
+    const texts: string[] = typeof entry.content === 'string'
+      ? [entry.content]
+      : Array.isArray(entry.content) ? entry.content.filter((c: any) => typeof c?.text === 'string').map((c: any) => c.text) : [];
+    for (const text of texts) {
+      const block = /<environment_context>([\s\S]*?)<\/environment_context>/.exec(text);
+      if (!block) continue;
+      const m = /(?:^|[\s:=`'"(>])(\/[^\s`'"<]+)/.exec(block[1]);
+      if (m) return m[1].replace(/[.,;:]+$/, '');
+    }
+  }
+  return null;
+}
+
 export function firstRequestPrompt(body: JsonObject): FirstRequestPrompt | null {
   if (body.previous_response_id) return null;
   if (['json_schema', 'json_object'].includes(body.text?.format?.type)) return null;

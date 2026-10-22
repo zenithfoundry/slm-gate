@@ -134,14 +134,17 @@ ${compressed}`;
  * whether the chunk holds the answer and gives it in a few sentences, with the chunk-relative lines it used.
  * One call per chunk, the standard ceiling, SLM_TIMEOUT_MS; the schema bounds the answer.
  */
-export async function answerFromText(params: { slm: SLM; question: string; text: string }): Promise<{ found: boolean; answer: string; lines: [number, number] | null }> {
-  const { slm, question, text } = params;
+export async function answerFromText(params: { slm: SLM; question: string; text: string; context?: string | null }): Promise<{ found: boolean; answer: string; lines: [number, number] | null }> {
+  const { slm, question, text, context } = params;
   const schema = z.object({
     found: z.boolean(),
     answer: z.string().max(1200),
     lines: z.array(z.number().int().min(0)).length(2).nullable(),
   });
-  const prompt = `Answer the question ONLY from the TEXT below. If the text does not contain the answer, set found to false and leave answer empty. Keep the answer under 80 words; quote names, numbers, paths and commands exactly. "lines" is the 0-based [first, last] line of the text the answer comes from, or null.
+  // Conversation memory (when a usable one exists): what the conversation is about, so a question such as
+  // "which step applies here?" has a here. Never a system entry; part of this one prompt.
+  const conversation = context ? `Conversation so far:\n${context}\n\n` : '';
+  const prompt = `${conversation}Answer the question ONLY from the TEXT below. If the text does not contain the answer, set found to false and leave answer empty. Keep the answer under 80 words; quote names, numbers, paths and commands exactly. "lines" is the 0-based [first, last] line of the text the answer comes from, or null.
 
 QUESTION: ${question}
 
@@ -149,6 +152,32 @@ TEXT:
 ${text}`;
   const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'ask_elision', CONFIG.SLM_TIMEOUT_MS);
   return { found: result.found, answer: result.answer, lines: result.lines ? [result.lines[0], result.lines[1]] : null };
+}
+
+/** The three parts of a conversation summary, bounded in the schema so the brain cannot run long. */
+export const MEMORY_SCHEMA = z.object({
+  goal: z.string().max(300),
+  decided: z.array(z.string().max(160)).max(8),
+  inPlay: z.array(z.string().max(80)).max(12),
+});
+export type MemorySummary = z.infer<typeof MEMORY_SCHEMA>;
+
+/**
+ * Folds new conversation entries into the running summary (conversation memory). The brain reads the previous
+ * summary plus only the new entries, never the whole history, and answers in the three parts. One call, the
+ * standard ceiling, SLM_TIMEOUT_MS; the schema's limits make an over-long answer fail validation.
+ */
+export async function foldSummary(params: { slm: SLM; previous: MemorySummary | null; fresh: string }): Promise<MemorySummary> {
+  const { slm, previous, fresh } = params;
+  const prompt = `You keep a short memory of a conversation for a reader who has not seen it. Update it from the NEW TURNS.
+Rules: copy names, numbers, paths and commands exactly; keep every earlier "decided" line unless the new turns reverse it; "inPlay" lists files, commands and names that keep coming up; short lines, no prose.
+
+PREVIOUS MEMORY:
+${previous ? JSON.stringify(previous) : '(none yet)'}
+
+NEW TURNS:
+${fresh}`;
+  return withSlmTimeout(slm.generateJSON(roles.brain, prompt, MEMORY_SCHEMA, 0), 'memory', CONFIG.SLM_TIMEOUT_MS);
 }
 
 export function compressNarrativeRun(params: { slm: SLM; text: string; task?: string }): Promise<string> {

@@ -78,8 +78,9 @@ Your coding tool
     │
     ▼
 slm-gate (llm-gate)       ← on http://localhost:8787, started for you
-    │ first message        → local model tries to answer
-    │ everything else      → large tool output shrunk
+    │ every request        → large tool output shrunk
+    │ (first message       → local model tries to answer; LLM_GATE_LOCAL_FIRST=on only, not for coding tools)
+    │ after each reply     → the brain model folds the turn into a short conversation memory (off the request path)
     ▼
 The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 ```

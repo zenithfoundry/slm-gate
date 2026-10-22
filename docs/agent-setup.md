@@ -95,7 +95,8 @@ One question at a time, with your default:
 3. For each of those tools, how do I pay for its AI? (a) a subscription login (Claude Pro or Max, ChatGPT),
    (b) an API key, or (c) nothing, local models only. For (a) and (b), offer to also send that tool's AI
    requests through slm-gate, which saves more; `slm-gate doctor` lists which tools can. Default: yes, where it
-   can.
+   can. Leave LLM_GATE_LOCAL_FIRST off for a coding tool: the local model would answer its first requests
+   without the context they refer to.
 4. Which paid plan or plans do I have? Valid plans are listed below. Default: skip. This only improves the
    savings figures.
 5. Do I use a toolbox (extra tools and skills, such as Tech-Lead-Stack)? If STEP 2 found one, confirm it.
@@ -104,8 +105,8 @@ One question at a time, with your default:
    shorten my toolbox's skill files under a guard that never lets a rule go missing, answer repeated questions
    from decisions I write down once, and keep a small index of my code so the AI checks what exists before
    writing something new; it costs a few seconds more the first time a skill is used. SETUP B, "plain
-   shrinking": skills are sent word for word; everything else is the same. Default: A. The two differ in two
-   settings only: SETUP A is DISTILL_SKILLS=on and REPO_INDEX=on; SETUP B is both off. Both keep
+   shrinking": skills are sent word for word; everything else is the same. Default: A. The two differ in three
+   settings only: SETUP A is DISTILL_SKILLS=on, REPO_INDEX=on and CONVERSATION_MEMORY=on; SETUP B is all three off. Both keep
    SLM_PIN_MODELS=on (it keeps my two models loaded). The full comparison is docs/setups.md in the slm-gate
    repository.
 7. Tell me, in two sentences, that extras exist and I can ask for any of them now or later: a savings dashboard
@@ -123,9 +124,10 @@ a. Settings file.
      old checkout, do the same: copy nothing from its folder, and never move or delete it.
    - A settings file exists: change only the lines we agreed. For the models, use the chosen option's values
      from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL, SLM_GATE_TESTING_MODEL and NUM_CTX.
-   - The setup from question 6: set DISTILL_SKILLS and REPO_INDEX to on (SETUP A) or off (SETUP B). If a
-     settings file already exists and I changed either model, also move PROMPT_VERSION up by one (v10 becomes
-     v11): saved results are keyed on it, and a different model must not be served another model's results.
+   - The setup from question 6: set DISTILL_SKILLS, REPO_INDEX and CONVERSATION_MEMORY to on (SETUP A) or off
+     (SETUP B). If a
+     settings file already exists and I changed either model, also move PROMPT_VERSION up by one (v12 becomes
+     v13): saved results are keyed on it, and a different model must not be served another model's results.
 b. Models: download each one with `ollama pull <model>`: the ones init printed, or every model
    `slm-gate doctor` says is missing. Warn me first: this can take a while.
 c. Connect each tool. Add an entry named slm-gate with the command slm-gate and the argument mcp (with npx: the
@@ -226,6 +228,7 @@ Every setting that exists:
   `DISTILL_ADAPTIVE_THRESHOLD`, `DISTILL_ADAPTIVE_EXPLORE_RATE`, `DISTILL_FEEDBACK_RETENTION_DAYS`,
   `DISTILL_FEEDBACK_MAX_ROWS`, `DISTILL_MAX_TOKENS`, `DISTILL_MIN_TOKENS`, `DISTILL_BUDGET_MS`,
   `DISTILL_FIDELITY_MIN`, `DISTILL_FIDELITY_MAX_RUNS`, `DISTILL_FIDELITY_BUDGET_MS`, `MAX_CONCURRENT_SEGMENT_CALLS`, `SLM_PIN_MODELS`,
+  `CONVERSATION_MEMORY`, `MEMORY_MAX_TOKENS`, `MEMORY_FOLD_INPUT_TOKENS`, `MEMORY_FOLD_INTERVAL_MS`, `MEMORY_MATCH_WINDOW_MS`,
   `KEEP_RECENT_TOOL_TURNS`, `ELISION_MAX_ENTRIES`, `ELISION_RETENTION_DAYS`, `ELISION_MAX_MB`, `PROMPT_VERSION`.
 - Routing: `ROUTING_TUNE`, `ROUTING_TUNE_WINDOW`, `ROUTING_TUNE_MIN_SAMPLES`, `ROUTING_TUNE_THRESHOLD`,
   `ROUTING_TUNE_EXPLORE_RATE`.

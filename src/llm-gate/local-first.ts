@@ -217,7 +217,7 @@ let attemptRunning = false;
  *
  * @returns The attempt, or null when it was skipped (busy) or ran out of time
  */
-export async function answerFirstRequestLocally(params: { task: string; toolsListed: boolean }): Promise<{ attempt: LocalAttempt | null; outcome: 'answered' | 'declined' | 'busy' | 'timeout' }> {
+export async function answerFirstRequestLocally(params: { task: string; toolsListed: boolean; memory?: string | null }): Promise<{ attempt: LocalAttempt | null; outcome: 'answered' | 'declined' | 'busy' | 'timeout' }> {
   if (attemptRunning) return { attempt: null, outcome: 'busy' };
   attemptRunning = true;
 
@@ -225,7 +225,8 @@ export async function answerFirstRequestLocally(params: { task: string; toolsLis
   const timer = setTimeout(() => controller.abort(), CONFIG.LOCAL_ATTEMPT_BUDGET_MS);
   const work = attemptLocalAnswer({
     task: params.task,
-    messages: [{ role: 'user', content: params.task }],
+    // Conversation memory, when a usable one exists: inside the ONE user message, never a system entry.
+    messages: [{ role: 'user', content: params.memory ? `What this conversation is about so far:\n${params.memory}\n\nThe message to answer:\n${params.task}` : params.task }],
     toolsListed: params.toolsListed,
     environment: CONFIG.LANGFUSE_ENVIRONMENT,
     signal: controller.signal,

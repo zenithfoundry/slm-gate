@@ -6,6 +6,9 @@ import { AddressInfo } from 'node:net';
 // classify and checkAgreement are imported through Step A; these requests are never first requests, so
 // neither is called.
 jest.unstable_mockModule('../../src/models/reasoning.js', () => ({
+  // Conversation memory's fold is never reached here (the feature is off); the names must still exist.
+  MEMORY_SCHEMA: { parse: (v: unknown) => v },
+  foldSummary: jest.fn(async () => ({ goal: '', decided: [], inPlay: [] })),
   compressNarrativeRun: jest.fn(async () => 'summary'),
   classify: jest.fn(async () => 'other'),
   checkAgreement: jest.fn(() => null),
