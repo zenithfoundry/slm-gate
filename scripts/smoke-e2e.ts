@@ -82,8 +82,10 @@ CACHE_BUST_${Date.now()}
 
   const transport = new StdioServerTransport();
   server.connect(transport).catch(console.error);
-  // Keep alive
+  // Keep alive while the gate talks to us; leave when it hangs up. Without the exit this helper outlived
+  // every run and, under a shell pipe (`pnpm run test:e2e | tail`), held the pipe open for hours.
   setInterval(() => {}, 1000);
+  process.stdin.on('end', () => process.exit(0));
 } 
 // 2. Main E2E Test Mode
 else {

@@ -177,9 +177,10 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   const cacheKey = `condition_${hash}`;
   // A hit is served only while the repository state it relied on (decision files, slice 7; the symbol index,
   // slice 8) is unchanged; rows without dependencies are served as before. The index is brought up to date
-  // first, so an `index:<root>` dependency is compared against the revision AFTER any code edit.
+  // first — forced past its debounce, because this compare must see the revision AFTER any code edit; the
+  // section appended later reuses the fresh index through the debounced path.
   if (CONFIG.REPO_INDEX && rootUri) {
-    try { refreshRepoIndex(rootPathOf(rootUri)); } catch (err) { console.error(`[pipeline] repo index refresh skipped: ${err instanceof Error ? err.message : String(err)}`); }
+    try { refreshRepoIndex(rootPathOf(rootUri), { force: true }); } catch (err) { console.error(`[pipeline] repo index refresh skipped: ${err instanceof Error ? err.message : String(err)}`); }
   }
   const cached = cacheDepsFresh(cacheKey, { statMtime: depValue }) ? cacheGet(cacheKey) : null;
   if (cached) {

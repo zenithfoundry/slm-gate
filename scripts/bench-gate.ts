@@ -50,7 +50,7 @@ const percentile = (values: number[], p: number): number => {
 };
 
 console.log(`bench:gate — models ${models.join(', ')} × concurrency ${concurrencies.join(', ')} (brain stays as configured)\n`);
-console.log('gate model            conc  p50 ms   p95 ms  recall  determ  tokens before→after (avg)   pass/fail/not_shrunk');
+console.log('gate model            conc  p50 ms   p95 ms  recall  determ  tokens before→after (avg)   pass/fail/not_shrunk/unchanged');
 for (const gate of models) {
   for (const concurrency of concurrencies) {
     let cell: CellResult;
@@ -74,7 +74,7 @@ for (const gate of models) {
     console.log(
       `${gate.padEnd(21)} ${String(concurrency).padStart(4)}  ${String(percentile(ms, 0.5)).padStart(6)}   ${String(percentile(ms, 0.95)).padStart(6)}  ` +
       `${(recalls.length ? (recalls.reduce((s, r) => s + r, 0) / recalls.length).toFixed(2) : '   -').padStart(6)}  ` +
-      `${(determ === null ? '-' : `${Math.round(determ * 100)}%`).padStart(6)}  ${`${avg(before)}→${avg(after)}`.padEnd(27)} ${cell.counts.pass ?? 0}/${failed}/${cell.notShrunkMode}`,
+      `${(determ === null ? '-' : `${Math.round(determ * 100)}%`).padStart(6)}  ${`${avg(before)}→${avg(after)}`.padEnd(27)} ${cell.counts.pass ?? 0}/${failed}/${cell.notShrunkMode}/${cell.counts.unchanged ?? 0}`,
     );
   }
 }

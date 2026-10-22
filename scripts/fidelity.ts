@@ -14,8 +14,10 @@
  *   model_error       a local-model call failed
  *   timeout           a local-model call timed out
  *   not_shrunk        checks passed but the skill is still over budget: sent as the original, cut with a marker
- * Exit 1 unless deterministic_fail = recall_fail = model_error = timeout = 0. `not_shrunk` is reported, not failed:
- * the skill is unchanged from today and the list is the authors' to-do for verbatim markers or shorter prose.
+ *   unchanged         no prose run was long enough to shorten (all under the 400-character floor): cut as today
+ * Exit 1 unless deterministic_fail = recall_fail = model_error = timeout = 0. `not_shrunk` and `unchanged` are
+ * reported, not failed: the skill goes out exactly as today, and the list is the authors' to-do for verbatim
+ * markers or longer, shortenable prose.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,7 +47,7 @@ const { checkKept, compressNarrativeRun } = await import('../src/models/reasonin
 const { learnedProtections } = await import('../src/ledger/index.js');
 
 type Entry = { id: string; source: 'elision_cache' | 'fixture'; hash?: string; file?: string };
-type Outcome = 'pass' | 'deterministic_fail' | 'recall_fail' | 'model_error' | 'timeout' | 'not_shrunk';
+type Outcome = 'pass' | 'deterministic_fail' | 'recall_fail' | 'model_error' | 'timeout' | 'not_shrunk' | 'unchanged';
 
 const SKILL_TOOL = /skill/i;
 const fixturesDir = path.join('tests', 'fixtures', 'skills');
@@ -56,7 +58,8 @@ function liveSkillHashes(): string[] {
   const db = new Database(liveLedger, { readonly: true, fileMustExist: true });
   try {
     const rows = db.prepare('SELECT DISTINCT content_hash, tool_name FROM elision_cache WHERE size_bytes > 8000').all() as { content_hash: string; tool_name: string }[];
-    return rows.filter(r => SKILL_TOOL.test(r.tool_name)).map(r => r.content_hash);
+    // One entry per text: the same skill cached under two tool names is still one text.
+    return [...new Set(rows.filter(r => SKILL_TOOL.test(r.tool_name)).map(r => r.content_hash))];
   } finally {
     db.close();
   }
@@ -102,13 +105,15 @@ function outcomeOf(result: Awaited<ReturnType<typeof distillToolResultWithStats>
   if (result.deterministic === 0) return 'deterministic_fail';
   if (result.recall !== null && result.recall < CONFIG.DISTILL_FIDELITY_MIN) return 'recall_fail';
   if (result.mode === 'not_shrunk') return 'not_shrunk';
+  // No prose run was long enough to send: nothing a model could shorten, sent cut with a marker as today.
+  if (result.runs === 0) return 'unchanged';
   return 'pass';
 }
 
 const slm = new SLM();
 const patterns = await buildPreserveList();
 const entries = corpus();
-const counts: Record<Outcome, number> = { pass: 0, deterministic_fail: 0, recall_fail: 0, model_error: 0, timeout: 0, not_shrunk: 0 };
+const counts: Record<Outcome, number> = { pass: 0, deterministic_fail: 0, recall_fail: 0, model_error: 0, timeout: 0, not_shrunk: 0, unchanged: 0 };
 const rows: { id: string; outcome: Outcome; mode: string; recall: string; lost: number; runs: string; ms: number; tokens: string }[] = [];
 const worst: { id: string; recall: number }[] = [];
 
@@ -147,7 +152,7 @@ const notShrunkMode = rows.filter(r => r.mode === 'not_shrunk').length;
 if (asJson) {
   console.log(JSON.stringify({ gate: CONFIG.SLM_GATE_MODEL, brain: CONFIG.SLM_BRAIN_MODEL, concurrency: CONFIG.MAX_CONCURRENT_SEGMENT_CALLS, counts, notShrunkMode, rows }));
 } else {
-  say(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, recall_fail ${counts.recall_fail}, model_error ${counts.model_error}, timeout ${counts.timeout}, not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode})`);
+  say(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, recall_fail ${counts.recall_fail}, model_error ${counts.model_error}, timeout ${counts.timeout}, not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode}), unchanged ${counts.unchanged} (no prose long enough to shorten; cut as today)`);
   if (worst.length) say(`lowest recall: ${worst.sort((a, b) => a.recall - b.recall).slice(0, 3).map(w => `${w.id} ${(w.recall * 100).toFixed(0)}%`).join(' · ')}`);
   say(`learned protections in this bench ledger: ${learnedProtections().length} (the live ledger learns on real traffic; see pnpm run protections)`);
   if (notShrunkMode) say(`not shrunk (authors' to-do for <!-- slm-gate:verbatim-start/end --> markers or shorter prose): ${rows.filter(r => r.mode === 'not_shrunk').map(r => r.id).join(', ')}`);
