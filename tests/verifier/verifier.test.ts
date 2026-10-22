@@ -100,3 +100,24 @@ describe('Verifier', () => {
     });
   });
 });
+
+describe('a local answer that admits it has no context is never served', () => {
+  // Seen live on 2026-10-22: the brain model answered one of Claude Code's own short requests with this, and
+  // the person saw it as the assistant's reply. The hedging rule (level 3 and up) must catch it.
+  const noContext = `I am ready to proceed! However, I don't have context about Part 1 or the specific topic you're working on.
+
+To continue effectively:
+Could you briefly summarize what was covered in Part 1?
+What would you like to focus on next for this branch of your project?`;
+
+  it('flags the no-context reply as hedging at the default strictness', () => {
+    const result = verify(noContext, [noContext], {}, 4);
+    expect(result.flags).toContain('hedging');
+    expect(result.escalate).toBe(true);
+  });
+
+  it('still accepts a plain short answer', () => {
+    const result = verify('Tokyo.', ['Tokyo.'], {}, 4);
+    expect(result.flags).not.toContain('hedging');
+  });
+});

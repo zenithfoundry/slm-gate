@@ -22,6 +22,8 @@ process.env.OLLAMA_HOST = ollama.url;
 process.env.UPSTREAM_ANTHROPIC_URL = upstreamUrl;
 process.env.UPSTREAM_OPENAI_URL = `${upstreamUrl}/v1`;
 process.env.UPSTREAM_GEMINI_URL = upstreamUrl;
+// The feature under test, set here so the repo's .env (which may turn it off) cannot change the result.
+process.env.LLM_GATE_LOCAL_FIRST = 'on';
 process.env.LOCAL_ATTEMPT_BUDGET_MS = '1000';
 process.env.SELF_CONSISTENCY_K = '1';
 process.env.SEMCACHE = 'off';

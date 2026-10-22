@@ -27,7 +27,16 @@ export const HEDGING_LEXICON = [
   "possibly",
   "cannot determine",
   "unclear",
-  "it's unclear"
+  "it's unclear",
+  // The local model cannot see the conversation a coding tool refers to. An answer that says so is a
+  // non-answer, never a reply to show the person (seen live: "I don't have context about Part 1").
+  "i don't have context",
+  "i do not have context",
+  "i don't have the context",
+  "without more context",
+  "could you (?:briefly )?summarize",
+  "could you (?:please )?(?:clarify|provide)",
+  "what would you like to focus on",
 ];
 
 const HEDGING_REGEX = new RegExp(`\\b(${HEDGING_LEXICON.join('|')})\\b`, 'i');
