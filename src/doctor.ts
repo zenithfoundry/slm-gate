@@ -314,7 +314,7 @@ async function run() {
     `${stranded.length} slm-gate MCP server${stranded.length === 1 ? '' : 's'} still running with no coding tool attached (pid ${stranded.join(', ')}). ` +
     `Each keeps checking Ollama and can show notifications from the build it was started with. Stop them with: kill ${stranded.join(' ')}`);
 
-  // 9c. Per-prompt savings (local answers, accuracy, window time per provider) are only measured on
+  // 9c. Per-prompt savings (shrunk requests, window time per provider) are only measured on
   // model-gate traffic. MCP tool calls alone keep the ledger busy while those cards stay empty, so the
   // gap is called out here. A warning, not an issue: the gate itself works.
   const lastModelGateEvent = lastModelGateEventTs();
@@ -322,7 +322,7 @@ async function run() {
     console.log(`  Note: could not read the ledger to check for model-gate traffic: ${lastModelGateEvent.error}`);
   } else if (!lastModelGateEvent.ts || Date.now() - Date.parse(lastModelGateEvent.ts) > MODEL_GATE_QUIET_DAYS * 86_400_000) {
     console.log(`⚠ No model request has gone through the model gate in the last ${MODEL_GATE_QUIET_DAYS} days (last: ${lastModelGateEvent.ts ?? 'never'}). ` +
-      'Per-prompt savings (local answers, SLM accuracy, window time saved) are not being measured; only MCP tool calls are reaching slm-gate.');
+      'Per-prompt savings (shrunk requests, window time saved) are not being measured; only MCP tool calls are reaching slm-gate.');
     console.log(`  Fix: point a coding tool at ${gateAddress} with the settings printed below.`);
   }
 

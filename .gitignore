@@ -9,8 +9,7 @@ dist/
 *.tsbuildinfo
 
 # ─── local build artifacts, NOT results ───
-# The ledger + response cache are local build artifacts. Generated charts/leaderboards
-# also land here; if you want to share one, force-add it: `git add -f output/deferral_curve.png`
+# The ledger + response cache are local build artifacts.
 output/
 *.sqlite
 *.sqlite-journal

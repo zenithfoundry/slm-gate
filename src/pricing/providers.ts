@@ -17,7 +17,7 @@
  *
  *    where the unit depends on how the provider actually meters:
  *      - 'compute' providers bill tokens  -> unitsSaved = tokens saved
- *      - 'message' providers bill requests -> unitsSaved = requests never sent (defer_local)
+ *      - 'message' providers bill requests -> unitsSaved = requests never sent (`defer_local` rows written by versions before 1.4)
  *
  *    `windowBudget` is a real quantity the operator must supply; it is NOT knowable from
  *    inside the gate. When it is unset we emit NO score rather than inventing one.

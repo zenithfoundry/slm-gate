@@ -619,7 +619,7 @@ export async function distillToolResultWithStats(params: {
     // Phase 2b: learned protections. Every sentence the brain once reported missing from a
     // shortened run is stored in the ledger; a line that contains one is protected by code from now on, so
     // the same loss never recurs and the list grows with use instead of with pattern edits. Skills only
-    // (the verifier is what learns), matched on the normalised line.
+    // (the brain check is what learns), matched on the normalised line.
     const learned = verify ? learnedProtections() : [];
     if (learned.length > 0) {
       for (let i = 0; i < slmLines.length; i++) {
@@ -641,7 +641,7 @@ export async function distillToolResultWithStats(params: {
         const line = slmLines[i];
         if (protectedLineIndices.has(i) || line.trim().length < 20) continue;
         // The explore rate is the FRACTION OF LINES that get an embedding call (0.15 = 15%), as
-        // .env.example documents and as ROUTING_TUNE_EXPLORE_RATE reads. Each call is a serial
+        // .env.example documents. Each call is a serial
         // round-trip to the embedding model, so sampling is what keeps it off the critical path.
         if (Math.random() >= CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
 
@@ -681,7 +681,7 @@ export async function distillToolResultWithStats(params: {
     const skippedUnderFloor = narrativeRuns.length - queue.length;
     let failedRuns = 0;
 
-    // Fidelity guard caps (only with a verifier, i.e. skills): at most DISTILL_FIDELITY_MAX_RUNS runs are
+    // Fidelity guard caps (only with a brain check, i.e. skills): at most DISTILL_FIDELITY_MAX_RUNS runs are
     // compressed and checked, inside DISTILL_FIDELITY_BUDGET_MS for the whole document. Beyond either cap a run
     // stays verbatim — fail closed, never cut.
     stats.runs = queue.length;

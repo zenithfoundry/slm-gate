@@ -135,7 +135,7 @@ describe('dashboard cycle clustering', () => {
 });
 
 describe('dashboard aggregates', () => {
-  it('excludes benchmark events from savings and routing but keeps their accuracy, labelled bench', () => {
+  it('excludes old benchmark rows from savings and routing and only counts them', () => {
     const data = computeDashboardData([
       ev({ ts: '2026-09-21T10:00:00.000Z' }),
       ev({ ts: '2026-09-21T10:01:00.000Z', environment: 'bench', quality_score: 1 }),
@@ -145,8 +145,6 @@ describe('dashboard aggregates', () => {
     expect(data.days).toHaveLength(1);
     expect(data.days[0].events).toBe(1);
     expect(data.providers.find(p => p.id === 'claude')?.events).toBe(1);
-    expect(data.accuracy.bench).toEqual({ avgPct: 100, n: 1 });
-    expect(data.accuracy.real).toEqual({ avgPct: null, n: 0 });
   });
 
   it('counts routing decisions without feedback rows: a feedback click is not a routed prompt', () => {

@@ -29,7 +29,6 @@ describe('initSettings', () => {
       RAM_PRESET: 'ram-64',
       SLM_BRAIN_MODEL: 'qwen3.5:9b',
       SLM_GATE_MODEL: 'qwen3.5:4b',
-      SLM_GATE_TESTING_MODEL: 'qwen3.5:4b',
       NUM_CTX: String(recommendNumCtx(64)),
     });
   });

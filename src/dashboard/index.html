@@ -203,7 +203,7 @@ function donutCard(cut) {
   const total = counts.reduce((a, b) => a + b, 0);
   const card = el('div', { class: 'card span4' });
   card.append(el('h2', { text: 'Routing decision' }),
-    el('p', { class: 'sub', text: 'Real traffic only — benchmark runs and feedback clicks excluded' }));
+    el('p', { class: 'sub', text: 'Real traffic only — feedback clicks and memory folds excluded' }));
   if (!total) { card.append(el('div', { class: 'na', text: 'No routed requests in this range' })); return card; }
 
   const svg = svgEl('svg', { viewBox: '0 0 132 132', width: '132', height: '132', role: 'img', 'aria-label': 'Routing decision share' });
@@ -229,27 +229,6 @@ function donutCard(cut) {
     el('b', { text: fmtInt(counts[i]) + ' · ' + (total ? (counts[i] / total * 100).toFixed(1) : 0) + '%' }),
   ])));
   card.append(el('div', { class: 'donut-wrap' }, [svg, legend]));
-  return card;
-}
-
-function accuracyCard() {
-  const card = el('div', { class: 'card span4' });
-  card.append(el('h2', { text: 'SLM accuracy (verifier acceptance)' }),
-    el('p', { class: 'sub', text: 'A model property. All-time; unaffected by the date range.' }));
-  const tiles = el('div', { class: 'tiles' });
-  for (const [label, slice, note] of [
-    ['Real traffic', DATA.accuracy.real, 'measured only when the model gate answers prompts'],
-    ['Benchmark', DATA.accuracy.bench, 'pnpm run bench — labelled dataset'],
-  ]) {
-    const tile = el('div', { class: 'tile' });
-    tile.append(el('div', { class: 'label', text: label }));
-    tile.append(slice.avgPct === null
-      ? el('div', { class: 'na', text: 'not measured' })
-      : el('div', { class: 'value', text: slice.avgPct + '%' }));
-    tile.append(el('div', { class: 'label', text: slice.n ? 'n = ' + fmtInt(slice.n) : note }));
-    tiles.append(tile);
-  }
-  card.append(tiles);
   return card;
 }
 
@@ -391,7 +370,7 @@ function render() {
   const cut = cutoffTs();
   const grid = $('#grid');
   grid.hidden = false;
-  grid.replaceChildren(heroCard(cut), donutCard(cut), accuracyCard());
+  grid.replaceChildren(heroCard(cut), donutCard(cut));
   const toolDefs = toolDefsCard();
   if (toolDefs) grid.append(toolDefs);
   const fidelity = fidelityCard();

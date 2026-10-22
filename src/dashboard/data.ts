@@ -10,14 +10,13 @@
  * span opened by the first request (Claude: 5 h), so cycles can only be reconstructed
  * by clustering events by time — which Langfuse widgets cannot do.
  *
- * Benchmark runs (environment 'bench') are excluded from every savings figure and from
- * routing: they are synthetic. They appear only in the accuracy split, labelled as such.
+ * Rows from the old router benchmark (environment 'bench') are excluded from every savings figure
+ * and from routing: they are synthetic. They are only counted, so the footer can say they were left out.
  */
 
 import Database from 'better-sqlite3';
 import { CONFIG } from '../config.js';
 import {
-  formatEventForLangfuse,
   perEventBaselineTokens,
   perEventCycleMinutes,
   perEventTokensSaved,
@@ -71,12 +70,6 @@ export interface DayRow {
   escalatedCloud: number;
 }
 
-interface AccuracySlice {
-  /** Average accuracy score 0–100, or null when nothing was measured. */
-  avgPct: number | null;
-  n: number;
-}
-
 export interface DashboardData {
   generatedAt: string;
   firstEventTs: string | null;
@@ -85,8 +78,6 @@ export interface DashboardData {
   benchEvents: number;
   /** Real traffic only, 'feedback' rows excluded: they record a user action, not a routing decision. */
   routing: { resolvedLocal: number; distilledForwarded: number; escalatedCloud: number };
-  /** Verifier acceptance, split so hiding benchmark data never blanks the real figure. */
-  accuracy: { real: AccuracySlice; bench: AccuracySlice };
   /** Tool definitions carried per model-gate request (real traffic, formats that report them). */
   toolDefs: ToolDefsSection;
   /** Skill shrinking fidelity (real conditionings that carry a measurement). */
@@ -228,12 +219,6 @@ function weekStartOf(ts: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** The event's accuracy score (0–100) exactly as the Langfuse mirror would emit it, or null. */
-function accuracyOf(e: LedgerEvent): number | null {
-  const score = formatEventForLangfuse(e).scores?.find(s => s.name === 'accuracy_rate_pct');
-  return typeof score?.value === 'number' ? score.value : null;
-}
-
 /**
  * Clusters one provider's events into window instances: a cycle opens at its first event
  * and spans windowMinutes; the next event past that boundary opens the next cycle. This
@@ -281,12 +266,6 @@ export function computeDashboardData(events: LedgerEvent[], extras: DashboardExt
     days.set(day, row);
   }
 
-  const accuracySlice = (slice: LedgerEvent[]): AccuracySlice => {
-    const scores = slice.map(accuracyOf).filter((v): v is number => v !== null);
-    if (scores.length === 0) return { avgPct: null, n: 0 };
-    return { avgPct: Number((scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2)), n: scores.length };
-  };
-
   const registry = getProviderRegistry();
   const providers: ProviderSection[] = PROVIDERS.map(({ id, label }) => {
     const plan = resolvedPlan(id);
@@ -329,7 +308,6 @@ export function computeDashboardData(events: LedgerEvent[], extras: DashboardExt
     realEvents: real.length,
     benchEvents: bench.length,
     routing,
-    accuracy: { real: accuracySlice(real), bench: accuracySlice(bench) },
     toolDefs: toolDefsSection(real),
     fidelity: fidelitySection(real, extras),
     days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),

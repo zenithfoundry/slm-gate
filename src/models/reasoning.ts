@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { SLM } from './slm.js';
 import { roles } from './roles.js';
-import { ClassifyCategory } from './types.js';
 import { withSlmTimeout } from './helpers.js';
 import { CONFIG } from '../config.js';
 
@@ -57,45 +56,6 @@ export async function selfConsistency<T>(
   
   // Fallback to a temp=0 run if no agreement
   return withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, 0), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS);
-}
-
-export async function classify(
-  slm: SLM,
-  text: string
-): Promise<ClassifyCategory> {
-  const schema = z.object({
-    category: z.enum(['classify', 'extract', 'format', 'boolean', 'short_factual', 'trivial_edit', 'other'])
-  });
-
-  const prompt = `Categorize the following user request into exactly one category:
-- 'format': Generating, structuring, or converting data to JSON, XML, CSV, or markdown.
-- 'other': Math word problems, arithmetic calculations, multi-step reasoning, logic, coding, or complex tasks.
-- 'short_factual': Simple direct fact lookup (e.g. "What is the capital of Japan?"). NEVER use for arithmetic or math.
-- 'boolean': Answering yes/no or true/false questions.
-- 'extract': Extracting specific data spans from provided text.
-- 'classify': Classifying items into categories.
-- 'trivial_edit': Fixing spelling or grammar.
-
-Rule: Any question requiring arithmetic calculation, word problem math, or multi-step logic MUST be classified as 'other'.
-
-Text: ${text}`;
-  
-  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'classify', CONFIG.SLM_TIMEOUT_MS);
-  return result.category;
-}
-
-export async function compress(
-  slm: SLM,
-  text: string
-): Promise<string> {
-  const schema = z.object({
-    compressedText: z.string()
-  });
-
-  const prompt = `Compress the following text while maintaining the core meaning.\n\nText: ${text}`;
-  
-  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'compress', CONFIG.SLM_TIMEOUT_MS);
-  return result.compressedText;
 }
 
 /**

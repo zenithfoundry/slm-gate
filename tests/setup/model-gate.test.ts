@@ -112,7 +112,6 @@ describe('launching and stopping a real gate', () => {
       envOverrides: {
         LEDGER_PATH: path.join(outputDir, 'ledger.sqlite'),
         LLM_GATE_DISTILL: 'off',
-        LLM_GATE_LOCAL_FIRST: 'off',
         LANGFUSE_PUBLIC_KEY: '',
         LANGFUSE_SECRET_KEY: '',
         LANGFUSE_HOST: '',

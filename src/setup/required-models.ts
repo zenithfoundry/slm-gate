@@ -23,7 +23,7 @@ export function modelsFor(settings: {
 }): ModelUse[] {
   const models = [
     { name: settings.SLM_GATE_MODEL, setting: 'SLM_GATE_MODEL', purpose: 'sorting requests and shrinking tool output' },
-    { name: settings.SLM_BRAIN_MODEL, setting: 'SLM_BRAIN_MODEL', purpose: 'answering first messages locally' },
+    { name: settings.SLM_BRAIN_MODEL, setting: 'SLM_BRAIN_MODEL', purpose: 'the fidelity check, ask_elision answers and the conversation memory' },
   ];
   if (settings.SEMCACHE || settings.DISTILL_ADAPTIVE) {
     const uses = [settings.SEMCACHE && 'the semantic cache', settings.DISTILL_ADAPTIVE && 'adaptive tool-output shrinking'].filter(Boolean);

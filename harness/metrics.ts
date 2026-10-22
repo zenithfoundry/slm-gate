@@ -1,3 +1,8 @@
+/**
+ * @fileoverview `slm-gate metrics` / `pnpm run metrics`: rows, tokens and cost in the local ledger, grouped by
+ * `slm_gate`. Everything slm-gate writes today is `on`; `off` rows come only from the router benchmark that
+ * versions before 1.4 shipped, and are shown so an older ledger still adds up.
+ */
 import { getDb } from '../src/ledger/index.js';
 
 async function main() {
@@ -40,14 +45,14 @@ async function main() {
 
   const table = [
     {
-      Arm: 'slm_gate=off (Baseline)',
+      Rows: 'slm_gate=off (old benchmark rows)',
       'Cost (USD)': metrics.off.cost.toFixed(4),
       'Tokens': metrics.off.tokens,
       'Avg Quality': metrics.off.quality.toFixed(2),
       'Count': metrics.off.count
     },
     {
-      Arm: 'slm_gate=on (Router)',
+      Rows: 'slm_gate=on (the gate)',
       'Cost (USD)': metrics.on.cost.toFixed(4),
       'Tokens': metrics.on.tokens,
       'Avg Quality': metrics.on.quality.toFixed(2),
@@ -57,13 +62,10 @@ async function main() {
 
   console.table(table);
 
-  // No "on minus off" delta and no Langfuse totals. The arms hold different numbers of rows
-  // (the "on" arm also carries every real MCP event), so subtracting their totals printed a
-  // meaningless negative as "Tokens Saved"; and the Langfuse query filtered observations on
-  // trace tags and a score name ('task_pass') nothing writes, so it printed confident zeros.
-  console.log('\nThe arms hold different numbers of rows, so their totals are not comparable.');
+  // No "on minus off" delta: the two groups hold different numbers of rows, so subtracting their totals
+  // printed a meaningless negative as "Tokens Saved".
+  console.log('\nThe two groups hold different numbers of rows, so their totals are not comparable.');
   console.log('Tokens saved per event, per day and all-time: pnpm run ledger:report');
-  console.log('Benchmark comparison on the same prompts: pnpm run bench (see harness/README.md)');
 }
 
 main().catch(err => {

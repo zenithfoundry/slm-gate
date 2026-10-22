@@ -7,9 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from '@jest/globals';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
 
-// Measurement only: neither Step A nor Step B is needed to count tool definitions.
+// Measurement only: tool-result shrinking (Step B) is not needed to count tool definitions.
 process.env.LLM_GATE_DISTILL = 'false';
-process.env.LLM_GATE_LOCAL_FIRST = 'false';
 
 let upstream: http.Server;
 let gate: http.Server;

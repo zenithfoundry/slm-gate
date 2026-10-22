@@ -140,15 +140,6 @@ async function setupDashboard(): Promise<void> {
       filters: [{ type: 'string', column: 'name', operator: '=', value: 'cost_saved_cents' }],
     },
     {
-      name: 'SLM Accuracy Rate (%)',
-      description: 'Only measured for prompts that pass through the model gate. Shows 0 when the model gate is not in the request path — that means not measured, not 0% accurate. MCP tool calls never answer prompts, so they never score accuracy. Share of local-model answers the verifier accepted (0-100%); benchmark runs land under Env = bench.',
-      view: 'scores-numeric',
-      chartType: 'NUMBER',
-      metrics: [{ measure: 'value', agg: 'avg' }],
-      dimensions: [],
-      filters: [{ type: 'string', column: 'name', operator: '=', value: 'accuracy_rate_pct' }],
-    },
-    {
       name: 'Claude Cycle: Est. Seconds Saved (per prompt)',
       description: "Only measured when Claude traffic passes through the gate and CLAUDE_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
       view: 'scores-numeric',
@@ -382,7 +373,6 @@ async function setupDashboard(): Promise<void> {
       { x: 0, y: 0, width: 6, height: 6 }, // Routing Decision (pie)
       { x: 6, y: 0, width: 3, height: 3 }, // Tokens Saved
       { x: 9, y: 0, width: 3, height: 3 }, // Cost Saved
-      { x: 6, y: 3, width: 6, height: 3 }, // SLM Accuracy Rate
       { x: 0, y: 6, width: 4, height: 3 }, // Claude  — seconds per prompt
       { x: 4, y: 6, width: 4, height: 3 }, // ChatGPT — seconds per prompt
       { x: 8, y: 6, width: 4, height: 3 }, // Gemini  — seconds per prompt

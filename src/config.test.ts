@@ -176,7 +176,7 @@ describe('RAM_PRESET', () => {
     // An empty settings folder, so no .env names the models and the preset picks them.
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-ram-'));
     process.env = { ...originalEnv, SLM_GATE_HOME: home };
-    for (const key of ['RAM_PRESET', 'SLM_BRAIN_MODEL', 'SLM_GATE_MODEL', 'SLM_GATE_TESTING_MODEL']) delete process.env[key];
+    for (const key of ['RAM_PRESET', 'SLM_BRAIN_MODEL', 'SLM_GATE_MODEL']) delete process.env[key];
   });
 
   afterEach(() => {

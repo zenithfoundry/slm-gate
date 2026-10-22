@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
-import { matchMemory, readMemoryRow, writeEvent } from '../ledger/index.js';
+import { readMemoryRow, writeEvent } from '../ledger/index.js';
 import { estimateTokens } from '../utils/elision.js';
 import { DistillStats, distilRequest } from './distill.js';
 import * as anthropic from './formats/anthropic.js';
@@ -11,9 +11,8 @@ import { conversationDiscriminator, conversationKey, JsonObject, ToolStats, Wire
 import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
-import { answerFirstRequestLocally, classifyTypedTurn } from './local-first.js';
-import { noteTurn, parseSummary, renderSummary } from './memory.js';
-import { beginRequest, track } from '../models/busy.js';
+import { noteTurn } from './memory.js';
+import { beginRequest } from '../models/busy.js';
 import { HEALTH_PATH } from '../setup/model-gate.js';
 import { requiredModels } from '../setup/local-models.js';
 import { isLocalRequest } from '../utils/local-only.js';
@@ -63,108 +62,6 @@ function parseJsonObject(body: Buffer): JsonObject | null {
   }
 }
 
-/** How a Step A attempt went, for the ledger row of the request (answered locally or forwarded). */
-interface LocalStep {
-  reply: { contentType: string; body: string; answer: string; model: string } | null;
-  latencyMs: number;
-  verifierFlags: string[];
-  /** Ledger meta fields; names match the ones the dashboards already read. */
-  meta: Record<string, unknown>;
-}
-
-/**
- * Step A: a first request the local model answers itself, in the request's own format. Anything else —
- * a later request, structured output, a busy or slow local model, a declined or rejected answer —
- * returns no reply and the request goes on unchanged.
- */
-async function localFirst(params: { route: UpstreamRoute; parsed: JsonObject; body: Buffer }): Promise<LocalStep | null> {
-  const { route, parsed, body } = params;
-  const format = FORMATS[route.format];
-  const prompt = format.firstRequestPrompt(parsed);
-  // Gemini's JSON-array streaming (no `alt=sse`) is left to the provider.
-  if (!prompt || route.geminiStream === 'json-array') return null;
-  const stream = route.format === 'gemini' ? route.geminiStream === 'sse' : parsed.stream === true;
-
-  const started = Date.now();
-  let local: Awaited<ReturnType<typeof answerFirstRequestLocally>>;
-  try {
-    // Conversation memory for Step A: the usable summary for this conversation's key, read through the same
-    // fail-closed path as every other reader; a missing, stale or failed memory means today's behaviour.
-    const memoryText = memoryForStepA(parsed);
-    local = await track(answerFirstRequestLocally({ task: prompt.text, toolsListed: prompt.toolsListed, memory: memoryText }));
-  } catch (err) {
-    // Step A can only make a request cheaper; if it fails in any way the request goes on as normal.
-    console.error(`LLM Gate: local answer skipped: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
-  }
-  const { attempt, outcome } = local;
-  const step: LocalStep = {
-    reply: null,
-    latencyMs: Date.now() - started,
-    verifierFlags: attempt?.verifierFlags ?? [],
-    meta: {
-      local_outcome: outcome,
-      category: attempt?.category ?? null,
-      local_attempted: attempt?.attempted ? 1 : 0,
-      local_accepted: attempt?.accepted ? 1 : 0,
-      from_cache: attempt?.fromCache ? 1 : 0,
-      prompt_chars: prompt.text.length,
-      prompt_tok_est: estimateTokens(prompt.text),
-      has_code_fence: /```/.test(prompt.text) ? 1 : 0,
-    },
-  };
-  if (!attempt || attempt.answer === null) return step;
-
-  const answer = attempt.answer;
-  const reply = format.buildLocalReply({
-    text: answer,
-    stream,
-    model: attempt.model,
-    usage: { inputTokens: estimateTokens(body.toString('utf8')), outputTokens: estimateTokens(answer) },
-  });
-  return { ...step, reply: { ...reply, answer, model: attempt.model } };
-}
-
-/** How long the ledger write waits for a turn classification once the response is done. */
-const TURN_CLASSIFY_CAP_MS = 2000;
-/** Shorter typed turns ("ok", "yes") carry no routing signal worth a model call. */
-const TURN_CLASSIFY_MIN_CHARS = 20;
-
-interface TurnClassification {
-  category: string | null;
-  outcome: 'ok' | 'timeout' | 'error' | 'skipped';
-}
-
-/**
- * ROUTING_TUNE data for every later turn the person typed (Step A only ever sees first requests). Regex gates
- * first and free: a tool-result turn or a short text is 'skipped' with no model call. Otherwise the gate-model
- * call starts beside the upstream call and is never awaited on the request path; `settle` waits at most
- * TURN_CLASSIFY_CAP_MS once the response is done, then cancels the call and records 'timeout'.
- */
-function startTurnClassification(params: { route: UpstreamRoute; parsed: JsonObject }): { settle: () => Promise<TurnClassification> } {
-  const text = FORMATS[params.route.format].typedTurnText?.(params.parsed) ?? null;
-  if (!text || text.length < TURN_CLASSIFY_MIN_CHARS) return { settle: async () => ({ category: null, outcome: 'skipped' }) };
-
-  const controller = new AbortController();
-  const work: Promise<TurnClassification> = classifyTypedTurn({ text, signal: controller.signal })
-    .then(category => ({ category, outcome: 'ok' as const }))
-    .catch(() => ({ category: null, outcome: controller.signal.aborted ? 'timeout' as const : 'error' as const }));
-
-  return {
-    settle: () => {
-      let timer: NodeJS.Timeout | undefined;
-      const cap = new Promise<TurnClassification>(resolve => {
-        timer = setTimeout(() => {
-          controller.abort();
-          resolve({ category: null, outcome: 'timeout' });
-        }, TURN_CLASSIFY_CAP_MS);
-        timer.unref();
-      });
-      return Promise.race([work, cap]).finally(() => clearTimeout(timer));
-    },
-  };
-}
-
 /**
  * Step B: the bytes to forward. The original bytes go out whenever nothing changed, the body is not
  * JSON, or distillation fails in any way — it can make a request smaller, never break it.
@@ -194,12 +91,8 @@ function recordRequest(params: {
   /** What was forwarded, when Step B changed the body. */
   sent?: Buffer;
   distill?: DistillStats | null;
-  /** A Step A attempt that ended without a local reply. */
-  local?: LocalStep | null;
   /** Tool-definition counts of the request, when its format has them. */
   tools?: ToolStats | null;
-  /** The typed turn's classification, when ROUTING_TUNE asked for one. */
-  turn?: TurnClassification | null;
   /** The conversation memory's state for this request (numbers only). */
   memory?: MemoryNote | null;
 }): void {
@@ -215,37 +108,8 @@ function recordSafely(params: { reqId: string; path: string; write: () => void }
   }
 }
 
-/** The ledger row of a first request the local model answered: the whole cloud request was avoided. */
-function recordLocalAnswer(params: { reqId: string; path: string; body: Buffer; route: UpstreamRoute; local: LocalStep }): void {
-  const { reqId, path, body, route, local } = params;
-  recordSafely({
-    reqId,
-    path,
-    write: () => writeEvent({
-      ts: new Date().toISOString(),
-      layer: 'llm',
-      request_id: reqId,
-      route: 'defer_local',
-      is_local_call: 1,
-      slm_model: local.reply!.model,
-      // The provider whose request was avoided, for per-provider savings.
-      api_model: requestModel(route, body),
-      in_tok: estimateTokens(body.toString('utf8')),
-      out_tok: estimateTokens(local.reply!.answer),
-      api_in_tok: 0,
-      api_out_tok: 0,
-      cost_usd: 0,
-      slm_latency_s: local.latencyMs / 1000,
-      api_latency_s: 0,
-      verifier_flags: JSON.stringify(local.verifierFlags),
-      slm_gate: 'on',
-      meta: JSON.stringify({ format: route.format, path, status: 200, ...local.meta }),
-    }),
-  });
-}
-
 function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
-  const { reqId, path, body, route, outcome, distill = null, local = null, tools = null, turn = null, memory = null } = params;
+  const { reqId, path, body, route, outcome, distill = null, tools = null, memory = null } = params;
   const sent = params.sent ?? body;
   const distilled = sent !== body;
   writeEvent({
@@ -261,15 +125,10 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
     api_in_tok: route ? estimateTokens(sent.toString('utf8')) : 0,
     api_out_tok: 0,
     cost_usd: 0,
-    slm_latency_s: (local?.latencyMs ?? 0) / 1000,
+    slm_latency_s: 0,
     api_latency_s: (outcome.durationMs ?? 0) / 1000,
-    ...(local ? { verifier_flags: JSON.stringify(local.verifierFlags) } : {}),
     slm_gate: 'on',
     meta: JSON.stringify({
-      // A Step A attempt that did not answer: ROUTING_TUNE learns from local_attempted/local_accepted.
-      ...(local?.meta ?? {}),
-      // A later typed turn's category (never set together with a Step A attempt's category above).
-      ...(turn ? { category: turn.category, category_outcome: turn.outcome } : {}),
       // Conversation memory: how much of this conversation the summary covers and how old it is. Never the text.
       ...(memory ? { memory } : {}),
       format: route?.format ?? null,
@@ -338,41 +197,16 @@ async function handleRequestInner(params: {
   // Measurement only, for the "tool definitions in context" card: how many tool schemas this request carries and how many stay deferred.
   const tools = parsed ? FORMATS[route.format].toolStats?.(parsed) ?? null : null;
 
-  const local = parsed && CONFIG.LLM_GATE_LOCAL_FIRST ? await localFirst({ route, parsed, body }) : null;
-  if (local?.reply) {
-    res.writeHead(200, { 'content-type': local.reply.contentType, 'x-slm-gate-route': 'defer_local' });
-    res.end(local.reply.body);
-    console.info(`LLM Gate: ${req.method} ${path} -> answered locally by ${local.reply.model} in ${local.latencyMs}ms`);
-    recordLocalAnswer({ reqId, path, body, route, local });
-    return;
-  }
-
   const { sent, distill } = CONFIG.LLM_GATE_DISTILL
     ? await distilBody({ route, parsed, body })
     : { sent: body, distill: null };
-  // Slice 3c: a Step A attempt already classified a first request; every other typed turn is classified here,
-  // beside the upstream call (after distillation, so it never competes with it for the gate model).
-  const turn = parsed && !local && CONFIG.ROUTING_TUNE ? startTurnClassification({ route, parsed }) : null;
   const outcome = await forwardRequest({ req, res, body: sent, route });
   const saved = sent === body ? '' : `, distilled ${body.length} -> ${sent.length} bytes`;
   console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${saved}${outcome.clientAborted ? ' (client aborted)' : ''}`);
-  const turnResult = turn ? await turn.settle() : null;
   // Conversation memory: note this turn now that the response is complete; the fold itself runs later, only
   // when this process has no request in flight (src/llm-gate/memory.ts).
   const memory = parsed && route.generation ? noteMemory({ route, parsed }) : null;
-  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, local, tools, turn: turnResult, memory });
-}
-
-/** The rendered conversation memory for a first request's conversation, or null (never the raw row). */
-function memoryForStepA(parsed: JsonObject): string | null {
-  if (!CONFIG.CONVERSATION_MEMORY) return null;
-  try {
-    const found = matchMemory({ key: conversationKey(parsed), discriminator: conversationDiscriminator(parsed) });
-    const summary = found.row ? parseSummary(found.row.summary) : null;
-    return summary ? renderSummary(summary) : null;
-  } catch {
-    return null;
-  }
+  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, tools, memory });
 }
 
 /** What the ledger row says about the conversation's memory: numbers only, never the text. */

@@ -5,7 +5,6 @@ import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
 import { getDb, logLedgerInfo } from '../ledger/index.js';
 import { isEntryPoint } from '../utils/entry-point.js';
 import { warmUpLocalModel } from './distill.js';
-import { warmUpAnsweringModel } from './local-first.js';
 import { startPinningModels } from '../models/pin.js';
 
 // Ledger writes are synchronous. With better-sqlite3's default 5 s busy wait, another process
@@ -29,7 +28,6 @@ if (isEntryPoint(import.meta.url)) {
   logLedgerInfo('llm-gate');
   getDb().pragma(`busy_timeout = ${LEDGER_BUSY_TIMEOUT_MS}`);
   if (CONFIG.LLM_GATE_DISTILL) warmUpLocalModel();
-  if (CONFIG.LLM_GATE_LOCAL_FIRST) warmUpAnsweringModel();
   // Keep both models resident: a third model loaded by anything else evicts one of ours and every call
   // after that pays a reload. Checks now and every minute; see src/models/pin.ts.
   startPinningModels();

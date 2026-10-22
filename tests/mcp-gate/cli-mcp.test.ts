@@ -31,7 +31,6 @@ beforeAll(async () => {
     OLLAMA_HOST: `http://127.0.0.1:${(ollama.address() as AddressInfo).port}`,
     SLM_GATE_MODEL: MODEL,
     SLM_BRAIN_MODEL: MODEL,
-    SLM_GATE_TESTING_MODEL: MODEL,
     LLM_GATE_AUTOSTART: 'off',
     DOWNSTREAM_MCP: '',
     MCP_GATE_TRANSPORT: 'stdio',
