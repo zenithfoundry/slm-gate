@@ -38,3 +38,7 @@ harness/.venv/
 .agents
 .loop-out/
 .dev-team
+
+# Backups of settings files must never be committed
+.env.backup*
+*.backup-*
