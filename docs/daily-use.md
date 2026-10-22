@@ -142,6 +142,9 @@ file is only offered as a recommendation under `# Pending Clarifications`. Editi
 file, or a file passing its `stale_after` date, makes the next conditioning recompute instead of using its cache.
 Commit the folder with the repository.
 
+Decision memory, the fidelity guard and the repository index belong to the "local models do more" setup; see
+[The two setups](setups.md) for the keys that turn them on or off together.
+
 ## Learned protections: a lost sentence is never lost twice
 
 With `DISTILL_SKILLS=on`, whenever the brain model reports that a shortened paragraph dropped a requirement
@@ -150,3 +153,15 @@ line of any skill that contains that sentence is protected by code before a mode
 grows with use and you never edit patterns by hand. `pnpm run protections` shows the list, most often hit
 first; `pnpm run protections -- --forget "<sentence>"` removes one. The **Skill fidelity** card shows the count.
 Your own hand-written patterns in `DISTILL_PRESERVE_PATH` still apply as before.
+
+## If the local models keep unloading
+
+`slm-gate` needs its two models, the brain and the gate, loaded together: they work as a pair on every
+request. Your RAM decides how big those two models are and how much context they get (the RAM presets), not
+how many there are. So Ollama's slot count (`OLLAMA_MAX_LOADED_MODELS`) is set to 2, exactly the pair. When
+anything loads a third model, one of the pair is evicted and the next call pays a reload. The usual
+causes are `ollama run some-other-model` (it loads the model you name, and with an empty prompt it also waits
+for input until you quit), and `pnpm run bench:gate -- --model …`, which tries other gate models. With
+`SLM_PIN_MODELS=on` (the default) the model gate checks every minute and, only when one of its models is
+missing, unloads the stranger and warms its own model back in; the bench does the same when it finishes. To
+see what is loaded, use `ollama ps`, never `ollama run`.

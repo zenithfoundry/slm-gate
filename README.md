@@ -104,7 +104,7 @@ flowchart LR
   subgraph mcpRow["Tool calls: MCP gate"]
     direction LR
     mcp["MCP gate"] -->|"pass on"| toolbox["Downstream MCP<br/>toolbox"]
-    toolbox -->|"raw result"| trim["MCP gate trims long text:<br/>rules first, then small model"]
+    toolbox -->|"raw result"| trim["MCP gate trims long text:<br/>rules first, then small model<br/>(skills: checked by the brain model)"]
   end
 
   subgraph llmRow["Model requests: model gate"]
@@ -132,7 +132,7 @@ flowchart LR
   server["MCP server<br/>[mcp-gate/server.ts]"]
   toolbox["Downstream MCP"]
   cond["Condition the text<br/>[mcp-gate/pipeline.ts]"]
-  helpers["In order: saved result?,<br/>trim, project scan,<br/>open decisions"]
+  helpers["In order: saved result?,<br/>trim (skills: under the fidelity guard),<br/>project scan, open decisions<br/>(decision memory, repo index, files),<br/>existing code (REPO_INDEX)"]
   ledger[("Ledger")]
   paid["Cloud model<br/>(CLOUD_API_KEY)"]
 
@@ -144,8 +144,8 @@ flowchart LR
   cond -->|"6. log it"| ledger
   server -->|"7. smaller result"| tool
   helpers -.->|"optional, off by default"| paid
-  tool -.->|"later: expand_elision"| server
-  ledger -.->|"the cut lines"| server
+  tool -.->|"later: expand_elision, ask_elision,<br/>find_existing"| server
+  ledger -.->|"the cut lines, the original<br/>for ask_elision, the symbol index"| server
 ```
 
 | Step | File | What it does |
@@ -170,6 +170,7 @@ flowchart LR
   server["Model gate<br/>[llm-gate/server.ts]"]
   stepA["Step A: answer locally?<br/>[llm-gate/local-first.ts]"]
   stepB["Step B: shrink new output<br/>[llm-gate/distill.ts]"]
+  classify["Sort the typed turn<br/>(ROUTING_TUNE, off the request path)"]
   fwd["Forward<br/>[llm-gate/forward.ts]"]
   cloud["Your AI provider<br/>(your login or API key)"]
   ledger[("Ledger")]
@@ -182,8 +183,10 @@ flowchart LR
   fwd -->|"5. same headers"| cloud
   cloud -->|"6. reply"| fwd
   fwd -->|"7. reply, unchanged"| tool
-  server -->|"8. log it"| ledger
+  server -->|"8. log it: route, tokens,<br/>tool schemas counted"| ledger
   stepB -.->|"saved decisions"| ledger
+  server -.->|"later turns, beside the forward"| classify
+  classify -.->|"category"| ledger
 ```
 
 #### 4. How it starts, and what the CLI does
@@ -236,11 +239,11 @@ flowchart LR
   pricing["Prices and window sizes<br/>[pricing/]"]
   metrics["slm-gate metrics<br/>[harness/metrics.ts]"]
   report["Tokens saved per day<br/>[ledger/report.ts]"]
-  dash["Dashboard<br/>[dashboard/serve.ts]"]
+  dash["Dashboard: savings, routing,<br/>accuracy, tool definitions,<br/>skill fidelity<br/>[dashboard/serve.ts]"]
   site["site/ folder for GitHub Pages<br/>[dashboard/export.ts]"]
   langfuse["Langfuse (optional)"]
 
-  gates -->|"1. a row per request"| ledger
+  gates -->|"1. a row per request:<br/>route, tokens, fidelity,<br/>tool schemas, category"| ledger
   ledger --> metrics
   ledger --> report
   ledger --> dash
@@ -281,7 +284,7 @@ git clone https://github.com/zenithfoundry/slm-gate.git small-language-model-gat
 cd small-language-model-gate
 pnpm install && pnpm run build
 cp configs/claude-code/.env.16gb.example .env
-ollama pull qwen2.5-coder:3b && ollama pull qwen2.5-coder:0.5b
+ollama pull qwen3.5:2b && ollama pull qwen2.5-coder:0.5b
 claude mcp add --scope user slm-gate -- node "$PWD/dist/mcp-gate/index.js"
 node dist/cli.js doctor
 ```
@@ -298,8 +301,9 @@ Setup and reference guides live in [`docs/`](docs/README.md). The first time thr
 2. [How It Operates](docs/integration-layers.md): the two layers, who pays for what, and which coding tools work with each
 3. [Step-by-Step Setup](docs/setup.md): clone, build, download models, and connect your editor
 4. [Configuration](docs/configuration.md): RAM presets, the 16 GB baseline `.env`, and every setting explained
-5. [Verification & Day-to-Day Use](docs/daily-use.md): the health check, fixing start-up problems, checking savings, the dashboard
-6. [Architecture & Advanced Features](docs/advanced.md): the hosted small-model fallback, and a rule for contributors
+5. [The two setups](docs/setups.md): "local models do more" or "plain shrinking", with the `.env` keys and values for each
+6. [Verification & Day-to-Day Use](docs/daily-use.md): the health check, fixing start-up problems, checking savings, the dashboard
+7. [Architecture & Advanced Features](docs/advanced.md): the hosted small-model fallback, and a rule for contributors
 
 Also: [walkthroughs](docs/README.md#walkthroughs), [analytics & observability](docs/analytics-and-observability.md), [architecture overview](ARCHITECTURE.md), and [every doc on one page](docs/README.md).
 

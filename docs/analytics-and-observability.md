@@ -76,7 +76,7 @@ All settings are controlled via environment variables in your `.env` file (or in
 | `CLOUD_MODEL` | `string` | `gemini-2.5-flash` | The primary upstream cloud model name used for baseline cost estimation and cloud forwarding. |
 | `CLOUD_API_KEY` | `string` | *(Optional)* | Upstream provider API key (OpenAI, Anthropic, or Google AI Studio). |
 | `CLOUD_API_STYLE` | `enum` | `openai` | Protocol style used for cloud communication (`openai` or `anthropic`). |
-| `SLM_BRAIN_MODEL` | `string` | Resolved by `RAM_PRESET` | The local model tag used for complex reasoning, classification, and local answering (e.g. `qwen3:14b`, `qwen2.5-coder:3b`). |
+| `SLM_BRAIN_MODEL` | `string` | Resolved by `RAM_PRESET` | The local model tag used for complex reasoning, classification, and local answering (e.g. `qwen3:14b`, `qwen3.5:2b`). |
 | `SLM_GATE_MODEL` | `string` | Resolved by `RAM_PRESET` | The small fast local model tag used for prompt distillation and token compression (e.g. `qwen3:1.7b`, `qwen2.5-coder:0.5b`). |
 | `SLM_GATE_TESTING_MODEL` | `string` | Resolved by `SLM_GATE_MODEL` | The dedicated local model tag used specifically for the offline evaluation benchmark harness and test suites (`slm-gate bench`). |
 | `RAM_PRESET` | `enum` | `custom` | Hardware RAM profile (`ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, `custom`) that automatically assigns optimal local models. |

@@ -2,6 +2,8 @@
 
 `slm-gate` is configured through a `.env` file — a plain text file in the root of the repository that holds your settings. Think of it as a control panel with clearly labelled switches.
 
+> **Two setups.** Once the file exists, the one choice that matters most is how much work the local models take on: "local models do more" or "plain shrinking". [The two setups](setups.md) shows both side by side with the exact keys and values.
+
 ## Quick Start: Copy Your RAM Preset
 
 Instead of starting from scratch, find your machine's RAM in the table below and copy the matching preset file for your editor. These are fully commented templates with sensible defaults already filled in.
@@ -36,7 +38,7 @@ Here is a minimal, working `.env` for a 16 GB machine. Copy this to a file named
 SLM_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_KEEP_ALIVE=12h
-SLM_BRAIN_MODEL=qwen2.5-coder:3b        # The smarter local model (heavier tasks)
+SLM_BRAIN_MODEL=qwen3.5:2b        # The smarter local model (heavier tasks)
 SLM_GATE_MODEL=qwen2.5-coder:0.5b      # The tiny router model (instant decisions)
 NUM_CTX=4096                             # Context window — keep at 4096 for 16 GB
 TEMPERATURE=0
@@ -221,6 +223,7 @@ When a tool response is very large, `slm-gate` compresses it and keeps only the 
 - **`RESOLVER_CLOUD_BUDGET_USD`** — Hard dollar cap on the above feature. Default: `0` (off until you set a budget)
 - **`RAM_PRESET`** — Picks the two local models for your RAM: `ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, or `custom`. `slm-gate` needs 16 GB or more; a size between two presets uses the smaller one, and more than 128 GB is `custom`. `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` always win. Models per preset and how it is decided: [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machine-model-table). For models that fit your computer best, use [llmfit](https://github.com/AlexsJones/llmfit).
 - **`TLS_ADAPTER`** — Enables special handling for Tech-Lead-Stack payloads. Set to `on` only if TLS is your downstream. (`on` / `off`)
+- **`SLM_PIN_MODELS`** — Keeps both local models loaded. `slm-gate` works with a pair, the brain and the gate model, on every request; your RAM decides their size and context (the RAM presets), not their number. Ollama's slot count (`OLLAMA_MAX_LOADED_MODELS`) is therefore set to 2, exactly the pair; when anything else loads a third model — `ollama run some-other-model`, a benchmark trying another gate model, another app — one of `slm-gate`'s models is evicted and every later call pays a reload. With this `on`, the model gate checks every minute and, only when one of its models is missing, unloads the stranger and warms its own model back in; the benchmark does the same when it finishes. Check what is loaded with `ollama ps`, never with `ollama run` (that loads the model you name). (`on` / `off`) Default: `on`
 - **`RESOLVER_PROMPT_TOKENS`** — The most skill text (in tokens) the brain model is given when it looks for open decisions. A whole skill plus the prompt must fit the local context window, or the call fails; over this, every heading is kept and each section keeps its first share. Default: `3000`
 - **`REPO_INDEX`** — When `on`, the gate keeps a small index of the functions, classes and types your repository defines (in the ledger, refreshed by file time, no model). It powers the `find_existing` tool, lets open decisions be answered from the code the question names, and appends an "Existing code that may already cover this" list to every conditioned skill. (`on` / `off`) Default: `off`
 

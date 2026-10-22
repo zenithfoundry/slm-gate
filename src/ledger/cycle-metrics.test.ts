@@ -26,7 +26,7 @@ const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
   request_id: `r_${Math.random()}`,
   route: 'condition',
   is_local_call: 1,
-  slm_model: 'qwen2.5-coder:3b',
+  slm_model: 'qwen3.5:2b',
   in_tok: 4511,
   out_tok: 1825,
   api_in_tok: 0,

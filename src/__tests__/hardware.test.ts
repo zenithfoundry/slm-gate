@@ -67,13 +67,13 @@ describe('hardware.ts', () => {
 
   it('ramPresets holds one model pair per RAM size', () => {
     expect(ramPresets).toEqual({
-      'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
-      'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
-      'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen2.5-coder:3b' },
-      'ram-48':  { brain: 'qwen3.5:9b',       gate: 'qwen2.5-coder:3b' },
+      'ram-16':  { brain: 'qwen3.5:2b', gate: 'qwen2.5-coder:0.5b' },
+      'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen3.5:2b' },
+      'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen3.5:2b' },
+      'ram-48':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:2b' },
       'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
       'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:8b' },
-      'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
+      'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen3.5:2b' },
     });
   });
 

@@ -59,7 +59,7 @@ If `ollama serve` prints `address already in use`, **Ollama is already running**
 Then download the models for your machine. For a **16 GB machine** (the recommended starting point):
 
 ```bash
-ollama pull qwen2.5-coder:3b    # Brain model: smarter, used for compression & local resolution
+ollama pull qwen3.5:2b    # Brain model: smarter, used for compression & local resolution
 ollama pull qwen2.5-coder:0.5b  # Gate model: tiny, used for quick routing decisions
 ```
 
@@ -101,7 +101,7 @@ If the file doesn't exist yet, create it. Add (or merge) the following into the 
         "/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"
       ],
       "env": {
-        "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+        "SLM_BRAIN_MODEL": "qwen3.5:2b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
         "NUM_CTX": "4096"
       }
@@ -135,7 +135,7 @@ claude mcp add-json slm-gate '{
   "command": "node",
   "args": ["/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"],
   "env": {
-    "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+    "SLM_BRAIN_MODEL": "qwen3.5:2b",
     "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
     "NUM_CTX": "4096"
   }
@@ -151,7 +151,7 @@ Alternatively, create or edit `.mcp.json` in your project root:
       "command": "node",
       "args": ["/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"],
       "env": {
-        "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+        "SLM_BRAIN_MODEL": "qwen3.5:2b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
         "NUM_CTX": "4096"
       }
@@ -189,7 +189,7 @@ See the full config reference: [`configs/claude-code/README.md`](../configs/clau
       "command": "node",
       "args": ["/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"],
       "env": {
-        "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+        "SLM_BRAIN_MODEL": "qwen3.5:2b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
         "NUM_CTX": "4096"
       }
@@ -217,7 +217,7 @@ Create or edit the file `.cursor/mcp.json` in your project workspace root:
       "command": "node",
       "args": ["/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"],
       "env": {
-        "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+        "SLM_BRAIN_MODEL": "qwen3.5:2b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
         "NUM_CTX": "4096"
       }
@@ -245,7 +245,7 @@ Both Cline and Continue are AI coding extensions for VS Code and JetBrains that 
       "command": "node",
       "args": ["/Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js"],
       "env": {
-        "SLM_BRAIN_MODEL": "qwen2.5-coder:3b",
+        "SLM_BRAIN_MODEL": "qwen3.5:2b",
         "SLM_GATE_MODEL": "qwen2.5-coder:0.5b",
         "NUM_CTX": "4096"
       }
@@ -263,7 +263,7 @@ mcpServers:
     args:
       - /Users/yourname/projects/small-language-model-gate/dist/mcp-gate/index.js
     env:
-      SLM_BRAIN_MODEL: "qwen2.5-coder:3b"
+      SLM_BRAIN_MODEL: "qwen3.5:2b"
       SLM_GATE_MODEL: "qwen2.5-coder:0.5b"
       NUM_CTX: "4096"
 ```

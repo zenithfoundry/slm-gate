@@ -194,7 +194,7 @@ describe('RAM_PRESET', () => {
   });
 
   it.each([
-    ['ram-48', 'qwen3.5:9b', 'qwen2.5-coder:3b'],
+    ['ram-48', 'qwen3.5:9b', 'qwen3.5:2b'],
     ['ram-64', 'qwen3.5:9b', 'qwen3.5:4b'],
     ['ram-128', 'qwen3:14b', 'qwen3:8b'],
   ])('%s picks its own models when .env names none', async (preset, brain, gate) => {

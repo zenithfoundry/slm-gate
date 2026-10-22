@@ -92,10 +92,10 @@ pnpm run dev doctor
 
 | Your RAM | `RAM_PRESET` | Brain model (smarter, shrinks long tool output) | Gate model (fast, quick decisions) | Download (both) | `NUM_CTX` |
 | :--------- | :---------- | :--------------------------------- | :---------------------------- | :-- | :-- |
-| **16–23 GB** | `ram-16` | `qwen2.5-coder:3b` | `qwen2.5-coder:0.5b` | 2.3 GB | 4096 |
-| **24–31 GB** | `ram-24` | `qwen3.5:4b` | `qwen2.5-coder:3b` | 5.3 GB | 8192 |
-| **32–47 GB** | `ram-32` | `qwen2.5:7b` | `qwen2.5-coder:3b` | 6.6 GB | 8192 |
-| **48–63 GB** | `ram-48` | `qwen3.5:9b` | `qwen2.5-coder:3b` | 8.5 GB | 8192 |
+| **16–23 GB** | `ram-16` | `qwen3.5:2b` | `qwen2.5-coder:0.5b` | 2.3 GB | 4096 |
+| **24–31 GB** | `ram-24` | `qwen3.5:4b` | `qwen3.5:2b` | 5.3 GB | 8192 |
+| **32–47 GB** | `ram-32` | `qwen2.5:7b` | `qwen3.5:2b` | 6.6 GB | 8192 |
+| **48–63 GB** | `ram-48` | `qwen3.5:9b` | `qwen3.5:2b` | 8.5 GB | 8192 |
 | **64–127 GB** | `ram-64` | `qwen3.5:9b` | `qwen3.5:4b` | 10.0 GB | 8192 |
 | **128 GB** | `ram-128` | `qwen3:14b` | `qwen3:8b` | 14.5 GB | 8192 |
 | **More than 128 GB** | `custom` | starts from `qwen3:14b` | starts from `qwen3:8b` | 14.5 GB | 8192 |

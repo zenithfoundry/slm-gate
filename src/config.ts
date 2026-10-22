@@ -56,6 +56,9 @@ const envSchema = z.object({
   SLM_PROVIDER: z.enum(['ollama', 'openai']).default('ollama'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
   OLLAMA_KEEP_ALIVE: z.string().default('12h'),
+  // Keep the two local models loaded: when a model slm-gate does not use displaces one of its own, unload
+  // the stranger and warm the missing one back in (src/models/pin.ts). Off leaves Ollama's memory alone.
+  SLM_PIN_MODELS: parseBoolean(true),
   SLM_BRAIN_MODEL: z.string().optional(), // resolved below
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
   SLM_GATE_TESTING_MODEL: z.string().optional(), // resolved below, used for benchmark harness & test runs

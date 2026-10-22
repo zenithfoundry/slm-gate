@@ -111,13 +111,13 @@ export function recommendNumCtx(totalRamGB: number, dualModel: boolean = true): 
  * when RAM_PRESET=custom and no SLM_*_MODEL is set.
  */
 export const ramPresets: Record<string, { brain: string, gate: string }> = {
-  'ram-16':  { brain: 'qwen2.5-coder:3b', gate: 'qwen2.5-coder:0.5b' },
-  'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
-  'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen2.5-coder:3b' },
-  'ram-48':  { brain: 'qwen3.5:9b',       gate: 'qwen2.5-coder:3b' },
+  'ram-16':  { brain: 'qwen3.5:2b', gate: 'qwen2.5-coder:0.5b' },
+  'ram-24':  { brain: 'qwen3.5:4b',       gate: 'qwen3.5:2b' },
+  'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen3.5:2b' },
+  'ram-48':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:2b' },
   'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
   'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:8b' },
-  'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen2.5-coder:3b' },
+  'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen3.5:2b' },
 };
 
 /**
@@ -144,6 +144,6 @@ export function getPresetRank(preset: string): number {
   const match = preset.match(/^ram-(\d+)$/);
   if (match) return parseInt(match[1], 10);
   
-  // `custom` without model names uses the custom pair (qwen3.5:4b + qwen2.5-coder:3b), a ram-24 class load
+  // `custom` without model names uses the custom pair (qwen3.5:4b + qwen3.5:2b), a ram-24 class load
   return 24;
 }

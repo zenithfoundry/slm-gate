@@ -17,7 +17,7 @@
  * compression/preservation logic.
  * 
  * Warning Expectations / Potential Flakiness:
- * - Requires Ollama running locally with the target model (e.g. `qwen2.5-coder:3b`).
+ * - Requires Ollama running locally with the target model (e.g. `qwen3.5:2b`).
  * - Distillation length assertions can occasionally be flaky depending on the specific 
  *   local SLM's generative output for the "fluff" text. If the distillation takes too 
  *   long (hitting `SLM_TIMEOUT_MS`), it will fallback safely, which logs a warning but 

@@ -43,7 +43,7 @@ We run the same dataset of tasks through five different strategies (arms) to see
 ## Setup — step by step
 
 **Prerequisites:**
-1. Ollama is running and your testing model is pulled (e.g. `ollama pull qwen2.5-coder:3b` matching `SLM_GATE_TESTING_MODEL`).
+1. Ollama is running and your testing model is pulled (e.g. `ollama pull qwen3.5:2b` matching `SLM_GATE_TESTING_MODEL`).
 2. A paid API key is in your `.env` file under the `CLOUD_*` variables.
 3. The `llm-gate` server must be running.
 
@@ -92,10 +92,10 @@ Calling the cloud API is slow and costs real money. To fix this, answers are sav
 
 The benchmark harness tests local evaluation and routing under concurrency (`BATCH_SIZE=3`). To prevent local GPU/RAM memory contention and inference timeouts that can happen when running concurrent tasks against large reasoning models (such as `qwen3.5:9b`), the harness specifically evaluates using `SLM_GATE_TESTING_MODEL`.
 
-- **Default**: Automatically defaults to match `SLM_GATE_MODEL` (e.g. `qwen2.5-coder:3b`).
+- **Default**: Automatically defaults to match `SLM_GATE_MODEL` (e.g. `qwen3.5:2b`).
 - **Configuration**: Set explicitly in `.env`:
   ```bash
-  SLM_GATE_TESTING_MODEL=qwen2.5-coder:3b
+  SLM_GATE_TESTING_MODEL=qwen3.5:2b
   ```
 - **Cache invalidation**: The cache at `harness/.cache/` indexes answers by `SLM_GATE_TESTING_MODEL`. If you modify this variable or switch models, the harness automatically treats previous cache entries as stale and re-fetches cleanly.
 

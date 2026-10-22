@@ -19,7 +19,7 @@ export const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 export const SLM_TIMEOUT_MS = process.env.SLM_TIMEOUT_MS || '60000';
 
 /** The fast, primary small language model used for prompt conditioning, disambiguation, and routing. */
-export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen2.5-coder:3b';
+export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen3.5:2b';
 
 /** A slightly larger secondary local model used when more complex reasoning or verification is needed. */
 export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:4b';

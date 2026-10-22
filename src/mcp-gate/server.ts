@@ -233,7 +233,7 @@ export async function createServer(options: { notices?: readonly { message: stri
 
         if (record) {
           // An expansion used to embed the original text here (adaptive feedback), which asked Ollama for
-          // EMBED_MODEL — a third model that evicts one of the two working models on a 24 GB machine and
+          // EMBED_MODEL — a third model that evicts one of the pair slm-gate works with and
           // that this gate never requires. Removed: the adaptive feedback table keeps its readers and
           // gains no rows from expansions.
 
