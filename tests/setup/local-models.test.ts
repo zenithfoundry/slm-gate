@@ -66,8 +66,8 @@ describe('checkLocalModels', () => {
   it('also checks the models the running model gate uses, which come from slm-gate\'s .env', async () => {
     pulled = ['qwen3.5:2b', 'qwen3.5:4b'];
     const gateModels = [
-      { name: 'qwen2.5:7b', setting: 'SLM_BRAIN_MODEL', purpose: 'answering first messages locally' },
-      { name: 'qwen3.5:2b', setting: 'SLM_GATE_MODEL', purpose: 'sorting requests' },
+      { name: 'qwen2.5:7b', setting: 'SLM_BRAIN_MODEL', purpose: 'the conversation memory' },
+      { name: 'qwen3.5:2b', setting: 'SLM_GATE_MODEL', purpose: 'shrinking tool output' },
     ];
     const { problems } = await checkLocalModels({ gateModels });
     expect(problems).toHaveLength(1);
