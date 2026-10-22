@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-21T00:02:11.086Z",
+  "generatedAt": "2026-10-22T00:00:05.132Z",
   "firstEventTs": "2026-09-13T16:07:07.367Z",
-  "lastEventTs": "2026-10-20T19:02:30.864Z",
-  "realEvents": 728,
+  "lastEventTs": "2026-10-21T22:59:54.374Z",
+  "realEvents": 743,
   "benchEvents": 480,
   "routing": {
     "resolvedLocal": 3,
-    "distilledForwarded": 414,
+    "distilledForwarded": 424,
     "escalatedCloud": 5
   },
   "accuracy": {
@@ -18,6 +18,23 @@
       "avgPct": 99.38,
       "n": 320
     }
+  },
+  "toolDefs": {
+    "requests": 0,
+    "avgCount": null,
+    "avgDeferred": null,
+    "avgTokEst": null,
+    "last": null,
+    "warn": false
+  },
+  "fidelity": {
+    "conditionings": 0,
+    "measured": 0,
+    "avgRecall": null,
+    "deterministicPassPct": null,
+    "notShrunk": 0,
+    "expansionRate": 0.73,
+    "worst": []
   },
   "days": [
     {
@@ -325,6 +342,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 5,
       "escalatedCloud": 0
+    },
+    {
+      "day": "2026-10-21",
+      "events": 15,
+      "tokensSaved": 27978,
+      "baselineTokens": 47200,
+      "resolvedLocal": 0,
+      "distilledForwarded": 10,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -334,10 +360,10 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 695,
-      "tokensSaved": 1250351,
-      "minutesTotal": 163.088,
-      "avgMinutesPerCycle": 2.234,
+      "events": 710,
+      "tokensSaved": 1278329,
+      "minutesTotal": 166.738,
+      "avgMinutesPerCycle": 2.223,
       "medianMinutesPerCycle": 1.805,
       "cycles": [
         {
@@ -777,6 +803,18 @@
           "events": 5,
           "tokensSaved": 8642,
           "minutes": 1.127
+        },
+        {
+          "start": "2026-10-21T12:01:48.596Z",
+          "events": 4,
+          "tokensSaved": 10492,
+          "minutes": 1.369
+        },
+        {
+          "start": "2026-10-21T18:30:08.411Z",
+          "events": 11,
+          "tokensSaved": 17486,
+          "minutes": 2.281
         }
       ],
       "weeks": [
@@ -818,17 +856,17 @@
         },
         {
           "weekStart": "2026-10-19",
-          "events": 37,
-          "tokensSaved": 64036,
-          "minutes": 8.351
+          "events": 52,
+          "tokensSaved": 92014,
+          "minutes": 11.999
         }
       ]
     },
     {
       "id": "chatgpt",
       "label": "ChatGPT",
-      "plan": "chatgpt-plus",
-      "windowMinutes": 180,
+      "plan": "chatgpt-go",
+      "windowMinutes": 300,
       "windowBudgetTokens": 160,
       "events": 0,
       "tokensSaved": 0,
