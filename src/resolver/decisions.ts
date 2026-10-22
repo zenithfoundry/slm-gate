@@ -1,5 +1,5 @@
 /**
- * @fileoverview Decision memory for the resolver (slice 7).
+ * @fileoverview Decision memory for the resolver.
  *
  * The resolver finds open questions in a skill ("API-first or UI-first?") and answers them from the repository.
  * This module lets the owner answer once, in a file, so the same question is never asked twice in that repo:

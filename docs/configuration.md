@@ -204,6 +204,11 @@ When a tool response is very large, `slm-gate` compresses it and keeps only the 
 - **`ELISION_MAX_ENTRIES`** — Maximum number of original (pre-compression) responses stored in the local recovery cache. Default: `5000`
 - **`ELISION_RETENTION_DAYS`** — How long a stored original is kept before automatic cleanup. Default: `180` days
 - **`ELISION_MAX_MB`** — Total disk space budget for the recovery cache. When exceeded, the oldest entries are deleted first. Default: `500 MB`
+- **`DISTILL_SKILLS`** — Whether skill files (the instructions your toolbox sends) may be shortened by the gate model at all. `off` sends them word for word, cut at the ends with a retrieval marker when too long. `on` lets the gate model shorten their plain prose under the fidelity guard below; headings, code, tables, frontmatter, rule lines, tool names, paths and numbers with units are never shown to a model either way. Default: `off`
+- **`DISTILL_FIDELITY_MIN`** — The guard's acceptance bar when a skill paragraph is shortened. The code lists the paragraph's requirement sentences (rules, numbers, code, paths); the brain model answers, sentence by sentence, whether the shortened text still states each one. The paragraph is kept only when the share kept is at least this value. `1.0` means nothing missing is ever accepted. A sentence reported missing is also learned, so its line is protected by code from then on (`pnpm run protections` lists these). Default: `1.0`
+- **`DISTILL_FIDELITY_MAX_RUNS`** — At most this many paragraphs of one skill are shortened and checked; the rest stay word for word. Default: `8`
+- **`DISTILL_FIDELITY_BUDGET_MS`** — Time allowed for shortening one skill; paragraphs past it stay word for word. Default: `60000`
+- **`MAX_CONCURRENT_SEGMENT_CALLS`** — How many paragraphs the gate model shortens at the same time (`1` or `2`). One GPU serves both local models, so `2` is not twice as fast as `1`; `pnpm run bench:gate` measures both on your machine. Default: `2`
 
 ### Advanced: Routing Tuner & Misc
 
@@ -216,6 +221,8 @@ When a tool response is very large, `slm-gate` compresses it and keeps only the 
 - **`RESOLVER_CLOUD_BUDGET_USD`** — Hard dollar cap on the above feature. Default: `0` (off until you set a budget)
 - **`RAM_PRESET`** — Picks the two local models for your RAM: `ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, or `custom`. `slm-gate` needs 16 GB or more; a size between two presets uses the smaller one, and more than 128 GB is `custom`. `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` always win. Models per preset and how it is decided: [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machine-model-table). For models that fit your computer best, use [llmfit](https://github.com/AlexsJones/llmfit).
 - **`TLS_ADAPTER`** — Enables special handling for Tech-Lead-Stack payloads. Set to `on` only if TLS is your downstream. (`on` / `off`)
+- **`RESOLVER_PROMPT_TOKENS`** — The most skill text (in tokens) the brain model is given when it looks for open decisions. A whole skill plus the prompt must fit the local context window, or the call fails; over this, every heading is kept and each section keeps its first share. Default: `3000`
+- **`REPO_INDEX`** — When `on`, the gate keeps a small index of the functions, classes and types your repository defines (in the ledger, refreshed by file time, no model). It powers the `find_existing` tool, lets open decisions be answered from the code the question names, and appends an "Existing code that may already cover this" list to every conditioned skill. (`on` / `off`) Default: `off`
 
 ---
 

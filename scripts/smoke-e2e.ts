@@ -112,12 +112,12 @@ else {
       // realistic DISTILL_MIN_TOKENS — under the shipped thresholds nothing happened at all and
       // the assertion below could never pass.
       //
-      // What this exercises is the HARD-TRUNCATION path, not SLM summarisation: `get_skill` is
-      // 'verbatim' in the seeded distill_policy table (skill contracts must never be reworded),
-      // so the model is deliberately never invoked for this payload. The value of the assertions
-      // is therefore that the MUST line and the heading survive truncation and the remainder is
-      // left recoverable behind an elision marker.
-      // SLM compression itself is covered by e2e:standalone-mcp and tests/mcp-gate/distill.test.ts.
+      // What this exercises depends on DISTILL_SKILLS in your .env. Off: the hard-truncation path
+      // only (skills go out word for word, cut at the ends with a marker; no model call). On: the
+      // gate model shortens the one long paragraph and the brain model checks it, so the local
+      // models must be running. Either way the assertions are the same: the MUST line and the
+      // heading survive and the remainder is recoverable behind an elision marker.
+      // SLM compression itself is covered by e2e:standalone-mcp and tests/mcp-gate/distill*.test.ts.
       DISTILL_MIN_TOKENS: '50',
       DISTILL_MAX_TOKENS: '180'
     });

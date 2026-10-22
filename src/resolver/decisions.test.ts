@@ -1,5 +1,5 @@
 /**
- * @fileoverview Decision memory (slice 7): parsing and staleness of decision files, the FTS match on a
+ * @fileoverview Decision memory: parsing and staleness of decision files, the FTS match on a
  * paraphrased question, and the resolver taking a verified decision through the risk gate as an auto-applied
  * answer with provenance (no file read), an unverified one as a recommendation, a destructive-risk one never,
  * and the evidence path when the confirmation call fails. Real ledger (this worker's file), fake brain.

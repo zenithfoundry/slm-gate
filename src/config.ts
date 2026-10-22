@@ -138,7 +138,7 @@ const envSchema = z.object({
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() ? path.resolve(ROOT_DIR, v.trim()) : null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
   DISTILL_SKILLS: parseBoolean(false),
-  // Repository symbol index (slice 8): the find_existing tool, index-backed resolver evidence and the
+  // Repository symbol index: the find_existing tool, index-backed resolver evidence and the
   // "Existing code that may already cover this" section on conditioned skills. Disk only, no model.
   REPO_INDEX: parseBoolean(false),
   DISTILL_ADAPTIVE: parseBoolean(false),
@@ -151,7 +151,7 @@ const envSchema = z.object({
   // How long the model gate may hold one request to distil its new tool results. Past it, a result is
   // sent (and kept, forever) as the original. Warm local-model runs take ~0.5 s per ~600 words.
   DISTILL_BUDGET_MS: parseInteger(3000),
-  // Skill shrinking fidelity guard (slice 5). A compressed prose run is kept only when the brain model
+  // Skill shrinking fidelity guard. A compressed prose run is kept only when the brain model
   // confirms every code-listed requirement sentence survived: recall >= MIN (1.0 = nothing missing).
   DISTILL_FIDELITY_MIN: parseFloatNumber(1.0),
   // At most this many prose runs per document are compressed and checked; the rest stay verbatim.

@@ -1,7 +1,7 @@
 import { __resetProviderRegistry } from '../pricing/providers.js';
 import { computeCycleRates, computeTotals, computeTotalsByProvider, forgetProtection, formatEventForLangfuse, learnedProtections, LedgerEvent, listProtections, normaliseProtection, perEventBaselineTokens, perEventTokensSaved, providerFromAgent, providerFromModel, recordLostSentences } from './index.js';
 
-describe('learned protections (slice 5b) in the ledger', () => {
+describe('learned protections in the ledger', () => {
   const sentence = '  You should run the   checks before merging.  ';
 
   it('stores a lost sentence once in normalised form, counts repeats, and forgets on request', () => {

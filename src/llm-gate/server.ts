@@ -311,7 +311,7 @@ async function handleRequest(params: {
   }
 
   const parsed = route.generation ? parseJsonObject(body) : null;
-  // Measurement only (slice 1b): how many tool schemas this request carries and how many stay deferred.
+  // Measurement only, for the "tool definitions in context" card: how many tool schemas this request carries and how many stay deferred.
   const tools = parsed ? FORMATS[route.format].toolStats?.(parsed) ?? null : null;
 
   const local = parsed && CONFIG.LLM_GATE_LOCAL_FIRST ? await localFirst({ route, parsed, body }) : null;

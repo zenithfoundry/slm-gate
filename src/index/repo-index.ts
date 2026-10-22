@@ -1,5 +1,5 @@
 /**
- * @fileoverview Repository symbol index (slice 8): the local-model version of "is this already in the codebase?".
+ * @fileoverview Repository symbol index: the local-model version of "is this already in the codebase?".
  *
  * A small, disk-only index of the symbols a repository defines — functions, classes, types, methods — kept in
  * the ledger's FTS5 table `repo_fts` and refreshed by file mtime, so a lookup costs a query and never a model

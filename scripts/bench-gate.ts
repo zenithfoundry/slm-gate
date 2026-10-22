@@ -1,5 +1,5 @@
 /**
- * `pnpm run bench:gate` — which gate model, and how many runs at once (slice 9).
+ * `pnpm run bench:gate` — which gate model, and how many paragraphs at once.
  *
  * Runs the fidelity bench (`scripts/fidelity.ts --json`) once per grid cell in a child process, because CONFIG
  * is read once per process: gate model ∈ {the configured one, each `--model`} × concurrency ∈ {1, 2}. The
@@ -50,7 +50,7 @@ const percentile = (values: number[], p: number): number => {
 };
 
 console.log(`bench:gate — models ${models.join(', ')} × concurrency ${concurrencies.join(', ')} (brain stays as configured)\n`);
-console.log('gate model            conc  p50 ms   p95 ms  recall  determ  tokens before→after (avg)   pass/fail/not_shrunk/unchanged');
+console.log('gate model            conc  p50 ms   p95 ms  recall  determ  tokens before→after (avg)   pass/fail/not_shrunk/unchanged/recall_caught');
 for (const gate of models) {
   for (const concurrency of concurrencies) {
     let cell: CellResult;
@@ -70,11 +70,12 @@ for (const gate of models) {
     const before = cell.rows.map(r => Number(r.tokens.split('→')[0])).filter(n => !Number.isNaN(n));
     const after = cell.rows.map(r => Number(r.tokens.split('→')[1])).filter(n => !Number.isNaN(n));
     const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : 0);
-    const failed = (cell.counts.deterministic_fail ?? 0) + (cell.counts.recall_fail ?? 0) + (cell.counts.model_error ?? 0) + (cell.counts.timeout ?? 0);
+    // Same rule as the fidelity bench: a caught recall failure is informational, not a failure.
+    const failed = (cell.counts.deterministic_fail ?? 0) + (cell.counts.model_error ?? 0) + (cell.counts.timeout ?? 0);
     console.log(
       `${gate.padEnd(21)} ${String(concurrency).padStart(4)}  ${String(percentile(ms, 0.5)).padStart(6)}   ${String(percentile(ms, 0.95)).padStart(6)}  ` +
       `${(recalls.length ? (recalls.reduce((s, r) => s + r, 0) / recalls.length).toFixed(2) : '   -').padStart(6)}  ` +
-      `${(determ === null ? '-' : `${Math.round(determ * 100)}%`).padStart(6)}  ${`${avg(before)}→${avg(after)}`.padEnd(27)} ${cell.counts.pass ?? 0}/${failed}/${cell.notShrunkMode}/${cell.counts.unchanged ?? 0}`,
+      `${(determ === null ? '-' : `${Math.round(determ * 100)}%`).padStart(6)}  ${`${avg(before)}→${avg(after)}`.padEnd(27)} ${cell.counts.pass ?? 0}/${failed}/${cell.notShrunkMode}/${cell.counts.unchanged ?? 0}/${cell.counts.recall_fail ?? 0}`,
     );
   }
 }

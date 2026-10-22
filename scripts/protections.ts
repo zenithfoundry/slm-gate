@@ -1,5 +1,5 @@
 /**
- * `pnpm run protections` — the learned protections of the skill-shrinking guard (slice 5b).
+ * `pnpm run protections` — the learned protections of the skill-shrinking guard.
  *
  * Lists every sentence the brain model once reported missing from a shortened skill run (ledger table
  * `distill_protect`): lines containing one are protected by code on every later run. The list grows with use;

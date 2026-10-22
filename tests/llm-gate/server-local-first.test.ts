@@ -130,7 +130,7 @@ describe('llm-gate Step A', () => {
   });
 });
 
-describe('per-turn classification stays off with ROUTING_TUNE off (slice 3c)', () => {
+describe('per-turn classification stays off with ROUTING_TUNE off', () => {
   it('forwards a later typed turn without any classifier call', async () => {
     const body = {
       model: 'claude-sonnet-5', max_tokens: 10, messages: [

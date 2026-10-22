@@ -1,5 +1,5 @@
 /**
- * @fileoverview `ask_elision` (slice 6): the MCP gate answers a question about elided text from the stored
+ * @fileoverview `ask_elision`: the MCP gate answers a question about elided text from the stored
  * original with the brain model, caches the answer, and records what the cloud model would have read instead.
  * The brain is faked; no Ollama. The marker-wording test pairs `formatElisionMarker` with `rewriteElisionHint`.
  */

@@ -109,7 +109,7 @@ export interface FidelitySection {
   expansionRate: number | null;
   /** The three measured skills with the lowest recall. */
   worst: { skill: string; recall: number }[];
-  /** Learned protections stored in the ledger (slice 5b); null when the loader did not supply the count. */
+  /** Learned protections stored in the ledger; null when the loader did not supply the count. */
   learned: number | null;
 }
 

@@ -169,7 +169,7 @@ export function getDb(): Database.Database {
         size_bytes INTEGER
       );
 
-      -- Learned protections (slice 5b): every sentence the brain model once reported missing from a
+      -- Learned protections: every sentence the brain model once reported missing from a
       -- shortened skill run, in normalised form. A line that contains one is protected by code from then
       -- on, so the same loss never recurs and the list grows without anyone editing patterns. Rows are
       -- never pruned automatically; "pnpm run protections -- --forget" removes one on purpose.
@@ -181,7 +181,7 @@ export function getDb(): Database.Database {
         last_seen TEXT
       );
 
-      -- Conditioning cache dependencies (slice 7): the repository state a cached conditioning relied on.
+      -- Conditioning cache dependencies (used by decision memory and the repository index): the repository state a cached conditioning relied on.
       -- A hit is served only while every path still has this mtime and no expires_at has passed.
       -- Rows without dependencies (every row before this table) are served as before.
       CREATE TABLE IF NOT EXISTS condition_deps (
@@ -192,7 +192,7 @@ export function getDb(): Database.Database {
         PRIMARY KEY (key, path)
       );
 
-      -- Decision memory (slice 7): one FTS5 index of every repo's .slm-gate/decisions files, keyed by
+      -- Decision memory: one FTS5 index of every repo's .slm-gate/decisions files, keyed by
       -- repo root, plus the revision it was built from so it is rebuilt only when a file changed.
       CREATE VIRTUAL TABLE IF NOT EXISTS decisions_fts USING fts5(root UNINDEXED, path UNINDEXED, title, body, tokenize='unicode61');
       CREATE TABLE IF NOT EXISTS decisions_index (
@@ -200,7 +200,7 @@ export function getDb(): Database.Database {
         revision TEXT NOT NULL
       );
 
-      -- Repository symbol index (slice 8, REPO_INDEX=on): one FTS5 row per symbol, the mtime each file was
+      -- Repository symbol index (the repository index, REPO_INDEX=on): one FTS5 row per symbol, the mtime each file was
       -- indexed at, and a per-root revision that moves whenever a file changed (the cache dependency).
       CREATE TABLE IF NOT EXISTS repo_files (
         root TEXT NOT NULL,
@@ -241,6 +241,8 @@ export function getDb(): Database.Database {
     if (!policyCount || policyCount.c === 0) {
       const stmt = db.prepare('INSERT INTO distill_policy (tool_pattern, fidelity, priority, updated_at) VALUES (?, ?, ?, ?)');
       const now = new Date().toISOString();
+      // Skills: these rows are the "off" default only. The DISTILL_SKILLS switch decides for every
+      // skill payload (on → summarize under the fidelity guard); see distillToolResultWithStats.
       stmt.run('%skill%', 'verbatim', 10, now);
       stmt.run('get_skill', 'verbatim', 10, now);
       stmt.run('read_file', 'structural', 5, now);
@@ -605,7 +607,7 @@ export function cacheSet(key: string, value: string) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Learned protections (slice 5b) — see the distill_protect table above.
+// Learned protections — see the distill_protect table above.
 // ---------------------------------------------------------------------------------------------
 
 /**
@@ -668,7 +670,7 @@ export function forgetProtection(pattern: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Conditioning cache dependencies (slice 7) — see the condition_deps table above.
+// Conditioning cache dependencies (used by decision memory and the repository index) — see the condition_deps table above.
 // ---------------------------------------------------------------------------------------------
 
 /** One thing a cached conditioning relied on: a file or directory at a given mtime, optionally with an expiry. */
@@ -695,7 +697,7 @@ export function writeCacheDeps(key: string, deps: CacheDependency[]): void {
  * True when a cached conditioning may still be served: every recorded path exists with the same mtime and no
  * expiry has passed. A key with no rows is always fresh (today's rows). `statMtime` resolves a path to its
  * current value; returning undefined defers to the file system, which is how a pseudo-path such as
- * `index:<root>` (the repo index revision, slice 8) is answered from the ledger instead of a stat.
+ * `index:<root>` (the repo index revision, the repository index) is answered from the ledger instead of a stat.
  */
 export function cacheDepsFresh(key: string, options: { now?: Date; statMtime?: (path: string) => number | null | undefined } = {}): boolean {
   const now = options.now ?? new Date();
@@ -723,7 +725,7 @@ function defaultStatMtime(filePath: string): number | null {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Decision memory index (slice 7) — see the decisions_fts table above.
+// Decision memory index — see the decisions_fts table above.
 // ---------------------------------------------------------------------------------------------
 
 /** The revision the repo's decision index was built from, or null when never indexed. */
@@ -761,7 +763,7 @@ export function searchDecisions(params: { root: string; query: string; limit?: n
 }
 
 // ---------------------------------------------------------------------------------------------
-// Repository symbol index (slice 8) — see the repo_files / repo_fts / repo_index tables above.
+// Repository symbol index — see the repo_files / repo_fts / repo_index tables above.
 // ---------------------------------------------------------------------------------------------
 
 /** The indexed mtime of every file of one root (empty when never indexed). */

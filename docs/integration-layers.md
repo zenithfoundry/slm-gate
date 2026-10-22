@@ -45,6 +45,8 @@ To use Tech-Lead-Stack as your downstream:
 
 **Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Keep the gate registered as `slm-gate` whatever sits behind it. When a toolbox's own commands or docs call its tools by another server name (TLS's commands say `mcp__tech-lead-stack__get_skills`), the gate handles that for you: it reads the toolbox's tool list when it starts, tells your editor those tools live on `slm-gate`, and rewrites those names in what it returns. Swapping toolboxes needs no config change. Whatever a tool returns reaches your editor whole (pictures, several blocks of text, error flags, structured data); only large text is shrunk. Any MCP server — or a combination — can sit behind it. Popular options include:
 
+**The gate's own tools.** Besides the toolbox's tools, your editor sees three from the gate itself: `expand_elision` returns the lines the gate cut, one page at a time; `ask_elision` answers a question about the cut text with the local brain model, a few sentences instead of a page; and, with `REPO_INDEX=on`, `find_existing` lists the functions, classes and types your repository already defines that match a few words, from a small index kept in the ledger with no model call.
+
 | MCP Server | What It Does |
 | :--- | :--- |
 | [Tech-Lead-Stack](https://github.com/bronz3beard/ai.tech-lead-stack) | Full software delivery team (planning, review, security, release) |

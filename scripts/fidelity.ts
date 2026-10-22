@@ -15,9 +15,11 @@
  *   timeout           a local-model call timed out
  *   not_shrunk        checks passed but the skill is still over budget: sent as the original, cut with a marker
  *   unchanged         no prose run was long enough to shorten (all under the 400-character floor): cut as today
- * Exit 1 unless deterministic_fail = recall_fail = model_error = timeout = 0. `not_shrunk` and `unchanged` are
- * reported, not failed: the skill goes out exactly as today, and the list is the authors' to-do for verbatim
- * markers or longer, shortenable prose.
+ * Exit 1 only when deterministic_fail, model_error or timeout is above zero: those mean the guard itself or a
+ * local model broke. `recall_fail` is informational (owner decision, 2026-10-22): the brain caught a lossy
+ * shortening and that run went out word for word, so nothing reached a cloud model wrong; the list is the
+ * authors' to-do for verbatim markers. `not_shrunk` and `unchanged` are likewise reported, not failed: the
+ * skill goes out exactly as today.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -147,12 +149,14 @@ for (const entry of entries) {
   say(`${last.id.padEnd(18)} ${last.outcome.padEnd(18)} ${last.mode.padEnd(11)} recall ${last.recall.padStart(4)} lost ${String(last.lost).padStart(2)} runs ${last.runs.padStart(5)} ${String(last.ms).padStart(6)} ms ${last.tokens}`);
 }
 
-const failed = counts.deterministic_fail + counts.recall_fail + counts.model_error + counts.timeout;
+// A caught recall failure kept its run verbatim, so it is reported, not failed (see the header).
+const failed = counts.deterministic_fail + counts.model_error + counts.timeout;
 const notShrunkMode = rows.filter(r => r.mode === 'not_shrunk').length;
 if (asJson) {
   console.log(JSON.stringify({ gate: CONFIG.SLM_GATE_MODEL, brain: CONFIG.SLM_BRAIN_MODEL, concurrency: CONFIG.MAX_CONCURRENT_SEGMENT_CALLS, counts, notShrunkMode, rows }));
 } else {
-  say(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, recall_fail ${counts.recall_fail}, model_error ${counts.model_error}, timeout ${counts.timeout}, not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode}), unchanged ${counts.unchanged} (no prose long enough to shorten; cut as today)`);
+  say(`\nfidelity: ${rows.length} entries — pass ${counts.pass}, deterministic_fail ${counts.deterministic_fail}, model_error ${counts.model_error}, timeout ${counts.timeout} | informational: recall_fail ${counts.recall_fail} (caught, run kept verbatim), not_shrunk ${counts.not_shrunk} (sent as the original after shrinking: ${notShrunkMode}), unchanged ${counts.unchanged} (no prose long enough to shorten; cut as today)`);
+  if (counts.recall_fail) say(`recall caught (authors' to-do for verbatim markers): ${rows.filter(r => r.outcome === 'recall_fail').map(r => r.id).join(', ')}`);
   if (worst.length) say(`lowest recall: ${worst.sort((a, b) => a.recall - b.recall).slice(0, 3).map(w => `${w.id} ${(w.recall * 100).toFixed(0)}%`).join(' · ')}`);
   say(`learned protections in this bench ledger: ${learnedProtections().length} (the live ledger learns on real traffic; see pnpm run protections)`);
   if (notShrunkMode) say(`not shrunk (authors' to-do for <!-- slm-gate:verbatim-start/end --> markers or shorter prose): ${rows.filter(r => r.mode === 'not_shrunk').map(r => r.id).join(', ')}`);

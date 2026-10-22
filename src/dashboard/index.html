@@ -254,7 +254,7 @@ function accuracyCard() {
 }
 
 /**
- * "Tool definitions in context per request" (slice 1b): averages of the tool counts the model gate records on
+ * "Tool definitions in context per request": averages of the tool counts the model gate records on
  * each request, with a warning when the latest request listed many tools and deferred none — the sign that
  * server-side tool search is not working through the gate. Hidden when no request has reported counts.
  */
@@ -282,7 +282,7 @@ function toolDefsCard() {
 }
 
 /**
- * "Skill fidelity" (slice 5): what the shrinking guard measured on real conditionings — average recall of the
+ * "Skill fidelity": what the shrinking guard measured on real conditionings — average recall of the
  * requirement sentences the brain checked, the share with every protected block and tracked token intact, how
  * many conditionings were measured or sent unshrunk, expansions per conditioning, and the lowest-recall skills.
  * Hidden when no conditioning carries a measurement.

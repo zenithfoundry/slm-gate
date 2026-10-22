@@ -16,7 +16,7 @@ import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { conditionPrompt } from './pipeline.js';
 import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
 
-// ask_elision (slice 6): each part of the original must fit the local context with room for the answer;
+// ask_elision: each part of the original must fit the local context with room for the answer;
 // at most this many parts are searched per question; an answer is a few sentences, never a page.
 const ASK_CHUNK_TOKENS = 5000;
 const ASK_MAX_CHUNKS = 4;
@@ -108,7 +108,7 @@ export async function createServer(options: { notices?: readonly { message: stri
           required: ["elisionId"]
         }
       });
-      // Advertise find_existing (slice 8, REPO_INDEX=on): symbols the repository already defines, no model.
+      // Advertise find_existing (the repository index, REPO_INDEX=on): symbols the repository already defines, no model.
       if (CONFIG.REPO_INDEX) {
         tools.push({
           name: "find_existing",
@@ -120,7 +120,7 @@ export async function createServer(options: { notices?: readonly { message: stri
           }
         });
       }
-      // Advertise ask_elision (slice 6): a local model answers from the stored original.
+      // Advertise ask_elision: a local model answers from the stored original.
       tools.push({
         name: "ask_elision",
         description: "Ask a question about elided text; a local model answers from the full original in a few sentences instead of a 2,000-token page. If it is not found, use expand_elision.",

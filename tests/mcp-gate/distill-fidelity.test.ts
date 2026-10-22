@@ -1,5 +1,5 @@
 /**
- * @fileoverview The skill-shrinking fidelity guard (slice 5), without a local model: a fake compressor that keeps
+ * @fileoverview The skill-shrinking fidelity guard, without a local model: a fake compressor that keeps
  * only each run's first sentence, and a scripted verifier. Proves (1) the deterministic classes survive by
  * construction and never reach the model, (2) the brain check fails closed on any missing sentence, wrong-length
  * answer, error, run cap or time budget, and (3) a skill still over budget after shrinking goes out as the original.
@@ -181,7 +181,7 @@ describe('model-judged recall, fail closed', () => {
   });
 });
 
-describe('learned protections (slice 5b): a loss the brain reported once never recurs', () => {
+describe('learned protections: a loss the brain reported once never recurs', () => {
   it('stores the missing sentences, then protects their lines on the next run without showing them to the model', async () => {
     const doc = fixtures[0].text;
     const dropFirst: Verify = async ({ inventory }) => inventory.map((_, i) => i !== 0);

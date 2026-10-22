@@ -1,5 +1,5 @@
 /**
- * @fileoverview Repository symbol index (slice 8): identifier splitting, symbol extraction for TypeScript, Python
+ * @fileoverview Repository symbol index: identifier splitting, symbol extraction for TypeScript, Python
  * and Go, the non-git walk that skips build folders, incremental refresh by mtime with a revision that moves
  * only on change, plain-language lookup, and the resolver answering from index evidence with the index as its
  * cache dependency. Real ledger (this worker's file), fake brain.

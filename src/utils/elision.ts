@@ -23,7 +23,7 @@ const MIN_COMPRESSIBLE_SEGMENT_CHARS = 400;
  * up — starving the runs still queued behind them. A run is now handed to the model only when a
  * slot frees up, so its timer starts when its generation can actually start.
  */
-// Prose runs shortened at the same time; a setting since slice 9 so the bench can compare 1 and 2.
+// Prose runs shortened at the same time; a setting since the gate-model bench so the bench can compare 1 and 2.
 const MAX_CONCURRENT_SEGMENT_CALLS = Math.max(1, CONFIG.MAX_CONCURRENT_SEGMENT_CALLS ?? 2);
 
 /**
@@ -59,7 +59,7 @@ export function formatElisionMarker(elisionId: string, elidedLinesCount: number,
   const rangeStr = hasRange ? `, lines ${startLine}-${endLine}` : '';
   // Spell out the range argument: without it, expand_elision starts from the top of the
   // original, which looks like the same cut text coming back.
-  // ask_elision (slice 6): a question costs a few sentences instead of a 2,000-token page.
+  // ask_elision: a question costs a few sentences instead of a 2,000-token page.
   const how = hasRange
     ? `call expand_elision with this id and range {"startLine": ${startLine}, "endLine": ${endLine}} to retrieve, or ask_elision with this id and a question`
     : 'call expand_elision with this id to retrieve, or ask_elision with this id and a question';
@@ -331,7 +331,7 @@ export interface FidelityStats {
   runsSkippedBudget: number;
   /** Local-model failures (compression or check) that kept a run verbatim; each message says which. */
   errors: string[];
-  /** Lines protected because they contain a sentence the brain once reported missing (slice 5b). */
+  /** Lines protected because they contain a sentence the brain once reported missing: the learned protections. */
   learnedProtected: number;
   /** Sentences stored as new learned protections by this distillation. */
   learnedNew: number;
@@ -616,7 +616,7 @@ export async function distillToolResultWithStats(params: {
       }
     }
 
-    // Phase 2b (slice 5b): learned protections. Every sentence the brain once reported missing from a
+    // Phase 2b: learned protections. Every sentence the brain once reported missing from a
     // shortened run is stored in the ledger; a line that contains one is protected by code from now on, so
     // the same loss never recurs and the list grows with use instead of with pattern edits. Skills only
     // (the verifier is what learns), matched on the normalised line.

@@ -10,7 +10,7 @@ import { AddressInfo } from 'node:net';
 import { startFakeOllama } from './fake-ollama.js';
 
 // The real gate, a fake Ollama and a mock provider. Config is read once at import, so both are running
-// and the env is set before the gate modules load. Step A is off so every typed turn reaches slice 3c.
+// and the env is set before the gate modules load. Step A is off so every typed turn reaches the per-turn classification.
 const ollama = await startFakeOllama();
 let lastBody = '';
 const upstream = http.createServer((req, res) => {
@@ -86,7 +86,7 @@ const toolResultTurn = JSON.stringify({
   ],
 });
 
-describe('per-turn classification for ROUTING_TUNE (slice 3c)', () => {
+describe('per-turn classification for ROUTING_TUNE', () => {
   it('classifies a later typed turn with the gate model and leaves the forwarded bytes untouched', async () => {
     const raw = typedTurn('Which of these two approaches is simpler to maintain?');
     const id = await send(raw);

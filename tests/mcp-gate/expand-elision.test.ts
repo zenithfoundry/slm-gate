@@ -1,5 +1,5 @@
 /**
- * @fileoverview `expand_elision` paging, and (slice 3b) its ledger row: the feedback event is written after
+ * @fileoverview `expand_elision` paging, and its ledger row (expansion accounting): the feedback event is written after
  * paging with the tokens of the exact returned text, and an expansion never asks Ollama for an embedding model.
  */
 import { describe, expect, it, jest } from '@jest/globals';

@@ -82,6 +82,13 @@ Commit `site/` and push; the included Pages workflow deploys it (one-time setup:
 
 The published page is a snapshot and does not refresh itself: re-export and push, or schedule `scripts/dashboard-publish.sh` to do it daily at no cost — see [Keeping the published dashboard current](analytics-and-observability.md#keeping-the-published-dashboard-current).
 
+Two cards appear once there is data for them:
+
+- **Tool definitions in context per request** — how many tool schemas each model-gate request lists and how many stay deferred (kept out of the context until the model searches for them). A warning on the card means the latest request listed many tools and deferred none: set `ENABLE_TOOL_SEARCH=true` next to `ANTHROPIC_BASE_URL` in Claude Code's settings.
+- **Skill fidelity** — what survived skill shrinking (`DISTILL_SKILLS=on`): the share of requirement sentences the brain model confirmed kept, the share of conditionings with every protected block intact, how many went out unshrunk, expansions per conditioning, the lowest-recall skills, and how many sentences are now protected by code because they were once reported missing.
+
+Three commands go with them, all local and free: `pnpm run fidelity` runs the shrinking guard over every skill in your cache plus three fixtures and prints one outcome per skill; `pnpm run protections` lists the learned protections (`-- --forget "<sentence>"` removes one); `pnpm run bench:gate -- --model qwen3.5:2b` compares gate models and concurrency on your machine. See [Analytics & observability](analytics-and-observability.md#4-skill-shrinking-fidelity-learned-protections-and-the-gate-model-bench).
+
 ## Verify Active Compression in Your Editor
 
 When your editor calls a tool (like `get_skill` in Tech-Lead-Stack), the response that arrives in your editor's context should be noticeably shorter than the raw output — but still contain all the critical content (headings marked `MUST`, YAML frontmatter, phase markers).
@@ -134,3 +141,12 @@ under `# Auto-Resolved Decisions`, with the file name and who verified it printe
 file is only offered as a recommendation under `# Pending Clarifications`. Editing, adding or removing a decision
 file, or a file passing its `stale_after` date, makes the next conditioning recompute instead of using its cache.
 Commit the folder with the repository.
+
+## Learned protections: a lost sentence is never lost twice
+
+With `DISTILL_SKILLS=on`, whenever the brain model reports that a shortened paragraph dropped a requirement
+sentence, that paragraph goes out word for word and the sentence is stored in the ledger. From then on any
+line of any skill that contains that sentence is protected by code before a model sees anything, so the list
+grows with use and you never edit patterns by hand. `pnpm run protections` shows the list, most often hit
+first; `pnpm run protections -- --forget "<sentence>"` removes one. The **Skill fidelity** card shows the count.
+Your own hand-written patterns in `DISTILL_PRESERVE_PATH` still apply as before.

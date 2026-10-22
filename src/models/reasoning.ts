@@ -110,7 +110,7 @@ export async function compress(
  * @returns The compressed run
  */
 /**
- * The fidelity check for one shortened prose run (slice 5): the brain model answers, for each requirement
+ * The fidelity check for one shortened prose run, the heart of the skill fidelity guard: the brain model answers, for each requirement
  * sentence the CODE listed from the original, whether the shortened text still states it. The model never
  * writes the list, so it cannot leave anything out; the schema pins the answer count. One call, the standard
  * ceiling, SLM_TIMEOUT_MS.
@@ -130,7 +130,7 @@ ${compressed}`;
 }
 
 /**
- * Answers a question from one chunk of an elided original (`ask_elision`, slice 6): the brain model says
+ * Answers a question from one chunk of an elided original (`ask_elision`, ask_elision): the brain model says
  * whether the chunk holds the answer and gives it in a few sentences, with the chunk-relative lines it used.
  * One call per chunk, the standard ceiling, SLM_TIMEOUT_MS; the schema bounds the answer.
  */

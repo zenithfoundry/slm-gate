@@ -156,6 +156,20 @@ SELECT route, count(*) as count, sum(cost_usd) as total_spent FROM events GROUP 
 
 ---
 
+### 4. Skill-shrinking fidelity, learned protections and the gate-model bench
+
+With `DISTILL_SKILLS=on` the gate model shortens the plain prose of skill files under a guard: lines with rules, tool names, paths, numbers, headings, code, tables and frontmatter never reach a model, and each shortened paragraph is checked by the brain model against the requirement sentences the code listed from the original. Three commands show how that is going. None needs an API key.
+
+```bash
+pnpm run fidelity                 # every cached skill + three fixtures, one outcome per skill
+pnpm run fidelity -- --refresh    # re-read the list of cached skills (the first run snapshots it)
+pnpm run protections              # sentences once reported missing, now protected by code
+pnpm run protections -- --forget "<sentence>"
+pnpm run bench:gate -- --model qwen3.5:2b   # gate models × concurrency 1 and 2, one row each
+```
+
+Outcomes per skill: `pass` (shortened, every check passed, under budget); `recall_fail` (the brain found a sentence missing, that paragraph went out word for word — reported, not failed); `not_shrunk` (checks passed but still over budget, sent as the original); `unchanged` (no paragraph long enough to shorten); `deterministic_fail`, `model_error`, `timeout` (the only outcomes that fail the command). The bench writes to its own ledger file under `output/` and reads yours read-only. The dashboard's **Skill fidelity** card shows the same figures from real traffic.
+
 ## 5. 0-to-100% Langfuse Setup Walkthrough
 
 Follow these sequential steps if you want a live web dashboard in Langfuse.

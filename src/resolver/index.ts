@@ -219,7 +219,7 @@ export async function resolveEach(
   fsRead: FsReadFn,
   decisions: OpenDecision[],
   repoRoot?: string,
-  /** The repo's decision files (slice 7); null or absent keeps the evidence path only. */
+  /** The repo's decision files; null or absent keeps the evidence path only. */
   memory?: DecisionMemory | null
 ): Promise<ResolvedItem[]> {
   const results: ResolvedItem[] = [];
@@ -233,7 +233,7 @@ export async function resolveEach(
       source: 'unresolved'
     };
 
-    // (0) DECISION MEMORY (slice 7): an answer the owner wrote down once, as evidence under the same risk
+    // (0) DECISION MEMORY: an answer the owner wrote down once, as evidence under the same risk
     // gate as everything else. Null means nothing matched or the brain said it does not apply: fall through.
     if (memory) {
       const hit = await decisionAnswer({ slm, memory, question: dec.question });
@@ -252,7 +252,7 @@ export async function resolveEach(
       }
     }
 
-    // (a0) INDEX EVIDENCE (slice 8, REPO_INDEX=on): the symbols the question names, read around their
+    // (a0) INDEX EVIDENCE (the repository index, REPO_INDEX=on): the symbols the question names, read around their
     // definitions, instead of a guessed file path. One brain call; the index revision is the cache dependency.
     if (repoRoot && CONFIG.REPO_INDEX) {
       try {
@@ -426,7 +426,7 @@ export async function resolveAmbiguities(
   fsRead: FsReadFn,
   input: ResolveInput
 ): Promise<ResolverOutput> {
-  // Decision memory (slice 7) is read once per run; a repo without the folder gets an empty memory.
+  // Decision memory is read once per run; a repo without the folder gets an empty memory.
   const memory = input.repoRoot ? loadDecisionMemory(input.repoRoot) : null;
   const dependencies = memory?.dirDependency ? [memory.dirDependency] : [];
   const staleDecisions = memory?.stale ?? [];

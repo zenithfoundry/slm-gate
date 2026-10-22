@@ -20,7 +20,7 @@ function rootPathOf(rootUri: string): string {
 }
 
 /**
- * The "Existing code that may already cover this" section (slice 8): computed on every call from the current
+ * The "Existing code that may already cover this" section, from the repository index: computed on every call from the current
  * index, hit or miss, and never cached — a code edit therefore never invalidates a cached conditioning by
  * itself. Empty when REPO_INDEX is off, there is no root, or nothing matches.
  */
@@ -36,7 +36,7 @@ function existingCodeFor(params: { rootUri?: string; task: string }): string {
   }
 }
 
-/** Resolves the `index:<root>` pseudo-dependency (slice 8) from the ledger; real paths fall through to a stat. */
+/** Resolves the `index:<root>` pseudo-dependency (the repository index revision) from the ledger; real paths fall through to a stat. */
 const depValue = (depPath: string): number | undefined => (depPath.startsWith('index:') ? repoIndexRevision(depPath.slice('index:'.length)) : undefined);
 import { distillToolResultWithStats, FidelityStats, FidelityVerify } from '../utils/elision.js';
 import { scan } from './ground.js';
@@ -175,8 +175,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION)
     .digest('hex');
   const cacheKey = `condition_${hash}`;
-  // A hit is served only while the repository state it relied on (decision files, slice 7; the symbol index,
-  // slice 8) is unchanged; rows without dependencies are served as before. The index is brought up to date
+  // A hit is served only while the repository state it relied on (decision files and the symbol index) is unchanged; rows without dependencies are served as before. The index is brought up to date
   // first — forced past its debounce, because this compare must see the revision AFTER any code edit; the
   // section appended later reuses the fresh index through the debounced path.
   if (CONFIG.REPO_INDEX && rootUri) {
@@ -202,7 +201,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   const preserveList = await getPreserveList();
 
   // 2. Distill (the compressor is shared with the model gate; see compressNarrativeRun). The brain model
-  // checks every shortened prose run against the requirement sentences the code listed (slice 5).
+  // checks every shortened prose run against the requirement sentences the code listed: the skill fidelity guard.
   const slmFunc = (t: string, taskDesc?: string) => compressNarrativeRun({ slm: slmClient, text: t, task: taskDesc });
   const verify: FidelityVerify = ({ inventory, compressed }) => checkKept({ slm: slmClient, inventory, compressed });
 
@@ -269,7 +268,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     conditioned += `\n\n# Environment Context\n${groundCtx}`;
   }
 
-  // Provenance (slice 7): an answer from a decision file says so, with who verified it and when.
+  // Provenance of a decision-file answer: an answer from a decision file says so, with who verified it and when.
   if (resolveOut.autoApplied.length > 0) {
     conditioned += `\n\n# Auto-Resolved Decisions\n`;
     for (const res of resolveOut.autoApplied) {
@@ -321,13 +320,13 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // longer blocks caching.
   if (!distillErrorKind) {
     cacheSet(cacheKey, conditioned);
-    // The repository state this result relied on (slice 7); a change makes the next call a miss.
+    // The repository state this result relied on (decision files, the symbol index); a change makes the next call a miss.
     writeCacheDeps(cacheKey, resolveOut.dependencies ?? []);
     if (CONFIG.SEMCACHE) {
       await setSemanticCache(text, conditioned);
     }
   }
 
-  // Appended after caching on purpose: the section follows the index, not the cache (slice 8).
+  // Appended after caching on purpose: the section follows the index, not the cache.
   return conditioned + existingCodeFor({ rootUri, task });
 }

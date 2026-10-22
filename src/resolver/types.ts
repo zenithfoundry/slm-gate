@@ -1,6 +1,6 @@
 export type RiskLevel = 'reversible' | 'low' | 'security' | 'destructive';
 
-/** Where an answer came from; 'decision' is a file in the repo's .slm-gate/decisions folder (slice 7). */
+/** Where an answer came from; 'decision' is a file in the repo's .slm-gate/decisions folder. */
 export type SourceKind = 'evidence' | 'convention' | 'self_consistency' | 'unresolved' | 'api' | 'decision';
 
 export interface OpenDecision {
