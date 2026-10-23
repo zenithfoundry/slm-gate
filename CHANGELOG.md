@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0](https://github.com/zenithfoundry/slm-gate/compare/v1.3.0...v1.4.0) (2026-10-23)
+
+
+### Features
+
+* add backup file patterns to .gitignore to prevent accidental commits ([643e15f](https://github.com/zenithfoundry/slm-gate/commit/643e15ff8aa894d8dc7ea23b06137d37b9a9176e))
+* enhance hedging lexicon and add tests for no-context replies ([8d4c53d](https://github.com/zenithfoundry/slm-gate/commit/8d4c53d6c9c6115896ae2b16ba6311cec33e42c0))
+* enhance output logging and add 'unchanged' state to fidelity checks ([ebb32cf](https://github.com/zenithfoundry/slm-gate/commit/ebb32cf5aedb6e0b0ea3197774b86455a61f319e))
+* **export:** handle absence of ledger by exporting zeros or computed data ([3c58ba2](https://github.com/zenithfoundry/slm-gate/commit/3c58ba224a623c5d3513e2d6eaa73aef378e2108))
+* **gate:** remove first-message local answering (Step A) and the router bench ([4a3a9e6](https://github.com/zenithfoundry/slm-gate/commit/4a3a9e6398f2a5e74fd0aee5c37f5d4a34e7400d))
+* local models do more — fidelity guard with learned protections, decision memory, repository index, ask_elision, per-turn routing data, model pinning ([8e4ed9e](https://github.com/zenithfoundry/slm-gate/commit/8e4ed9ee615802f733e2eb368e5eddc5d267eff1))
+* local models do more — fidelity guard, decision memory, repo index, model pinning ([5d55ba2](https://github.com/zenithfoundry/slm-gate/commit/5d55ba22fd8f36a7e08f39e40029af5fba442706))
+* **memory:** rolling conversation memory for the local steps ([7a905d1](https://github.com/zenithfoundry/slm-gate/commit/7a905d1b93c9817d5c19ea9300838a734f8227d9))
+* **models:** update purposes for local models to clarify functionality ([0f9be31](https://github.com/zenithfoundry/slm-gate/commit/0f9be3106550d40b26dab62443934f42a7b09cdc))
+* **resolver:** integrate decision memory and repo index evidence for enhanced resolution ([4b09089](https://github.com/zenithfoundry/slm-gate/commit/4b090896df087ec8f0a7864fb1a878f7095fce85))
+* update local model configurations and introduce model pinning ([f289522](https://github.com/zenithfoundry/slm-gate/commit/f289522507ee56066a04590781dbeae49a5d5843))
+
 ## [1.3.0](https://github.com/zenithfoundry/slm-gate/compare/v1.2.2...v1.3.0) (2026-09-27)
 
 
