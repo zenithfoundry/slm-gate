@@ -102,6 +102,7 @@ describe('runStartupChecks (when a coding tool starts the MCP server)', () => {
     expect(notices.map(notice => notice.key)).toEqual(['settings-missing']);
     expect(notices[0].message).toContain(path.join(emptyHome, '.env'));
     expect(notices[0].fix).toContain('node /slm-gate/dist/cli.js init');
+    expect(notices[0].fix).toContain('ollama pull');
     expect(notices[0].fix).toContain('node /slm-gate/dist/cli.js restart');
     expect(checkLocalModels).toHaveBeenCalledWith(expect.objectContaining({ gateModels: undefined }));
   });

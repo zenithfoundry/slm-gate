@@ -29,15 +29,19 @@ Each preset holds every setting from `.env.example`, with the models and sizes f
 
 > **The model gate reads only this `.env`, for every coding tool.** Values in a tool's `"env"` block (for example `~/.gemini/config/mcp_config.json` for Antigravity) apply only to the MCP server that tool starts, and override `.env` there. The model gate runs once in the background and is shared by every tool, so it never reads any tool's `"env"` block. Put the local models in `.env`; if you also set them in an `"env"` block, keep both the same.
 >
-> **No `.env` in the `slm-gate` folder?** Then the gate uses built-in default models, and each session warns you if they are not downloaded. Create the file and restart the gate, from the `slm-gate` folder:
+> **No `.env` in the `slm-gate` folder?** Then the gate uses built-in default models, and each session warns you if they are not downloaded. Create the file, download the models it names, and restart the gate, from the `slm-gate` folder:
 >
 > ```bash
 > node dist/cli.js init
+> # run the `ollama pull …` line init prints, e.g. on 24 GB:
+> ollama pull qwen3.5:2b && ollama pull qwen3.5:4b && ollama pull nomic-embed-text
 > node dist/cli.js restart
 > node dist/cli.js doctor
 > ```
 >
-> `init` writes `.env` for your computer's RAM and never replaces one that exists. Copying a preset from the table above works too; run `node dist/cli.js restart` afterwards.
+> `init` writes `.env` for your computer's RAM and never replaces one that exists. Copying a preset from the table above works too; download its `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL` and `EMBED_MODEL`, then run `node dist/cli.js restart`.
+>
+> **Why a third model?** Every preset, and every file `init` writes, has `DISTILL_ADAPTIVE=on` (adaptive tool-output shrinking, see the [setting reference](#configuration-setting-reference)). That feature uses `EMBED_MODEL` (`nomic-embed-text`, under 300 MB). To run on the main pair alone, set `DISTILL_ADAPTIVE=off` and restart the gate.
 
 ## The 16 GB Baseline Configuration
 
@@ -146,7 +150,8 @@ The model gate doesn't use the `CLOUD_*` settings: it sends each request on with
 - **`CLOUD_MODEL`** — The exact model name.
 - **`SEMCACHE`** — Turns on "result reuse" in the MCP gate. When enabled, a tool result very similar to one conditioned before gets the saved conditioning instead of a new local-model run. Needs the embedding model, a third loaded model. Off by default. (`on` / `off`)
 - **`SEMCACHE_THRESHOLD`** — How similar two results must be before the saved conditioning is reused. `0.95` is very strict. Default: `0.95`
-- **`EMBED_MODEL`** — The local model used to measure that similarity. Default: `nomic-embed-text`
+- **`DISTILL_ADAPTIVE`** — Adaptive tool-output shrinking. The gate remembers which shrunk lines the AI had to ask for in full (`expand_elision`), and leaves lines with a similar meaning unshrunk next time. Needs the embedding model, a third loaded model. Off when unset, but **on in every preset and in every file `init` writes**, so download `EMBED_MODEL` or set this to `off`. (`on` / `off`)
+- **`EMBED_MODEL`** — The local model that measures how similar two pieces of text are, for `SEMCACHE` and `DISTILL_ADAPTIVE`. Only needed, and only loaded, when one of them is on. Default: `nomic-embed-text`
 
 ### Server Ports & Downstream MCP
 

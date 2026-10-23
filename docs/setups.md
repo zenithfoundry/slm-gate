@@ -4,6 +4,11 @@
 differ in how much work the local models take on. Every other setting is documented in
 [Configuration](configuration.md) and can be changed freely in either setup.
 
+Both setups also start with adaptive tool-output shrinking on (`DISTILL_ADAPTIVE=on`, in every preset and every
+file `init` writes). It uses a third, small model, `EMBED_MODEL` (`nomic-embed-text`), so download it with
+`ollama pull nomic-embed-text`. To run on the pair alone, set `DISTILL_ADAPTIVE=off` and run `slm-gate
+restart`. Either choice works in either setup.
+
 | | **Setup A: local models do more** | **Setup B: plain shrinking** |
 | :--- | :--- | :--- |
 | Skills (your toolbox's instructions) | shortened by the gate model under a guard that fails closed | sent word for word, cut at the ends with a marker when too long |

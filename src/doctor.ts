@@ -197,8 +197,8 @@ async function run() {
   // gate runs on built-in default models (src/setup/model-gate.ts gateEnvironment).
   const envPath = path.join(CONFIG.HOME_DIR, '.env');
   const envExists = fs.existsSync(envPath);
-  report(envExists, `Settings file is present (${envPath})`,
-    `Run \`${cliCommand('init')}\`, then \`${cliCommand('restart')}\`. The model gate reads only this file, so without it the gate uses built-in default models, whatever a coding tool's own settings say.`);
+  report(envExists, envExists ? `Settings file is present (${envPath})` : `No settings file (${envPath})`,
+    `Run \`${cliCommand('init')}\`, then the \`ollama pull …\` line it prints, then \`${cliCommand('restart')}\`. The model gate reads only this file, so without it the gate uses built-in default models, whatever a coding tool's own settings say.`);
   report(true, 'Configuration parses successfully'); // If we reached here without throwing, CONFIG parsed correctly.
 
   // 3. Ollama and the local models the settings name (the same check the MCP server runs at start-up).

@@ -61,7 +61,11 @@ Then download the models for your machine. For a **16 GB machine** (the recommen
 ```bash
 ollama pull qwen3.5:2b    # Brain model: smarter, used for compression & local resolution
 ollama pull qwen2.5-coder:0.5b  # Gate model: tiny, used for quick routing decisions
+ollama pull nomic-embed-text    # Embedding model (EMBED_MODEL): small, used by adaptive tool-output shrinking
 ```
+
+Every preset turns on adaptive tool-output shrinking (`DISTILL_ADAPTIVE=on`), which needs the third model. To
+run on the brain and gate models alone, set `DISTILL_ADAPTIVE=off` in `.env` instead, and skip that pull.
 
 Check the [RAM table](prerequisites-and-hardware.md#ram-by-machine-model-table) to find the right models for your machine's memory.
 

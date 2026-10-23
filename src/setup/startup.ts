@@ -70,7 +70,7 @@ function noSettingsNotice(): Notice {
   return {
     key: 'settings-missing',
     message: `slm-gate has no settings file (${settingsFile()}), so the model gate, which every coding tool shares, runs on built-in default models. It never reads a coding tool's own "env" settings.`,
-    fix: `Run \`${home}${cliCommand('init')}\`, then \`${home}${cliCommand('restart')}\`. Put model settings in that file, not in a coding tool's settings.`,
+    fix: `Run \`${home}${cliCommand('init')}\`, then the \`ollama pull …\` line it prints, then \`${home}${cliCommand('restart')}\`. Put model settings in that file, not in a coding tool's settings.`,
   };
 }
 

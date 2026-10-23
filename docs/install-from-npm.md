@@ -26,7 +26,7 @@ slm-gate init
 
 This creates **one file: `~/.slm-gate/.env`**, a hidden folder in your home folder.
 
-- It is set up for **your computer's RAM**: the two local models and how much text they hold, from the
+- It is set up for **your computer's RAM**: the two main local models and how much text they hold, from the
   [RAM table](prerequisites-and-hardware.md#ram-by-machine-model-table). To set up for another computer, add
   `--ram 64` (any size from 16 GB).
 - It holds **every setting**, each one explained in the file: where Ollama is, the local models, ports, optional
@@ -44,6 +44,13 @@ Run the `ollama pull …` line `init` printed. For example, on a 64 GB computer:
 ```bash
 ollama pull qwen3.5:4b && ollama pull qwen3.5:9b && ollama pull nomic-embed-text
 ```
+
+The first two are the main pair, `SLM_GATE_MODEL` and `SLM_BRAIN_MODEL`. The third, `nomic-embed-text`
+(`EMBED_MODEL`, under 300 MB), is used by **adaptive tool-output shrinking** (`DISTILL_ADAPTIVE=on` in the new
+file). That feature remembers which shrunk lines you had to ask for in full, and leaves similar lines alone next
+time. If you skip this model, every session warns that it is not downloaded. To run on the main pair alone, set
+`DISTILL_ADAPTIVE=off` in `~/.slm-gate/.env` and run `slm-gate restart`; tool output is then shrunk by the fixed
+rules only.
 
 > **Want models that fit your computer better?** Use [llmfit](https://github.com/AlexsJones/llmfit): it measures
 > your RAM, GPU and speed and ranks what runs best. Put your choice in `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` in
@@ -139,14 +146,19 @@ what shrinks tool output and sorts requests with `SLM_GATE_MODEL` and `SLM_BRAIN
 - **Put the local models, ports and keys in `~/.slm-gate/.env`**, not in a coding tool's `env` block. Use the
   `env` block only for settings meant for that one tool, such as `DOWNSTREAM_MCP` or `SLM_GATE_HOME`.
 - **Without `~/.slm-gate/.env`, the gate uses built-in default models**, whatever a tool's `env` block says. If
-  those models are not downloaded, every session warns you about them. To stop it, create the file and restart
-  the gate:
+  those models are not downloaded, every session warns you about them. To stop it, create the file, download
+  the models it names, and restart the gate:
 
   ```bash
   slm-gate init      # or: npx -y @zenithfoundry/slm-gate@1 init
+  # run the `ollama pull …` line init prints, e.g. on 24 GB:
+  ollama pull qwen3.5:2b && ollama pull qwen3.5:4b && ollama pull nomic-embed-text
   slm-gate restart   # or: npx -y @zenithfoundry/slm-gate@1 restart
   slm-gate doctor    # or: npx -y @zenithfoundry/slm-gate@1 doctor
   ```
+
+  The third model, `nomic-embed-text`, is for adaptive tool-output shrinking, which the new file turns on
+  ([Local models](#3-download-the-local-models)).
 
   `init` never replaces a settings file that already exists. If you had models in a tool's `env` block, copy
   them into the new file, or delete them from the `env` block so there is only one place to change them.

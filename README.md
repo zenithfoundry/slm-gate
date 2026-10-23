@@ -278,7 +278,7 @@ git clone https://github.com/zenithfoundry/slm-gate.git small-language-model-gat
 cd small-language-model-gate
 pnpm install && pnpm run build
 cp configs/claude-code/.env.16gb.example .env
-ollama pull qwen3.5:2b && ollama pull qwen2.5-coder:0.5b
+ollama pull qwen3.5:2b && ollama pull qwen2.5-coder:0.5b && ollama pull nomic-embed-text
 claude mcp add --scope user slm-gate -- node "$PWD/dist/mcp-gate/index.js"
 node dist/cli.js doctor
 ```
