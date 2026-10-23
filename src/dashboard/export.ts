@@ -14,14 +14,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
 import { isEntryPoint } from '../utils/entry-point.js';
-import { loadDashboardData } from './data.js';
+import { computeDashboardData, loadDashboardData } from './data.js';
 
 function main(): void {
   const args = process.argv.slice(2);
   const outIdx = args.indexOf('--out');
   const outDir = path.resolve(CONFIG.ROOT_DIR, outIdx >= 0 ? args[outIdx + 1] : 'site');
 
-  const data = loadDashboardData();
+  // No ledger yet (a fresh install, or right after `ledger:reset`) means no events, so publish zeros.
+  // Said on stderr so a wrong LEDGER_PATH is visible, even from scripts that discard stdout.
+  const ledgerExists = fs.existsSync(CONFIG.LEDGER_PATH);
+  if (!ledgerExists) console.warn(`No ledger at ${CONFIG.LEDGER_PATH}; exporting zeros.`);
+  const data = ledgerExists ? loadDashboardData() : computeDashboardData([]);
   fs.mkdirSync(outDir, { recursive: true });
   fs.copyFileSync(path.join(CONFIG.ROOT_DIR, 'src', 'dashboard', 'index.html'), path.join(outDir, 'index.html'));
   fs.writeFileSync(path.join(outDir, 'data.json'), JSON.stringify(data, null, 2));
