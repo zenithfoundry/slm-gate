@@ -27,7 +27,17 @@ Instead of starting from scratch, find your machine's RAM in the table below and
 
 Each preset holds every setting from `.env.example`, with the models and sizes for that amount of RAM. Copy the one for your tool and RAM to `.env` in the `slm-gate` folder.
 
-> **Note for Antigravity users:** values in the `"env"` block of `~/.gemini/config/mcp_config.json` apply to `slm-gate`'s MCP server inside Antigravity and override `.env` there. The model gate reads only `slm-gate`'s `.env`, so keep the model settings the same in both places.
+> **The model gate reads only this `.env`, for every coding tool.** Values in a tool's `"env"` block (for example `~/.gemini/config/mcp_config.json` for Antigravity) apply only to the MCP server that tool starts, and override `.env` there. The model gate runs once in the background and is shared by every tool, so it never reads any tool's `"env"` block. Put the local models in `.env`; if you also set them in an `"env"` block, keep both the same.
+>
+> **No `.env` in the `slm-gate` folder?** Then the gate uses built-in default models, and each session warns you if they are not downloaded. Create the file and restart the gate, from the `slm-gate` folder:
+>
+> ```bash
+> node dist/cli.js init
+> node dist/cli.js restart
+> node dist/cli.js doctor
+> ```
+>
+> `init` writes `.env` for your computer's RAM and never replaces one that exists. Copying a preset from the table above works too; run `node dist/cli.js restart` afterwards.
 
 ## The 16 GB Baseline Configuration
 

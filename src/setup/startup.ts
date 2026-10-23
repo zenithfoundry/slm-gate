@@ -4,6 +4,7 @@
  * are logged, shown as a desktop notification and (at start-up) passed to the AI in the MCP server's
  * instructions; nothing is said when all is well. None of this can stop the MCP server from starting.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
 import { checkLocalModels, ModelUse, SetupProblem } from './local-models.js';
@@ -51,6 +52,28 @@ function notRunningNotice(): Notice {
   };
 }
 
+/** slm-gate's own settings file: the only settings the shared model gate reads (src/setup/model-gate.ts). */
+const settingsFile = () => path.join(CONFIG.HOME_DIR, '.env');
+
+/**
+ * Checked on every run, not once, so the notice stops as soon as `init` has created the file. While the
+ * file is missing the gate runs on built-in defaults, which need not be models anybody downloaded, and
+ * a coding tool's MCP env block cannot change that: the gate is shared, so it ignores every tool's block.
+ */
+function hasSettingsFile(): boolean {
+  return fs.existsSync(settingsFile());
+}
+
+function noSettingsNotice(): Notice {
+  // A shell the fix is pasted into lacks the coding tool's SLM_GATE_HOME, so init would write elsewhere.
+  const home = process.env.SLM_GATE_HOME ? `SLM_GATE_HOME=${CONFIG.HOME_DIR} ` : '';
+  return {
+    key: 'settings-missing',
+    message: `slm-gate has no settings file (${settingsFile()}), so the model gate, which every coding tool shares, runs on built-in default models. It never reads a coding tool's own "env" settings.`,
+    fix: `Run \`${home}${cliCommand('init')}\`, then \`${home}${cliCommand('restart')}\`. Put model settings in that file, not in a coding tool's settings.`,
+  };
+}
+
 function report(notice: Notice): void {
   console.error(`[slm-gate] ${notice.message} Fix: ${notice.fix}`);
   notifyUser({ key: notice.key, message: `${notice.message} ${notice.fix}` });
@@ -58,17 +81,22 @@ function report(notice: Notice): void {
 
 /**
  * What the gate probe means at start-up; launches the gate at once when nothing listens.
- * @returns The problems, and the models a running gate uses (checked along with this process's own)
+ * @returns The problems, and the models a running gate uses (checked along with this process's own). Without
+ *   a settings file the gate's models are not checked: they are built-in defaults, so the one problem to
+ *   report is the missing file, not a model nobody chose.
  */
 async function checkGateAtStartup(): Promise<{ notices: Notice[]; gateModels?: ModelUse[] }> {
   if (!CONFIG.LLM_GATE_AUTOSTART) return { notices: [] };
   const probe = await probeGate({ timeoutMs: 1000 });
-  if (probe.kind === 'slm-gate') return { notices: probe.stale ? [staleNotice()] : [], gateModels: probe.health.models };
   if (probe.kind === 'other') return { notices: [portTakenNotice()] };
+  const settings = hasSettingsFile() ? [] : [noSettingsNotice()];
+  if (probe.kind === 'slm-gate') {
+    return { notices: [...settings, ...(probe.stale ? [staleNotice()] : [])], gateModels: settings.length ? undefined : probe.health.models };
+  }
   // Nothing listens. Launch now, so the gate is booting before the coding tool's first model request;
   // whether it came up, and its models, are checked later by the watch.
   if (!isStoppedByUser()) launchModelGate();
-  return { notices: [] };
+  return { notices: settings };
 }
 
 function modelNotices(problems: SetupProblem[]): Notice[] {
@@ -123,7 +151,9 @@ export function watchModelGate(params: { firstMs?: number; everyMs?: number } = 
       gate = await waitForModelGate({ timeoutMs: launched ? 10_000 : 2_000 });
       if (!gate && launched) report(notRunningNotice());
     }
-    const { problems } = await checkLocalModels({ gateModels: gate?.models });
+    const settingsFound = hasSettingsFile();
+    if (!settingsFound) report(noSettingsNotice());
+    const { problems } = await checkLocalModels({ gateModels: settingsFound ? gate?.models : undefined });
     const notices = modelNotices(problems);
     notices.filter(notice => !notice.transient || awaitingConfirmation.has(notice.key)).forEach(report);
     awaitingConfirmation = new Set(notices.filter(notice => notice.transient).map(notice => notice.key));

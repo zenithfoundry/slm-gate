@@ -88,8 +88,10 @@ company, with your tool's own login or key. `slm-gate doctor` prints the exact l
 "slm-gate": { "command": "npx", "args": ["-y", "@zenithfoundry/slm-gate@1", "mcp"] }
 ```
 
-Run the other commands as `npx -y @zenithfoundry/slm-gate@1 init` (and `doctor`). This can start a little slower,
-since npx may check npm first; the global install starts faster and works offline.
+Run the other commands as `npx -y @zenithfoundry/slm-gate@1 init` (and `doctor`). Step 2, `init`, is still
+needed with npx: the tool entry above only starts `slm-gate`, and the model gate it starts takes its settings
+from `~/.slm-gate/.env` alone ([Where settings come from](#where-settings-come-from)). This can start a little
+slower, since npx may check npm first; the global install starts faster and works offline.
 
 ## Connect a toolbox (optional)
 
@@ -127,6 +129,29 @@ A toolbox that is already running on a web address uses `{"url":"http://localhos
 3. Built-in defaults.
 
 The first one found wins. `slm-gate config` shows every setting in effect (keys hidden).
+
+**The model gate reads only `~/.slm-gate/.env`.** `slm-gate` runs as two programs. Each coding tool starts its
+own MCP server, and that server uses the order above. The first MCP server to start also starts the model gate
+in the background, and every coding tool then shares that one gate. So that no single tool decides the gate's
+settings for all the others, the gate skips step 1: it never reads any coding tool's `env` block. That gate is
+what shrinks tool output and sorts requests with `SLM_GATE_MODEL` and `SLM_BRAIN_MODEL`, so:
+
+- **Put the local models, ports and keys in `~/.slm-gate/.env`**, not in a coding tool's `env` block. Use the
+  `env` block only for settings meant for that one tool, such as `DOWNSTREAM_MCP` or `SLM_GATE_HOME`.
+- **Without `~/.slm-gate/.env`, the gate uses built-in default models**, whatever a tool's `env` block says. If
+  those models are not downloaded, every session warns you about them. To stop it, create the file and restart
+  the gate:
+
+  ```bash
+  slm-gate init      # or: npx -y @zenithfoundry/slm-gate@1 init
+  slm-gate restart   # or: npx -y @zenithfoundry/slm-gate@1 restart
+  slm-gate doctor    # or: npx -y @zenithfoundry/slm-gate@1 doctor
+  ```
+
+  `init` never replaces a settings file that already exists. If you had models in a tool's `env` block, copy
+  them into the new file, or delete them from the `env` block so there is only one place to change them.
+  While the file is missing, the desktop notification and `slm-gate doctor` both say so and print these
+  commands.
 
 **More than one set of settings** (for example work and personal, with different models): add
 `"SLM_GATE_HOME": "/Users/you/.slm-gate-work"` to a tool's `env` block, and run

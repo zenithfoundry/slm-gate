@@ -1,9 +1,18 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 type Probe = { kind: 'slm-gate'; health: object; stale: boolean } | { kind: 'nothing' } | { kind: 'other' };
 type Problem = { message: string; fix: string; transient?: boolean };
 
-const config = { LLM_GATE_AUTOSTART: true, MODEL_GATE_PORT: 8787, ROOT_DIR: '/slm-gate', HOME_DIR: '/slm-gate' };
+// A settings folder with a settings file, and one without (a fresh npx or npm install that never ran init).
+const settingsHome = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-startup-'));
+fs.writeFileSync(path.join(settingsHome, '.env'), 'SLM_GATE_MODEL=qwen3.5:2b\n');
+const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-startup-empty-'));
+afterAll(() => [settingsHome, emptyHome].forEach(dir => fs.rmSync(dir, { recursive: true, force: true })));
+
+const config = { LLM_GATE_AUTOSTART: true, MODEL_GATE_PORT: 8787, ROOT_DIR: '/slm-gate', HOME_DIR: settingsHome };
 const probeGate = jest.fn(async (): Promise<Probe> => ({ kind: 'nothing' }));
 const isStoppedByUser = jest.fn(() => false);
 const launchModelGate = jest.fn(() => ({ launched: true }));
@@ -29,6 +38,7 @@ const noAnswer = { message: 'Ollama did not answer at http://localhost:11434.', 
 beforeEach(() => {
   jest.clearAllMocks();
   config.LLM_GATE_AUTOSTART = true;
+  config.HOME_DIR = settingsHome;
   probeGate.mockResolvedValue({ kind: 'nothing' });
   launchModelGate.mockReturnValue({ launched: true });
   isStoppedByUser.mockReturnValue(false);
@@ -64,7 +74,7 @@ describe('runStartupChecks (when a coding tool starts the MCP server)', () => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toMatchObject({ key: 'port-taken' });
     expect(notices[0].fix).toContain('LLM_GATE_PORT');
-    expect(notices[0].fix).toContain('/slm-gate/.env');
+    expect(notices[0].fix).toContain(path.join(settingsHome, '.env'));
     expect(notices[0].fix).toContain('node /slm-gate/dist/cli.js restart');
     expect(launchModelGate).not.toHaveBeenCalled();
     expect(notifyUser).toHaveBeenCalledWith(expect.objectContaining({ key: 'port-taken' }));
@@ -82,6 +92,25 @@ describe('runStartupChecks (when a coding tool starts the MCP server)', () => {
     probeGate.mockResolvedValue({ kind: 'slm-gate', health: { models }, stale: false });
     await runStartupChecks();
     expect(checkLocalModels).toHaveBeenCalledWith(expect.objectContaining({ gateModels: models }));
+  });
+
+  it('reports a missing settings file with the commands to create it, instead of the gate\'s default models', async () => {
+    config.HOME_DIR = emptyHome;
+    const models = [{ name: 'qwen2.5-coder:3b', setting: 'SLM_GATE_MODEL', purpose: 'sorting' }];
+    probeGate.mockResolvedValue({ kind: 'slm-gate', health: { models }, stale: false });
+    const notices = await runStartupChecks();
+    expect(notices.map(notice => notice.key)).toEqual(['settings-missing']);
+    expect(notices[0].message).toContain(path.join(emptyHome, '.env'));
+    expect(notices[0].fix).toContain('node /slm-gate/dist/cli.js init');
+    expect(notices[0].fix).toContain('node /slm-gate/dist/cli.js restart');
+    expect(checkLocalModels).toHaveBeenCalledWith(expect.objectContaining({ gateModels: undefined }));
+  });
+
+  it('reports a missing settings file when it has just launched the gate', async () => {
+    config.HOME_DIR = emptyHome;
+    const notices = await runStartupChecks();
+    expect(launchModelGate).toHaveBeenCalledTimes(1);
+    expect(notices.map(notice => notice.key)).toEqual(['settings-missing']);
   });
 
   it('reports a missing local model with the exact command to fetch it', async () => {
@@ -185,6 +214,15 @@ describe('watchModelGate (every minute while the MCP server runs)', () => {
     await afterChecks(3);
     stop();
     expect(notifyUser).not.toHaveBeenCalled();
+  });
+
+  it('keeps reporting a missing settings file, and does not blame the gate\'s default models', async () => {
+    config.HOME_DIR = emptyHome;
+    const models = [{ name: 'qwen2.5-coder:3b', setting: 'SLM_GATE_MODEL', purpose: 'sorting' }];
+    probeGate.mockResolvedValue({ kind: 'slm-gate', health: { models }, stale: false });
+    await watchUntil(notifyUser);
+    expect(notifyUser).toHaveBeenCalledWith(expect.objectContaining({ key: 'settings-missing' }));
+    expect(checkLocalModels).toHaveBeenCalledWith({ gateModels: undefined });
   });
 
   it('notices a model that went missing after start-up', async () => {

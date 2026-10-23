@@ -193,10 +193,12 @@ async function run() {
   report(nodeMajor >= 22, `Node version ≥ 22 (found v${process.versions.node})`, 'Upgrade Node.js to v22 or later.');
 
   // 2. .env presence and CONFIG parsing
-  // Validates that the configuration template has been implemented by the user.
+  // The shared model gate reads only this file, never a coding tool's MCP env block, so without it the
+  // gate runs on built-in default models (src/setup/model-gate.ts gateEnvironment).
   const envPath = path.join(CONFIG.HOME_DIR, '.env');
   const envExists = fs.existsSync(envPath);
-  report(envExists, '.env file is present', 'Copy .env.example to .env and configure it.');
+  report(envExists, `Settings file is present (${envPath})`,
+    `Run \`${cliCommand('init')}\`, then \`${cliCommand('restart')}\`. The model gate reads only this file, so without it the gate uses built-in default models, whatever a coding tool's own settings say.`);
   report(true, 'Configuration parses successfully'); // If we reached here without throwing, CONFIG parsed correctly.
 
   // 3. Ollama and the local models the settings name (the same check the MCP server runs at start-up).
