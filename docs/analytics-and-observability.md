@@ -14,18 +14,20 @@
 5. [0-to-100% Langfuse Setup Walkthrough](#5-0-to-100-langfuse-setup-walkthrough)
 6. [Langfuse UI Configuration Guide (Dashboards & Pricing)](#6-langfuse-ui-configuration-guide-dashboards--pricing)
 7. [The `ledger:sync` Backfill Tool](#7-the-ledgersync-backfill-tool)
-8. [Data Interpretation & Product Decision Framework](#8-data-interpretation--product-decision-framework-langfuse-and-bench-test-results)
+8. [Data Interpretation & Product Decision Framework](#8-data-interpretation--product-decision-framework)
 9. [Troubleshooting & Frequently Asked Questions](#9-troubleshooting--frequently-asked-questions)
 
 ---
 
 ## 1. Executive Summary & How It Works
 
-`small-language-model-gate` intercepts prompts before they reach expensive cloud LLMs (like GPT-5, Claude 3.5/4, or Gemini Pro) and runs small local models (via Ollama) to either:
-1. **Resolve simple requests locally (`defer_local`)** at **$0.00 cost** and **0 cloud tokens**.
-2. **Compress prompts (`forward_compressed`)** to cut input token volume by 30–70% before forwarding to the cloud.
-3. **Condition and ground MCP skill texts (`condition`)** so developer agents don't flood the cloud model with bloated markdown instructions.
-4. **Escalate complex requests (`forward_raw`)** when safety checks require the full reasoning power of a cloud model.
+`small-language-model-gate` intercepts requests before they reach expensive cloud LLMs (like GPT-5, Claude 3.5/4, or Gemini Pro) and runs small local models (via Ollama) to:
+1. **Shrink model requests (`forward_compressed`)**: large command, search and listing output is cut before the request is forwarded to the cloud, with the tool's own login.
+2. **Condition and ground MCP skill texts (`condition`)** so developer agents don't flood the cloud model with bloated markdown instructions.
+3. **Forward the rest unchanged (`forward_raw`)** when nothing in the request was large enough to shrink.
+4. **Keep a conversation memory (`memory_fold`)**: the brain model folds each turn into a short summary the local steps read; those rows carry local tokens only.
+
+The gate never answers a request itself. Ledgers written before 1.4 may hold `defer_local` rows from the time it could; they still count and are priced as they were.
 
 To make informed decisions about whether this setup is saving you money or protecting your subscription rate limits, the system logs every single transaction into a structured ledger.
 
@@ -41,7 +43,7 @@ The analytics pipeline operates in two tiers:
                       └────────────────────┬────────────────────┘
                                            │
                                   [ SLM Gate Decision ]
-                        (defer_local | forward_compressed | raw)
+                        (forward_compressed | forward_raw | condition)
                                            │
                                            ▼
                       ┌─────────────────────────────────────────┐
@@ -76,11 +78,9 @@ All settings are controlled via environment variables in your `.env` file (or in
 | `CLOUD_MODEL` | `string` | `gemini-2.5-flash` | The primary upstream cloud model name used for baseline cost estimation and cloud forwarding. |
 | `CLOUD_API_KEY` | `string` | *(Optional)* | Upstream provider API key (OpenAI, Anthropic, or Google AI Studio). |
 | `CLOUD_API_STYLE` | `enum` | `openai` | Protocol style used for cloud communication (`openai` or `anthropic`). |
-| `SLM_BRAIN_MODEL` | `string` | Resolved by `RAM_PRESET` | The local model tag used for complex reasoning, classification, and local answering (e.g. `qwen3:14b`, `qwen2.5-coder:3b`). |
+| `SLM_BRAIN_MODEL` | `string` | Resolved by `RAM_PRESET` | The local model tag used for the fidelity check, `ask_elision` answers, the resolver and the conversation memory (e.g. `qwen3:14b`, `qwen3.5:4b`). |
 | `SLM_GATE_MODEL` | `string` | Resolved by `RAM_PRESET` | The small fast local model tag used for prompt distillation and token compression (e.g. `qwen3:1.7b`, `qwen2.5-coder:0.5b`). |
-| `SLM_GATE_TESTING_MODEL` | `string` | Resolved by `SLM_GATE_MODEL` | The dedicated local model tag used specifically for the offline evaluation benchmark harness and test suites (`slm-gate bench`). |
 | `RAM_PRESET` | `enum` | `custom` | Hardware RAM profile (`ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, `custom`) that automatically assigns optimal local models. |
-| `HEADLINE_STRICTNESS`| `number` | `4` | Verification strictness level (`0` to `5`). Higher values make the verifier more skeptical, forcing local answers to escalate to the cloud if uncertain. |
 
 ### PLAN_REGISTRY and Token Estimation
 The `SUBSCRIPTION_PLAN` environment variable automatically configures your token budget using the following authoritative window lengths and token estimates:
@@ -119,29 +119,16 @@ pnpm run metrics
 **Sample Terminal Output:**
 ```text
 --- Local SQLite Ledger Metrics ---
-┌─────────┬──────────────────────────┬────────────┬────────┬─────────────┬───────┐
-│ (index) │ Arm                      │ Cost (USD) │ Tokens │ Avg Quality │ Count │
-├─────────┼──────────────────────────┼────────────┼────────┼─────────────┼───────┤
-│ 0       │ slm_gate=off (Baseline)  │ $0.1520    │ 45,200 │ 0.94        │ 50    │
-│ 1       │ slm_gate=on (Router)     │ $0.0210    │ 8,400  │ 0.96        │ 50    │
-└─────────┴──────────────────────────┴────────────┴────────┴─────────────┴───────┘
-
---- Deltas (on - off) ---
-Cost Saved: $0.1310
-Tokens Saved: 36,800 (81.4% reduction)
-Quality Change: +0.02
+┌─────────┬───────────────────────────────────┬────────────┬────────┬─────────────┬───────┐
+│ (index) │ Rows                              │ Cost (USD) │ Tokens │ Avg Quality │ Count │
+├─────────┼───────────────────────────────────┼────────────┼────────┼─────────────┼───────┤
+│ 0       │ slm_gate=off (old benchmark rows) │ 0.0000     │ 0      │ 0.00        │ 0     │
+│ 1       │ slm_gate=on (the gate)            │ 0.0000     │ 8,400  │ 0.00        │ 50    │
+└─────────┴───────────────────────────────────┴────────────┴────────┴─────────────┴───────┘
 ```
+Your coding tool's own requests carry no price (they are billed to your subscription or key as before), so the cost column is normally zero. Tokens saved per day come from `pnpm run ledger:report`; the savings cards are on the dashboard.
 
-### 2. Run Synthetic Benchmark Evaluations
-To test how well the local router performs against an offline test suite without manual typing:
-```bash
-pnpm run bench --n 10
-```
-This generates:
-- `output/leaderboard.md`: Per-task accuracy and routing report.
-- `output/deferral_curve.svg`: An SVG curve illustrating your system's quality vs. cost Pareto frontier.
-
-### 3. Direct SQL Inspection
+### 2. Direct SQL Inspection
 You can query the SQLite database with any SQLite client (such as the VS Code SQLite Viewer extension or the `sqlite3` CLI):
 ```bash
 # Open SQLite database
@@ -155,6 +142,22 @@ SELECT route, count(*) as count, sum(cost_usd) as total_spent FROM events GROUP 
 ```
 
 ---
+
+### 3. Skill-shrinking fidelity, learned protections and the gate-model bench
+
+With `DISTILL_SKILLS=on` the gate model shortens the plain prose of skill files under a guard: lines with rules, tool names, paths, numbers, headings, code, tables and frontmatter never reach a model, and each shortened paragraph is checked by the brain model against the requirement sentences the code listed from the original. Three commands show how that is going. None needs an API key.
+
+```bash
+pnpm run fidelity                 # every cached skill + three fixtures, one outcome per skill
+pnpm run fidelity -- --refresh    # re-read the list of cached skills (the first run snapshots it)
+pnpm run protections              # sentences once reported missing, now protected by code
+pnpm run protections -- --forget "<sentence>"
+pnpm run bench:gate -- --model qwen3.5:2b   # gate models × concurrency 1 and 2, one row each
+```
+
+Outcomes per skill: `pass` (shortened, every check passed, under budget); `recall_fail` (the brain found a sentence missing, that paragraph went out word for word — reported, not failed); `not_shrunk` (checks passed but still over budget, sent as the original); `unchanged` (no paragraph long enough to shorten); `deterministic_fail`, `model_error`, `timeout` (the only outcomes that fail the command). The bench writes to its own ledger file under `output/` and reads yours read-only. The dashboard's **Skill fidelity** card shows the same figures from real traffic.
+
+Ledger routes you will see besides the routing ones: `feedback` (an expansion the cloud model asked for; charged against savings) and `memory_fold` (one conversation-memory fold by the brain model; latency and token estimate, never the text). Neither counts as a routing decision on the dashboard.
 
 ## 5. 0-to-100% Langfuse Setup Walkthrough
 
@@ -225,23 +228,16 @@ By default, Langfuse maintains built-in rates for standard OpenAI and Anthropic 
 - **Title:** `Tokens Saved by Strategy`
 - **X-Axis / Group By:** `Tag: route`
 - **Y-Axis / Metric:** `Scores` -> `tokens_saved` -> `Sum`
-- **Description:** Shows how many tokens were saved by local deferral vs. compression.
+- **Description:** Shows how many tokens were saved by shrinking model requests vs. conditioning tool results.
 
 #### Widget 3: Routing Distribution (%)
 - **Widget Type:** `Pie Chart` / `Donut`
 - **Title:** `Request Routing Split`
 - **Group By:** `Tag: route`
 - **Metric:** `Count of Traces`
-- **Description:** Visualizes the percentage of traffic that resolved locally (`defer_local`) vs. compressed (`forward_compressed`) vs. raw (`forward_raw`).
+- **Description:** Visualizes the percentage of traffic that went out shrunk (`forward_compressed`) vs. unchanged (`forward_raw`) vs. conditioned tool results (`condition`).
 
-#### Widget 4: Verification & Quality Pass Rate
-- **Widget Type:** `Line Chart (Over Time)`
-- **Title:** `Verification & Quality Rate`
-- **Metric 1:** `Scores` -> `verified` -> `Avg` (1.0 = 100% pass)
-- **Metric 2:** `Scores` -> `quality_score` -> `Avg`
-- **Description:** Proves that token savings did not come at the expense of output quality.
-
-#### Widget 5: Model Latency Breakdown
+#### Widget 4: Model Latency Breakdown
 - **Widget Type:** `Percentile Latency Chart`
 - **Title:** `Local SLM vs Cloud Latency`
 - **Group By:** Observation name (`local_slm_generation` vs `cloud_api_call`)
@@ -258,16 +254,14 @@ Here is what each column means:
 - **`Avg`:** The arithmetic mean of all score values for that metric.
   - *Why does `cost_saved_usd` show `0` or `0.00` in this table?* Modern models (like Gemini Flash) cost fractions of a cent (e.g. `$0.000028` per call). Because Langfuse's default table rounds averages to 2 decimal places, `$0.00009` is displayed as `0`. The exact cumulative dollar amount is preserved in JSON and is visible when summing `cost_saved_usd` in a custom Number Card widget.
 - **Columns `0` and `1` (Category / Bucket Counts):**
-  - For binary/boolean metrics like `verified`, Langfuse counts how many requests received a score of `0` (Failed / Escalated to Cloud) vs. `1` (Passed Verification locally).
-  - For example, if `# verified` has `0: 40` and `1: 78`, it means 78 requests passed verification locally (66.1% pass rate) and 40 escalated.
+  - For a categorical score such as `verified`, Langfuse counts how many requests carry each label: `Distilled (Forwarded)` (shrunk, then sent), `Escalated (Cloud)` (sent unchanged) and, on ledgers from before 1.4, `Passed (Local SLM)`.
 
 > [!TIP]
 > **Customizing Score Labels in Langfuse:**
 > If you want Langfuse to display descriptive labels instead of `0` and `1`:
 > 1. Go to **Project Settings > Scores** > **+ Add Score Config**.
 > 2. Name: `verified`, Data Type: `Categorical`.
-> 3. Add Category `1` with Label `Passed` and Category `0` with Label `Escalated`.
-> 4. Langfuse will now render the columns as `Escalated` and `Passed`!
+> 3. Add the three labels above as categories.
 
 ---
 
@@ -298,8 +292,8 @@ pnpm run ledger:sync --limit 20
 
 ### What `ledger:sync` does:
 1. Reads records sequentially from `output/ledger.sqlite`.
-2. Computes baseline costs, tokens saved, and verification status for every event.
-3. Formats trace payloads with descriptive names (e.g. `[llm] defer_local`, `[mcp] condition_prompt`).
+2. Computes baseline costs, tokens saved, and the routing label for every event.
+3. Formats trace payloads with descriptive names (e.g. `[llm] forward_compressed`, `[mcp] condition_prompt`).
 4. Ingests local SLM calls at `$0.00` and cloud API calls with exact usage and cost details.
 5. Pushes quantitative scores (`cost_saved_usd`, `tokens_saved`, `verified`) with deterministic IDs to populate your dashboards.
 
@@ -323,7 +317,7 @@ Langfuse keeps only the last `LANGFUSE_RETENTION_DAYS` days (Hobby: 30; set it t
 pnpm run ledger:report   # tokens saved per UTC day and all-time, from the ledger alone
 ```
 
-A day in the report equals the Tokens Saved card with Langfuse's date picker set to that same UTC day. The "of which bench" column is benchmark savings, already included in the total.
+A day in the report equals the Tokens Saved card with Langfuse's date picker set to that same UTC day. The "of which bench" column is savings from the router benchmark that versions before 1.4 shipped, already included in the total; on a fresh ledger it is 0.
 
 ### The built-in dashboard: per-cycle savings, no cloud required
 
@@ -334,11 +328,11 @@ shows the metrics that matter with no cloud dependency:
 
 - **Window time returned per cycle, per provider** — real cycle reconstruction, with
   average, median, a per-cycle table, and a per-week bar chart (the 7-day cap view).
-- **Tokens saved per provider**, the **routing decision** split (feedback clicks excluded —
-  they are not routed prompts), and **SLM accuracy** shown twice: real traffic and
-  benchmark, so hiding bench data never blanks the score.
-- Benchmark runs are excluded from every savings figure. A provider without a
-  `*_WINDOW_BUDGET` shows "not measured", never a fake 0.
+- **Tokens saved per provider**, the **routing decision** split (feedback clicks and memory
+  folds excluded — they are not routed prompts), the **tool definitions** each request carried,
+  and the **skill fidelity** card (what shrinking a skill cost in requirement sentences).
+- Rows from the router benchmark that versions before 1.4 shipped are excluded from every
+  savings figure. A provider without a `*_WINDOW_BUDGET` shows "not measured", never a fake 0.
 
 ```bash
 pnpm run dashboard            # live at http://localhost:8790, read-only, local-only
@@ -503,7 +497,7 @@ Read-only: it opens the ledger read-only and sends only GET requests. For the wi
 
 ---
 
-## 8. Data Interpretation & Product Decision Framework (langfuse and bench test results)
+## 8. Data Interpretation & Product Decision Framework
 
 ### Cycle window model
 The dashboard provides **two** cycle cards per provider (Claude, ChatGPT, Gemini), stacked in the same column:
@@ -527,7 +521,7 @@ estimated minutes saved = units saved × (window minutes ÷ window budget)    (c
 
 What a "unit" is depends on how the provider counts usage:
 - **Per token (Claude / Gemini):** the budget is *tokens per window*. Every token saved counts, including tool results shrunk by `mcp-gate`. Claude is counted this way because its limits scale with how much text is sent, not with a flat message count.
-- **Per message (ChatGPT):** the budget is *messages per window*. Only a prompt answered entirely by the local model saves a message, and only `llm-gate` does that. A prompt that was shrunk and then sent (including every `mcp-gate` event) still costs one message, so it adds 0 minutes.
+- **Per message (ChatGPT):** the budget is *messages per window*. A prompt that was shrunk and then sent still costs one message, so shrinking adds 0 minutes here; only a message never sent would count, and the gate sends every one. The ChatGPT cards therefore stay at 0 for current traffic.
 
 The seconds card averages over events; the minutes card sums them. `pnpm run ledger:sync` prints the same two figures in the terminal as readable durations, e.g. `~11.4s per prompt · ~4m 12s total`.
 
@@ -537,18 +531,18 @@ Use your analytics to make concrete engineering decisions:
 ┌───────────────────────────────────────────────┬─────────────────────────────────────────────────────────────┐
 │ What the Data Shows                           │ Recommended Engineering / Product Action                   │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
-│ High % of `defer_local` (>40%) with           │ Your local SLM is handling tasks well! Consider testing     │
-│ 100% `verified` pass rate.                    │ a slightly smaller model preset (e.g. ram-24 -> ram-16) to │
-│                                               │ decrease local RAM and increase inference speed.            │
+│ Most rows are `forward_compressed` and the  │ The gate is doing its job. Check the dashboard's fidelity   │
+│ fidelity card shows nothing lost.             │ card now and then; `pnpm run protections` lists what the    │
+│                                               │ guard has learned to keep.                                  │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
-│ `verified` pass rate drops below 95%, or      │ The local model is attempting tasks that are too hard.      │
-│ quality scores decrease on local answers.     │ Increase `HEADLINE_STRICTNESS` in `.env` (e.g. 3 -> 4 or 5) │
-│                                               │ to force uncertain tasks to escalate to the cloud.          │
+│ The fidelity card shows `recall_fail` or      │ The gate model drops requirement sentences from skills.     │
+│ `not_shrunk` often.                           │ Try a bigger gate model for your RAM, or set                │
+│                                               │ `DISTILL_SKILLS=off` so skills go out word for word.        │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
 │ High latency on `local_slm_generation`        │ Your local GPU/RAM is saturated. Lower your `RAM_PRESET` or │
 │ (p90 > 5 seconds).                            │ ensure Ollama has GPU acceleration enabled (`ollama ps`).   │
 ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────────┤
-│ High % of `forward_raw` (>80%).               │ Prompts are not qualifying for compression or deferral.     │
+│ High % of `forward_raw` (>80%).               │ Requests carry nothing large enough to shrink.              │
 │                                               │ Check if user prompts contain tool output or complex steps. │
 └───────────────────────────────────────────────┴─────────────────────────────────────────────────────────────┘
 ```

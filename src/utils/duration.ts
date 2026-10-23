@@ -6,7 +6,7 @@
  * it. The Langfuse dashboard cannot: a numeric score row carries `value: number` and no
  * unit field, and the card aggregates rows server-side, so there is no point at which a
  * formatted string could be attached. Anywhere we build the final string ourselves — the
- * sync summary table, the bench leaderboard — renders through here so they cannot drift.
+ * sync summary table — renders through here so they cannot drift.
  */
 
 const SECONDS_PER_MINUTE = 60;

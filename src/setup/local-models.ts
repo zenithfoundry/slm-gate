@@ -105,7 +105,7 @@ function probeProblem(probe: Exclude<OllamaProbe, { kind: 'ok' }>): SetupProblem
   switch (probe.kind) {
     case 'unreachable':
       return {
-        message: `Ollama is not running at ${host}, so nothing is answered or shrunk locally (requests still reach the cloud).`,
+        message: `Ollama is not running at ${host}, so nothing is shrunk or remembered locally (requests still reach the cloud).`,
         fix: howToStartOllama(),
       };
     case 'no-answer':

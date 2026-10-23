@@ -26,7 +26,7 @@ const ev = (o: Partial<LedgerEvent> = {}): LedgerEvent => ({
   request_id: `r_${Math.random()}`,
   route: 'condition',
   is_local_call: 1,
-  slm_model: 'qwen2.5-coder:3b',
+  slm_model: 'qwen3.5:2b',
   in_tok: 4511,
   out_tok: 1825,
   api_in_tok: 0,
@@ -105,8 +105,8 @@ describe('cycle extension requires a real denominator', () => {
   it('message metering: one locally-resolved prompt frees one message of the window', () => {
     process.env.CHATGPT_WINDOW_BUDGET = '90';
     __resetProviderRegistry();
-    // 180 minutes / 90 messages = 2 minutes per message avoided.
-    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(2, 6);
+    // Codex meters a 5h window: 300 minutes / 90 messages = 3.333 minutes per message avoided.
+    expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(300 / 90, 6);
   });
 
   it('message metering: a distilled-but-forwarded prompt frees nothing — the message was still sent', () => {

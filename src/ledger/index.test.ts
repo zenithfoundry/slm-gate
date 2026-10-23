@@ -1,5 +1,44 @@
+import { describe, expect, it } from '@jest/globals';
 import { __resetProviderRegistry } from '../pricing/providers.js';
-import { computeCycleRates, computeTotalsByProvider, formatEventForLangfuse, LedgerEvent, providerFromAgent, providerFromModel } from './index.js';
+import { computeCycleRates, computeTotals, computeTotalsByProvider, forgetProtection, formatEventForLangfuse, learnedProtections, LedgerEvent, listProtections, normaliseProtection, perEventBaselineTokens, perEventTokensSaved, providerFromAgent, providerFromModel, recordLostSentences } from './index.js';
+
+describe('learned protections in the ledger', () => {
+  const sentence = '  You should run the   checks before merging.  ';
+
+  it('stores a lost sentence once in normalised form, counts repeats, and forgets on request', () => {
+    forgetProtection(sentence);
+    expect(recordLostSentences({ sentences: [sentence, 'tiny'], toolName: 'get_skill' })).toBe(1);
+    expect(recordLostSentences({ sentences: [sentence], toolName: 'get_skill' })).toBe(0);
+    const row = listProtections().find(r => r.pattern === normaliseProtection(sentence));
+    expect(row?.hits).toBe(2);
+    expect(learnedProtections()).toContain('you should run the checks before merging.');
+    expect(forgetProtection(sentence)).toBe(true);
+    expect(learnedProtections()).not.toContain('you should run the checks before merging.');
+  });
+});
+
+describe('expansion rows charge the page the cloud model re-read against the savings', () => {
+  const row = (o: Partial<LedgerEvent>): LedgerEvent => ({
+    ts: new Date().toISOString(), layer: 'mcp', request_id: 'r', route: 'condition', is_local_call: 1,
+    in_tok: 0, out_tok: 0, api_in_tok: 0, api_out_tok: 0, cost_usd: 0, slm_latency_s: 0, api_latency_s: 0, slm_gate: 'on', ...o,
+  });
+
+  it('counts a feedback row with out_tok 1800 as -1800 saved and 0 baseline', () => {
+    const feedback = row({ route: 'feedback', out_tok: 1800 });
+    expect(perEventTokensSaved(feedback)).toBe(-1800);
+    expect(perEventBaselineTokens(feedback)).toBe(0);
+  });
+
+  it('still counts an old feedback row with out_tok 0 as 0', () => {
+    expect(perEventTokensSaved(row({ route: 'feedback', out_tok: 0 }))).toBe(0);
+  });
+
+  it('nets an expansion against the conditioning that caused it in the totals', () => {
+    const totals = computeTotals([row({ route: 'condition', in_tok: 6000, out_tok: 1000 }), row({ route: 'feedback', out_tok: 2000 })]);
+    expect(totals.tokensSaved).toBe(3000);
+    expect(totals.baselineTokens).toBe(6000);
+  });
+});
 
 describe('formatEventForLangfuse', () => {
   const baseEvent: LedgerEvent = {

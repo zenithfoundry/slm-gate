@@ -10,14 +10,13 @@
  * span opened by the first request (Claude: 5 h), so cycles can only be reconstructed
  * by clustering events by time — which Langfuse widgets cannot do.
  *
- * Benchmark runs (environment 'bench') are excluded from every savings figure and from
- * routing: they are synthetic. They appear only in the accuracy split, labelled as such.
+ * Rows from the old router benchmark (environment 'bench') are excluded from every savings figure
+ * and from routing: they are synthetic. They are only counted, so the footer can say they were left out.
  */
 
 import Database from 'better-sqlite3';
 import { CONFIG } from '../config.js';
 import {
-  formatEventForLangfuse,
   perEventBaselineTokens,
   perEventCycleMinutes,
   perEventTokensSaved,
@@ -71,12 +70,6 @@ export interface DayRow {
   escalatedCloud: number;
 }
 
-interface AccuracySlice {
-  /** Average accuracy score 0–100, or null when nothing was measured. */
-  avgPct: number | null;
-  n: number;
-}
-
 export interface DashboardData {
   generatedAt: string;
   firstEventTs: string | null;
@@ -85,10 +78,122 @@ export interface DashboardData {
   benchEvents: number;
   /** Real traffic only, 'feedback' rows excluded: they record a user action, not a routing decision. */
   routing: { resolvedLocal: number; distilledForwarded: number; escalatedCloud: number };
-  /** Verifier acceptance, split so hiding benchmark data never blanks the real figure. */
-  accuracy: { real: AccuracySlice; bench: AccuracySlice };
+  /** Tool definitions carried per model-gate request (real traffic, formats that report them). */
+  toolDefs: ToolDefsSection;
+  /** Skill shrinking fidelity (real conditionings that carry a measurement). */
+  fidelity: FidelitySection;
   days: DayRow[];
   providers: ProviderSection[];
+}
+
+export interface FidelitySection {
+  /** Conditionings whose meta carries fidelity (any mode, cache hits included). */
+  conditionings: number;
+  /** Conditionings where a model shortened text (summarize or not_shrunk): the ones the guard measured. */
+  measured: number;
+  /** Average recall over measured rows where the brain checked at least one run; null when none. */
+  avgRecall: number | null;
+  /** Share of measured rows whose protected blocks and tracked tokens all survived; null when none measured. */
+  deterministicPassPct: number | null;
+  notShrunk: number;
+  /** Expansion rows per conditioning, all real traffic. */
+  expansionRate: number | null;
+  /** The three measured skills with the lowest recall. */
+  worst: { skill: string; recall: number }[];
+  /** Learned protections stored in the ledger; null when the loader did not supply the count. */
+  learned: number | null;
+}
+
+/** Figures that live outside the events table; the loader supplies them, tests may omit them. */
+export interface DashboardExtras {
+  learnedProtections?: number;
+}
+
+/**
+ * Aggregates `meta.fidelity` over condition rows for the "Skill fidelity" card. Only rows where a model shortened
+ * text (summarize or not_shrunk) count as measured; cache hits and verbatim rows are counted but not scored, so
+ * an unmeasured share never inflates recall. Expansions are rated per conditioning over all real traffic.
+ */
+function fidelitySection(events: LedgerEvent[], extras: DashboardExtras): FidelitySection {
+  let conditionings = 0;
+  let measured = 0;
+  let deterministicPass = 0;
+  let notShrunk = 0;
+  const recalls: { skill: string; recall: number }[] = [];
+  let conditionRows = 0;
+  let feedbackRows = 0;
+  for (const e of events) {
+    if (e.route === 'feedback') feedbackRows++;
+    if (e.route !== 'condition') continue;
+    conditionRows++;
+    if (!e.meta) continue;
+    let meta: { fidelity?: { mode?: string; deterministic?: number; recall?: number | null } };
+    try { meta = JSON.parse(e.meta); } catch { continue; }
+    const f = meta.fidelity;
+    if (!f || typeof f.mode !== 'string') continue;
+    conditionings++;
+    if (f.mode === 'not_shrunk') notShrunk++;
+    if (f.mode !== 'summarize' && f.mode !== 'not_shrunk') continue;
+    measured++;
+    if (f.deterministic === 1) deterministicPass++;
+    if (typeof f.recall === 'number') recalls.push({ skill: e.skill ?? 'unknown', recall: f.recall });
+  }
+  const pct = (n: number, d: number) => (d === 0 ? null : Number(((n / d) * 100).toFixed(1)));
+  return {
+    conditionings,
+    measured,
+    avgRecall: recalls.length === 0 ? null : Number((recalls.reduce((s, r) => s + r.recall, 0) / recalls.length).toFixed(3)),
+    deterministicPassPct: pct(deterministicPass, measured),
+    notShrunk,
+    expansionRate: conditionRows === 0 ? null : Number((feedbackRows / conditionRows).toFixed(2)),
+    worst: [...recalls].sort((a, b) => a.recall - b.recall).slice(0, 3),
+    learned: extras.learnedProtections ?? null,
+  };
+}
+
+export interface ToolDefsSection {
+  /** Requests that reported tool counts. */
+  requests: number;
+  avgCount: number | null;
+  avgDeferred: number | null;
+  /** Average estimated tokens of the definitions that entered the context. */
+  avgTokEst: number | null;
+  last: { count: number; deferred: number; tokEst: number } | null;
+  /** The latest request carried many tools and deferred none: tool search is not working through the gate. */
+  warn: boolean;
+}
+
+const TOOL_DEFS_WARN_ABOVE = 20;
+
+/**
+ * Aggregates the tool-definition counts the model gate records on each request (`meta.tools_*`) for the "Tool
+ * definitions in context" card. The warning keys on the LATEST request: many tools listed and none deferred means
+ * server-side tool search is not working through the gate right now, whatever earlier requests did.
+ */
+function toolDefsSection(events: LedgerEvent[]): ToolDefsSection {
+  const rows: { count: number; deferred: number; tokEst: number }[] = [];
+  for (const e of events) {
+    if (e.layer !== 'llm' || !e.meta) continue;
+    let meta: Record<string, unknown>;
+    try { meta = JSON.parse(e.meta); } catch { continue; }
+    if (typeof meta.tools_count !== 'number') continue;
+    rows.push({
+      count: meta.tools_count,
+      deferred: typeof meta.tools_deferred === 'number' ? meta.tools_deferred : 0,
+      tokEst: typeof meta.tools_tok_est === 'number' ? meta.tools_tok_est : 0,
+    });
+  }
+  if (rows.length === 0) return { requests: 0, avgCount: null, avgDeferred: null, avgTokEst: null, last: null, warn: false };
+  const avg = (pick: (r: typeof rows[number]) => number) => Number((rows.reduce((s, r) => s + pick(r), 0) / rows.length).toFixed(1));
+  const last = rows[rows.length - 1];
+  return {
+    requests: rows.length,
+    avgCount: avg(r => r.count),
+    avgDeferred: avg(r => r.deferred),
+    avgTokEst: avg(r => r.tokEst),
+    last,
+    warn: last.count > TOOL_DEFS_WARN_ABOVE && last.deferred === 0,
+  };
 }
 
 const PROVIDERS = [
@@ -112,12 +217,6 @@ function weekStartOf(ts: string): string {
   const date = new Date(ts);
   date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
   return date.toISOString().slice(0, 10);
-}
-
-/** The event's accuracy score (0–100) exactly as the Langfuse mirror would emit it, or null. */
-function accuracyOf(e: LedgerEvent): number | null {
-  const score = formatEventForLangfuse(e).scores?.find(s => s.name === 'accuracy_rate_pct');
-  return typeof score?.value === 'number' ? score.value : null;
 }
 
 /**
@@ -144,7 +243,7 @@ export function clusterCycles(params: { events: LedgerEvent[]; windowMinutes: nu
 }
 
 /** Pure aggregation over ledger events, so it is testable without a database. */
-export function computeDashboardData(events: LedgerEvent[]): DashboardData {
+export function computeDashboardData(events: LedgerEvent[], extras: DashboardExtras = {}): DashboardData {
   const sorted = [...events].sort((a, b) => a.ts.localeCompare(b.ts));
   const real = sorted.filter(e => e.environment !== 'bench');
   const bench = sorted.filter(e => e.environment === 'bench');
@@ -157,7 +256,8 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
     row.events += 1;
     row.tokensSaved += perEventTokensSaved(e);
     row.baselineTokens += perEventBaselineTokens(e);
-    if (e.route !== 'feedback') {
+    // Feedback clicks and memory folds are not routing decisions.
+    if (e.route !== 'feedback' && e.route !== 'memory_fold') {
       const outcome = routingOutcome(e) === 'resolved_local' ? 'resolvedLocal'
         : routingOutcome(e) === 'distilled_forwarded' ? 'distilledForwarded' : 'escalatedCloud';
       row[outcome] += 1;
@@ -165,12 +265,6 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
     }
     days.set(day, row);
   }
-
-  const accuracySlice = (slice: LedgerEvent[]): AccuracySlice => {
-    const scores = slice.map(accuracyOf).filter((v): v is number => v !== null);
-    if (scores.length === 0) return { avgPct: null, n: 0 };
-    return { avgPct: Number((scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(2)), n: scores.length };
-  };
 
   const registry = getProviderRegistry();
   const providers: ProviderSection[] = PROVIDERS.map(({ id, label }) => {
@@ -214,7 +308,8 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
     realEvents: real.length,
     benchEvents: bench.length,
     routing,
-    accuracy: { real: accuracySlice(real), bench: accuracySlice(bench) },
+    toolDefs: toolDefsSection(real),
+    fidelity: fidelitySection(real, extras),
     days: [...days.values()].sort((a, b) => a.day.localeCompare(b.day)),
     providers,
   };
@@ -224,7 +319,11 @@ export function computeDashboardData(events: LedgerEvent[]): DashboardData {
 export function loadDashboardData(): DashboardData {
   const db = new Database(CONFIG.LEDGER_PATH, { readonly: true, fileMustExist: true });
   try {
-    return computeDashboardData(db.prepare('SELECT * FROM events').all() as LedgerEvent[]);
+    const events = db.prepare('SELECT * FROM events').all() as LedgerEvent[];
+    // Older ledgers have no distill_protect table; the card then shows the count as not measured.
+    let learnedProtections: number | undefined;
+    try { learnedProtections = db.prepare('SELECT count(*) FROM distill_protect').pluck().get() as number; } catch { learnedProtections = undefined; }
+    return computeDashboardData(events, { learnedProtections });
   } finally {
     db.close();
   }

@@ -33,13 +33,13 @@ The `env` values above apply to this MCP server only. The model gate below is sh
 Add this to `~/.claude/settings.json` (no `/v1` at the end; Claude Code adds it):
 
 ```json
-{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787" } }
+{ "env": { "ANTHROPIC_BASE_URL": "http://localhost:8787", "ENABLE_TOOL_SEARCH": "true" } }
 ```
 
 In the VS Code extension, put it in your VS Code user settings instead:
 
 ```json
-"claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8787" }]
+"claudeCode.environmentVariables": [{ "name": "ANTHROPIC_BASE_URL", "value": "http://localhost:8787" }, { "name": "ENABLE_TOOL_SEARCH", "value": "true" }]
 ```
 
 - Your claude.ai Pro/Max login or API key keeps working.

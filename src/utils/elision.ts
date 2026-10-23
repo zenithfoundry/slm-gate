@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
-import { getDb, getDistillFeedback, getDistillPolicy, writeElision } from '../ledger/index.js';
+import { getDb, getDistillFeedback, getDistillPolicy, learnedProtections, normaliseProtection, recordLostSentences, writeElision } from '../ledger/index.js';
 import { bufferToFloat64Array, cosineSimilarity, embedText } from '../utils/embedding.js';
 import { TOOL_RESULT_PREFIXES } from './constants.js';
 
@@ -23,7 +23,8 @@ const MIN_COMPRESSIBLE_SEGMENT_CHARS = 400;
  * up — starving the runs still queued behind them. A run is now handed to the model only when a
  * slot frees up, so its timer starts when its generation can actually start.
  */
-const MAX_CONCURRENT_SEGMENT_CALLS = 2;
+// Prose runs shortened at the same time; a setting since the gate-model bench so the bench can compare 1 and 2.
+const MAX_CONCURRENT_SEGMENT_CALLS = Math.max(1, CONFIG.MAX_CONCURRENT_SEGMENT_CALLS ?? 2);
 
 /**
  * Computes a deterministic SHA-256 ID for a tool elision.
@@ -58,15 +59,41 @@ export function formatElisionMarker(elisionId: string, elidedLinesCount: number,
   const rangeStr = hasRange ? `, lines ${startLine}-${endLine}` : '';
   // Spell out the range argument: without it, expand_elision starts from the top of the
   // original, which looks like the same cut text coming back.
+  // ask_elision: a question costs a few sentences instead of a 2,000-token page.
   const how = hasRange
-    ? `call expand_elision with this id and range {"startLine": ${startLine}, "endLine": ${endLine}} to retrieve`
-    : 'call expand_elision with this id to retrieve';
+    ? `call expand_elision with this id and range {"startLine": ${startLine}, "endLine": ${endLine}} to retrieve, or ask_elision with this id and a question`
+    : 'call expand_elision with this id to retrieve, or ask_elision with this id and a question';
   return `\n... ${elidedLinesCount} lines elided [id: ${elisionId}${rangeStr}] — ${how} ...\n`;
+}
+
+/**
+ * Splits a document into chunks that each fit `maxTokens`, cutting at headings where it can and at the budget
+ * where it must, with the line range of each chunk so an answer can point back at the original. Pure.
+ */
+export function splitByHeadings(text: string, maxTokens: number): { text: string; startLine: number; endLine: number }[] {
+  const lines = text.split('\n');
+  const chunks: { text: string; startLine: number; endLine: number }[] = [];
+  let start = 0;
+  let tokens = 0;
+  const flush = (end: number) => {
+    if (end <= start) return;
+    chunks.push({ text: lines.slice(start, end).join('\n'), startLine: start, endLine: end - 1 });
+    start = end;
+    tokens = 0;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const cost = estimateTokens(lines[i]) + 1;
+    const isHeading = /^#{1,6}\s/.test(lines[i]);
+    if (tokens > 0 && (isHeading && tokens + cost > maxTokens * 0.6 || tokens + cost > maxTokens)) flush(i);
+    tokens += cost;
+  }
+  flush(lines.length);
+  return chunks;
 }
 
 // Matches the retrieval clause formatElisionMarker writes, with or without a range. Kept next to it so
 // a wording change is made in both places; a test pairs them.
-const EXPAND_HINT = /— call expand_elision with this id(?: and range \{"startLine": \d+, "endLine": \d+\})? to retrieve \.\.\./g;
+const EXPAND_HINT = /— call expand_elision with this id(?: and range \{"startLine": \d+, "endLine": \d+\})? to retrieve, or ask_elision with this id and a question \.\.\./g;
 
 /**
  * Rewrites the markers in a distilled text for a client that has no `expand_elision` tool (the MCP
@@ -285,6 +312,71 @@ export function mergeRegions(lines: string[], keepLines: number[]): { lines: str
  * @param preservePatterns - A rigid list of RegExp patterns whose matched lines MUST survive SLM compression
  * @returns The final compressed text representation, optionally featuring elision markers
  */
+/** What the fidelity guard measured for one distillation (ledger meta.fidelity, the dashboard card, the bench). */
+export interface FidelityStats {
+  /** small: under DISTILL_MIN_TOKENS; not_shrunk: a skill still over budget after shrinking, sent as the original. */
+  mode: 'small' | 'cache_hit' | 'verbatim' | 'structural' | 'summarize' | 'not_shrunk';
+  /** 1 when every protected block and every tracked token survived reassembly (or nothing was compressed). */
+  deterministic: 1 | 0;
+  /** Average recall over the runs the brain checked; null when none was checked. */
+  recall: number | null;
+  /** Requirement sentences or tokens that would have been lost (the run was kept verbatim instead). */
+  lost: string[];
+  /** Prose runs sent to the gate model. */
+  runs: number;
+  runsChecked: number;
+  /** Runs kept verbatim after a failed or impossible check. */
+  runsKept: number;
+  /** Runs left verbatim because the run cap or the time budget was reached. */
+  runsSkippedBudget: number;
+  /** Local-model failures (compression or check) that kept a run verbatim; each message says which. */
+  errors: string[];
+  /** Lines protected because they contain a sentence the brain once reported missing: the learned protections. */
+  learnedProtected: number;
+  /** Sentences stored as new learned protections by this distillation. */
+  learnedNew: number;
+  elapsedMs: number;
+}
+
+/** Answers, per inventory sentence, whether the compressed text still states it (the brain model, see reasoning.ts). */
+export type FidelityVerify = (params: { inventory: string[]; compressed: string }) => Promise<boolean[]>;
+
+const MAX_INVENTORY = 40;
+const REQUIREMENT_WORDS = /\b(?:must|should|never|always|do not|don't|only|before|after|unless|required|forbidden)\b/i;
+const PATH_LIKE = /(?:^|\s)\.?\/?[\w.-]+\/[\w./-]+/;
+const TRACKED_TOKENS = [/\bmcp__\w+/g, /\b\d+(?:\.\d+)?\s?(?:ms|s|sec|secs|min|mins|h|hours?|%|KB|MB|GB|tokens?|lines?|chars?|turns?)\b/g];
+
+/** Fresh stats for a distillation that has done no model work yet (or never will, for the given mode). */
+function blankFidelity(mode: FidelityStats['mode']): FidelityStats {
+  return { mode, deterministic: 1, recall: null, lost: [], runs: 0, runsChecked: 0, runsKept: 0, runsSkippedBudget: 0, errors: [], learnedProtected: 0, learnedNew: 0, elapsedMs: 0 };
+}
+
+/**
+ * The sentences of a prose run that carry a requirement: a rule word, a number, a backticked token or a path.
+ * Built by code, in order, so the model that checks them cannot leave one out. Pure.
+ */
+export function requirementInventory(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
+    const sentence = raw.trim();
+    if (sentence.length < 12 || seen.has(sentence)) continue;
+    if (REQUIREMENT_WORDS.test(sentence) || /\d/.test(sentence) || sentence.includes('`') || PATH_LIKE.test(sentence)) {
+      seen.add(sentence);
+      out.push(sentence);
+    }
+  }
+  return out;
+}
+
+/** Tool names and unit quantities that must appear verbatim in any rebuilt text. Pure. */
+export function fidelityTokens(text: string): string[] {
+  const found = new Set<string>();
+  for (const pattern of TRACKED_TOKENS) for (const match of text.matchAll(pattern)) found.add(match[0]);
+  return [...found];
+}
+
+/** `distillToolResultWithStats` for callers that only want the text. */
 export async function distillToolResult(
   slm: (text: string, task?: string) => Promise<string>,
   text: string,
@@ -293,13 +385,30 @@ export async function distillToolResult(
   args: any,
   preservePatterns: RegExp[]
 ): Promise<string> {
+  return (await distillToolResultWithStats({ slm, text, task, toolName, args, preservePatterns })).text;
+}
+
+/**
+ * Distils one tool result and says what the fidelity guard saw. `verify` turns on the brain check of every
+ * compressed prose run (skills); without it the deterministic checks alone apply, as before.
+ */
+export async function distillToolResultWithStats(params: {
+  slm: (text: string, task?: string) => Promise<string>;
+  text: string;
+  task: string | undefined;
+  toolName: string | undefined;
+  args: any;
+  preservePatterns: RegExp[];
+  verify?: FidelityVerify;
+}): Promise<{ text: string; fidelity: FidelityStats }> {
+  const { slm, text, task, toolName, args, preservePatterns, verify } = params;
   const minTokens = CONFIG.DISTILL_MIN_TOKENS ?? 500;
   const maxTokens = CONFIG.DISTILL_MAX_TOKENS ?? 2000;
   const originalTokens = estimateTokens(text);
-  
+
   // If small enough, bypass all logic
   if (originalTokens < minTokens) {
-    return text;
+    return { text, fidelity: blankFidelity('small') };
   }
 
   // Determine caching keys
@@ -312,7 +421,7 @@ export async function distillToolResult(
   const db = getDb();
   const cached = db.prepare('SELECT value FROM cache WHERE key = ?').get(cacheKey) as { value: string } | undefined;
   if (cached) {
-    return cached.value;
+    return { text: cached.value, fidelity: blankFidelity('cache_hit') };
   }
 
   // Commit the uncompressed original to the DB for recovery via `expand_elision`
@@ -395,7 +504,9 @@ export async function distillToolResult(
   }
 
   let finalText = processedText;
-  
+  const started = Date.now();
+  const stats = blankFidelity('verbatim');
+
   // ============================================================================
   // DISTILLATION POLICY & SLM FALLBACK
   // ============================================================================
@@ -411,10 +522,11 @@ export async function distillToolResult(
    */
   let fidelity = getDistillPolicy(resolvedToolName);
   
-  // Guardrail: If DISTILL_SKILLS is off, force verbatim mode for all skill payloads
-  // to guarantee skill instruction contracts are not corrupted by summarization.
-  if (isSkill && !CONFIG.DISTILL_SKILLS) {
-    fidelity = 'verbatim';
+  // DISTILL_SKILLS is the one switch for skill payloads. Off: verbatim, whatever the policy table says, so
+  // skill instruction contracts are never touched by summarisation. On: summarize — the seeded policy rows
+  // (`%skill%` → verbatim) are the "off" default, not an override; without this the switch had no effect.
+  if (isSkill) {
+    fidelity = CONFIG.DISTILL_SKILLS ? 'summarize' : 'verbatim';
   }
 
   let skillBypassFired = false;
@@ -426,7 +538,9 @@ export async function distillToolResult(
   } else if (fidelity === 'structural' && estimateTokens(finalText) > maxTokens) {
     // Structural mode relies purely on the Hard Truncation check at the bottom of this file.
     // We skip the SLM Semantic loop because structural integrity is more important than size.
+    stats.mode = 'structural';
   } else if (estimateTokens(finalText) > maxTokens) {
+    stats.mode = 'summarize';
     // --------------------------------------------------------------------------
     // SUMMARIZE MODE
     //
@@ -487,11 +601,34 @@ export async function distillToolResult(
       console.error('[distill] Structural parsing failed', e);
     }
 
+    // Phase 1b: the whole YAML frontmatter block. markdown-it emits a `front_matter` token only with a
+    // plugin this file does not load, and the `^---` preserve pattern protects the two fence lines only.
+    if (slmLines[0]?.trim() === '---') {
+      const close = slmLines.findIndex((line, i) => i > 0 && line.trim() === '---');
+      for (let i = 0; i <= (close === -1 ? slmLines.length - 1 : close); i++) protectedLineIndices.add(i);
+    }
+
     // Phase 2: user-supplied preserve patterns, plus elision markers from an earlier pass.
     for (let i = 0; i < slmLines.length; i++) {
       const line = slmLines[i];
       if (preservePatterns.some(p => p.test(line)) || line.includes('lines elided [id:')) {
         protectedLineIndices.add(i);
+      }
+    }
+
+    // Phase 2b: learned protections. Every sentence the brain once reported missing from a
+    // shortened run is stored in the ledger; a line that contains one is protected by code from now on, so
+    // the same loss never recurs and the list grows with use instead of with pattern edits. Skills only
+    // (the brain check is what learns), matched on the normalised line.
+    const learned = verify ? learnedProtections() : [];
+    if (learned.length > 0) {
+      for (let i = 0; i < slmLines.length; i++) {
+        if (protectedLineIndices.has(i)) continue;
+        const line = normaliseProtection(slmLines[i]);
+        if (line.length >= 12 && learned.some(pattern => line.includes(pattern))) {
+          protectedLineIndices.add(i);
+          stats.learnedProtected++;
+        }
       }
     }
 
@@ -504,7 +641,7 @@ export async function distillToolResult(
         const line = slmLines[i];
         if (protectedLineIndices.has(i) || line.trim().length < 20) continue;
         // The explore rate is the FRACTION OF LINES that get an embedding call (0.15 = 15%), as
-        // .env.example documents and as ROUTING_TUNE_EXPLORE_RATE reads. Each call is a serial
+        // .env.example documents. Each call is a serial
         // round-trip to the embedding model, so sampling is what keeps it off the critical path.
         if (Math.random() >= CONFIG.DISTILL_ADAPTIVE_EXPLORE_RATE) continue;
 
@@ -544,17 +681,59 @@ export async function distillToolResult(
     const skippedUnderFloor = narrativeRuns.length - queue.length;
     let failedRuns = 0;
 
+    // Fidelity guard caps (only with a brain check, i.e. skills): at most DISTILL_FIDELITY_MAX_RUNS runs are
+    // compressed and checked, inside DISTILL_FIDELITY_BUDGET_MS for the whole document. Beyond either cap a run
+    // stays verbatim — fail closed, never cut.
+    stats.runs = queue.length;
+    if (verify && queue.length > CONFIG.DISTILL_FIDELITY_MAX_RUNS) {
+      stats.runsSkippedBudget += queue.length - CONFIG.DISTILL_FIDELITY_MAX_RUNS;
+      queue.length = CONFIG.DISTILL_FIDELITY_MAX_RUNS;
+    }
+    const deadline = verify ? started + CONFIG.DISTILL_FIDELITY_BUDGET_MS : Number.POSITIVE_INFINITY;
+    let recallSum = 0;
+    // Sentences the brain reported missing: kept verbatim now, and learned (Phase 2b) for every later run.
+    const lostSentences: string[] = [];
+    const keepVerbatim = (why: string) => { stats.runsKept++; stats.lost.push(why); };
+
     const compressRun = async (segment: { lines: string[] }) => {
       const original = segment.lines.join('\n');
+      if (Date.now() > deadline) { stats.runsSkippedBudget++; return; }
       try {
         const summary = (await slm(original, task)).trim();
         // Accept only a non-empty result that actually shrank; otherwise keep the original.
-        if (summary.length > 0 && summary.length < original.length) {
-          segment.lines = summary.split('\n');
+        if (!(summary.length > 0 && summary.length < original.length)) return;
+        if (Date.now() > deadline) { stats.runsSkippedBudget++; return; }
+        if (verify) {
+          const inventory = requirementInventory(original);
+          if (inventory.length > MAX_INVENTORY) return keepVerbatim(`inventory_overflow(${inventory.length})`);
+          if (inventory.length > 0) {
+            let kept: boolean[];
+            try {
+              kept = await verify({ inventory, compressed: summary });
+            } catch (err) {
+              stats.runsKept++;
+              stats.errors.push(`check_failed: ${err instanceof Error ? err.message : String(err)}`);
+              return;
+            }
+            if (Date.now() > deadline) { stats.runsSkippedBudget++; return; }
+            if (kept.length !== inventory.length) return keepVerbatim(`check_length_mismatch(${kept.length}/${inventory.length})`);
+            const missing = inventory.filter((_, i) => !kept[i]);
+            const recall = 1 - missing.length / inventory.length;
+            stats.runsChecked++;
+            recallSum += recall;
+            if (recall < CONFIG.DISTILL_FIDELITY_MIN) {
+              stats.runsKept++;
+              stats.lost.push(...missing);
+              lostSentences.push(...missing);
+              return;
+            }
+          }
         }
+        segment.lines = summary.split('\n');
       } catch (err) {
         // Fail open for THIS run only — every other run still compresses.
         failedRuns++;
+        stats.errors.push(`compress_failed: ${err instanceof Error ? err.message : String(err)}`);
         console.error(`[distill] segment kept verbatim after compression failure: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
@@ -583,10 +762,25 @@ export async function distillToolResult(
     // Invariant, not a discard path. Protected runs are spliced back from our own copy, so this
     // can only trip if the segmentation is wrong — never because a model misbehaved.
     const lost = protectedBlocks.filter(block => !rebuilt.includes(block));
-    if (lost.length === 0) {
+    // Belt and braces for the same guarantee: tool names and unit quantities of the original must be in
+    // the rebuilt text, whatever run they sat in.
+    const lostTokens = fidelityTokens(finalText).filter(token => !rebuilt.includes(token));
+    if (lost.length === 0 && lostTokens.length === 0) {
       finalText = rebuilt;
     } else {
-      console.warn(`distill_fallback: ${lost.length} protected block(s) missing after reassembly; keeping the original text`);
+      stats.deterministic = 0;
+      stats.lost.push(...lost.map(block => `protected_block: ${block.slice(0, 60)}`), ...lostTokens);
+      console.warn(`distill_fallback: ${lost.length} protected block(s) and ${lostTokens.length} tracked token(s) missing after reassembly; keeping the original text`);
+    }
+    stats.recall = stats.runsChecked > 0 ? Number((recallSum / stats.runsChecked).toFixed(3)) : null;
+    if (lostSentences.length > 0) stats.learnedNew = recordLostSentences({ sentences: lostSentences, toolName: resolvedToolName });
+
+    // Constraint: a fidelity guard fails closed. A skill still over budget after shrinking would now be cut
+    // in the middle by the hard truncation below, after passing the guard. Send the ORIGINAL instead (cut
+    // with a marker, exactly as a verbatim skill is sent today) and say so; the compressed text is dropped.
+    if (isSkill && finalText !== text && estimateTokens(finalText) > maxTokens) {
+      finalText = text;
+      stats.mode = 'not_shrunk';
     }
   }
 
@@ -611,8 +805,9 @@ export async function distillToolResult(
     }
   }
 
-  // Memorize the computed result
+  // Memorize the computed result (for 'not_shrunk' that is the original's deterministic cut, never model output)
   db.prepare('INSERT OR REPLACE INTO cache (key, value, ts) VALUES (?, ?, ?)').run(cacheKey, finalText, new Date().toISOString());
 
-  return finalText;
+  stats.elapsedMs = Date.now() - started;
+  return { text: finalText, fidelity: stats };
 }

@@ -12,9 +12,16 @@ describe('toolSettings (printed by `slm-gate doctor`)', () => {
 
   it('gives Claude Code the address without /v1 and Codex the address with /v1', () => {
     const [claudeCode, codex] = toolSettings(8787);
-    expect(claudeCode.lines[0]).toContain('"ANTHROPIC_BASE_URL": "http://localhost:8787" }');
+    expect(claudeCode.lines[0]).toContain('"ANTHROPIC_BASE_URL": "http://localhost:8787"');
+    expect(claudeCode.lines[0]).not.toContain('8787/v1');
     expect(codex.lines).toContain('  base_url = "http://localhost:8787/v1"');
     expect(codex.lines).toContain('  requires_openai_auth = true');
+  });
+
+  it('tells Claude Code to keep server-side tool search on behind the gate, in both settings forms', () => {
+    const [claudeCode] = toolSettings(8787);
+    expect(claudeCode.lines[0]).toContain('"ENABLE_TOOL_SEARCH": "true"');
+    expect(claudeCode.lines[1]).toContain('{ "name": "ENABLE_TOOL_SEARCH", "value": "true" }');
   });
 
   it('explains why each unroutable tool cannot use the gate', () => {

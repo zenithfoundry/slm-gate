@@ -1,0 +1,16 @@
+{
+  "mustSurvive": [
+    "owners:",
+    "  - release crew",
+    "A release MUST be cut from the main branch only.",
+    "1. Tag the commit with `mcp__example__tag_release` using the next version number.",
+    "2. Build the artefact once with scripts/build-release.sh and promote that same file.",
+    "3. Wait at most 15 min for the smoke run; a red run blocks the release.",
+    "| Stage | Owner | Time limit |",
+    "| publish | release crew | 10 min |",
+    "ALWAYS keep the previous version available for rollback.",
+    "The notes come from mcp__example__draft_notes and are edited by a person.",
+    "Do not publish more than 3 releases on one day.",
+    "./scripts/build-release.sh --tag \"$VERSION\""
+  ]
+}

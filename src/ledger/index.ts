@@ -36,7 +36,7 @@ export interface LedgerEvent {
   request_id: string;
   session_id?: string;
   skill?: string;
-  route: 'defer_local' | 'escalate' | 'forward_compressed' | 'forward_raw' | 'condition' | 'feedback';
+  route: 'defer_local' | 'escalate' | 'forward_compressed' | 'forward_raw' | 'condition' | 'feedback' | 'memory_fold';
   is_local_call: number; // 0 or 1
   slm_model?: string;
   api_model?: string;
@@ -168,6 +168,68 @@ export function getDb(): Database.Database {
         last_accessed_at TEXT,
         size_bytes INTEGER
       );
+
+      -- Learned protections: every sentence the brain model once reported missing from a
+      -- shortened skill run, in normalised form. A line that contains one is protected by code from then
+      -- on, so the same loss never recurs and the list grows without anyone editing patterns. Rows are
+      -- never pruned automatically; "pnpm run protections -- --forget" removes one on purpose.
+      CREATE TABLE IF NOT EXISTS distill_protect (
+        pattern TEXT PRIMARY KEY,
+        tool_name TEXT,
+        hits INTEGER DEFAULT 1,
+        first_seen TEXT,
+        last_seen TEXT
+      );
+
+      -- Conditioning cache dependencies (used by decision memory and the repository index): the repository state a cached conditioning relied on.
+      -- A hit is served only while every path still has this mtime and no expires_at has passed.
+      -- Rows without dependencies (every row before this table) are served as before.
+      CREATE TABLE IF NOT EXISTS condition_deps (
+        key TEXT NOT NULL,
+        path TEXT NOT NULL,
+        mtime INTEGER NOT NULL,
+        expires_at TEXT,
+        PRIMARY KEY (key, path)
+      );
+
+      -- Decision memory: one FTS5 index of every repo's .slm-gate/decisions files, keyed by
+      -- repo root, plus the revision it was built from so it is rebuilt only when a file changed.
+      CREATE VIRTUAL TABLE IF NOT EXISTS decisions_fts USING fts5(root UNINDEXED, path UNINDEXED, title, body, tokenize='unicode61');
+      CREATE TABLE IF NOT EXISTS decisions_index (
+        root TEXT PRIMARY KEY,
+        revision TEXT NOT NULL
+      );
+
+      -- Repository symbol index (the repository index, REPO_INDEX=on): one FTS5 row per symbol, the mtime each file was
+      -- indexed at, and a per-root revision that moves whenever a file changed (the cache dependency).
+      CREATE TABLE IF NOT EXISTS repo_files (
+        root TEXT NOT NULL,
+        path TEXT NOT NULL,
+        mtime INTEGER NOT NULL,
+        PRIMARY KEY (root, path)
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS repo_fts USING fts5(root UNINDEXED, path UNINDEXED, line UNINDEXED, kind UNINDEXED, name, tokens, signature, tokenize='unicode61');
+      CREATE TABLE IF NOT EXISTS repo_index (
+        root TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL
+      );
+
+      -- Conversation memory (docs/briefs/2026-10-22-conversation-memory.md): one short running summary per
+      -- conversation, folded by the model gate from the turns it sees, read by the local steps. The summary
+      -- text lives ONLY here: never in events.meta (that is mirrored to Langfuse), never in logs.
+      CREATE TABLE IF NOT EXISTS conversation_memory (
+        key TEXT PRIMARY KEY,          -- conversation key (sha256 of the first user entry), plus ':<discriminator>' for a fork
+        root TEXT,                     -- the workspace the conversation names, when the request says (slice 2)
+        summary TEXT NOT NULL,         -- the running summary, under MEMORY_MAX_TOKENS
+        turns INTEGER NOT NULL,        -- the cursor: history entries the summary has actually read
+        discriminator TEXT,            -- sha256 of the second user entry, once there is one
+        started_at TEXT NOT NULL,      -- when this conversation was first seen
+        folded_at TEXT NOT NULL,       -- the last successful fold
+        fold_failed_at TEXT,           -- the last failed fold; at or after folded_at means "unusable until a good fold"
+        fold_count INTEGER NOT NULL DEFAULT 0,
+        fold_ms INTEGER,               -- the last fold's duration
+        prompt_version TEXT NOT NULL
+      );
     `);
 
 
@@ -196,6 +258,8 @@ export function getDb(): Database.Database {
     if (!policyCount || policyCount.c === 0) {
       const stmt = db.prepare('INSERT INTO distill_policy (tool_pattern, fidelity, priority, updated_at) VALUES (?, ?, ?, ?)');
       const now = new Date().toISOString();
+      // Skills: these rows are the "off" default only. The DISTILL_SKILLS switch decides for every
+      // skill payload (on → summarize under the fidelity guard); see distillToolResultWithStats.
       stmt.run('%skill%', 'verbatim', 10, now);
       stmt.run('get_skill', 'verbatim', 10, now);
       stmt.run('read_file', 'structural', 5, now);
@@ -382,8 +446,9 @@ export function perEventCycleMinutes(e: LedgerEvent, providerId: string): number
 }
 
 export function perEventTokensSaved(e: LedgerEvent): number {
-  // 'feedback' rows record a user action (an elision expansion), not model work.
-  if (e.route === 'feedback') return 0;
+  // 'feedback' rows record an elision expansion: the cloud model re-reads text the gate had cut, so the
+  // page it received (out_tok) is charged against the savings. Rows written before this had out_tok 0.
+  if (e.route === 'feedback') return e.out_tok ? -e.out_tok : 0;
   const parsedMeta = e.meta ? (() => { try { return JSON.parse(e.meta); } catch { return {}; } })() : {};
   if (e.route === 'defer_local') {
     return (e.in_tok || 0) + (e.out_tok || 0);
@@ -556,6 +621,299 @@ export function cacheGet(key: string): string | null {
 export function cacheSet(key: string, value: string) {
   const statement = getDb().prepare('INSERT OR REPLACE INTO cache (key, value, ts) VALUES (?, ?, ?)');
   statement.run(key, value, new Date().toISOString());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Learned protections — see the distill_protect table above.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The one acceptance rule for a learned protection: at least this many characters once normalised. A shorter
+ * "sentence" ("Note:", "Then:") would protect every line that contains it and stop shrinking altogether. The
+ * sentence it came from was kept verbatim at the time regardless (fail closed); the rule only decides what is
+ * learned for later. There is no upper bound: a long sentence simply matches only the line that holds it.
+ */
+const PROTECT_MIN_CHARS = 12;
+
+/** The form a learned protection is stored and matched in: lower-case, single spaces, trimmed. Pure. */
+export function normaliseProtection(sentence: string): string {
+  return sentence.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+export interface LearnedProtection {
+  pattern: string;
+  tool_name: string | null;
+  hits: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+/**
+ * Stores the sentences the brain reported missing from a shortened run, once each; a repeat raises `hits`.
+ * Returns how many were new. Sentences under PROTECT_MIN_CHARS are ignored (see the rule above).
+ */
+export function recordLostSentences(params: { sentences: string[]; toolName: string }): number {
+  const { sentences, toolName } = params;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT INTO distill_protect (pattern, tool_name, hits, first_seen, last_seen) VALUES (?, ?, 1, ?, ?)
+    ON CONFLICT(pattern) DO UPDATE SET hits = hits + 1, last_seen = excluded.last_seen
+  `);
+  let added = 0;
+  for (const sentence of sentences) {
+    const pattern = normaliseProtection(sentence);
+    if (pattern.length < PROTECT_MIN_CHARS) continue;
+    const info = insert.run(pattern, toolName, now, now);
+    // SQLite reports an upsert's UPDATE path with changes = 1 as well, so count by lastInsertRowid change.
+    if (info.changes === 1 && db.prepare('SELECT hits FROM distill_protect WHERE pattern = ?').pluck().get(pattern) === 1) added++;
+  }
+  return added;
+}
+
+/** Every learned protection, most often hit first, capped so the per-line match stays cheap. */
+export function learnedProtections(limit = 500): string[] {
+  return getDb().prepare('SELECT pattern FROM distill_protect ORDER BY hits DESC, last_seen DESC LIMIT ?').pluck().all(limit) as string[];
+}
+
+/** The full rows, for `pnpm run protections`. */
+export function listProtections(): LearnedProtection[] {
+  return getDb().prepare('SELECT pattern, tool_name, hits, first_seen, last_seen FROM distill_protect ORDER BY hits DESC, last_seen DESC').all() as LearnedProtection[];
+}
+
+/** Removes one learned protection by its stored or raw form; true when a row was deleted. */
+export function forgetProtection(pattern: string): boolean {
+  return getDb().prepare('DELETE FROM distill_protect WHERE pattern = ?').run(normaliseProtection(pattern)).changes > 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conditioning cache dependencies (used by decision memory and the repository index) — see the condition_deps table above.
+// ---------------------------------------------------------------------------------------------
+
+/** One thing a cached conditioning relied on: a file or directory at a given mtime, optionally with an expiry. */
+export interface CacheDependency {
+  path: string;
+  /** Whole milliseconds, as `Math.round(fs.statSync(path).mtimeMs)`. */
+  mtime: number;
+  /** ISO date after which the cached result must not be served, or null. */
+  expiresAt: string | null;
+}
+
+/** Replaces the dependency rows of one cache key (none → the key has no dependencies). */
+export function writeCacheDeps(key: string, deps: CacheDependency[]): void {
+  const db = getDb();
+  const clear = db.prepare('DELETE FROM condition_deps WHERE key = ?');
+  const insert = db.prepare('INSERT OR REPLACE INTO condition_deps (key, path, mtime, expires_at) VALUES (?, ?, ?, ?)');
+  db.transaction(() => {
+    clear.run(key);
+    for (const dep of deps) insert.run(key, dep.path, dep.mtime, dep.expiresAt);
+  })();
+}
+
+/**
+ * True when a cached conditioning may still be served: every recorded path exists with the same mtime and no
+ * expiry has passed. A key with no rows is always fresh (today's rows). `statMtime` resolves a path to its
+ * current value; returning undefined defers to the file system, which is how a pseudo-path such as
+ * `index:<root>` (the repo index revision, the repository index) is answered from the ledger instead of a stat.
+ */
+export function cacheDepsFresh(key: string, options: { now?: Date; statMtime?: (path: string) => number | null | undefined } = {}): boolean {
+  const now = options.now ?? new Date();
+  const statMtime = (filePath: string): number | null => {
+    const custom = options.statMtime?.(filePath);
+    return custom === undefined ? defaultStatMtime(filePath) : custom;
+  };
+  const rows = getDb().prepare('SELECT path, mtime, expires_at FROM condition_deps WHERE key = ?').all(key) as { path: string; mtime: number; expires_at: string | null }[];
+  for (const row of rows) {
+    if (row.expires_at) {
+      const until = new Date(row.expires_at);
+      if (!Number.isNaN(until.getTime()) && until.getTime() < now.getTime()) return false;
+    }
+    if (statMtime(row.path) !== row.mtime) return false;
+  }
+  return true;
+}
+
+function defaultStatMtime(filePath: string): number | null {
+  try {
+    return Math.round(fs.statSync(filePath).mtimeMs);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Decision memory index — see the decisions_fts table above.
+// ---------------------------------------------------------------------------------------------
+
+/** The revision the repo's decision index was built from, or null when never indexed. */
+export function decisionIndexRevision(root: string): string | null {
+  return (getDb().prepare('SELECT revision FROM decisions_index WHERE root = ?').pluck().get(root) as string | undefined) ?? null;
+}
+
+/** Rebuilds one repo's decision rows in the FTS index and records the revision. */
+export function replaceDecisionIndex(params: { root: string; revision: string; rows: { path: string; title: string; body: string }[] }): void {
+  const { root, revision, rows } = params;
+  const db = getDb();
+  const clear = db.prepare('DELETE FROM decisions_fts WHERE root = ?');
+  const insert = db.prepare('INSERT INTO decisions_fts (root, path, title, body) VALUES (?, ?, ?, ?)');
+  const mark = db.prepare('INSERT OR REPLACE INTO decisions_index (root, revision) VALUES (?, ?)');
+  db.transaction(() => {
+    clear.run(root);
+    for (const row of rows) insert.run(root, row.path, row.title, row.body);
+    mark.run(root, revision);
+  })();
+}
+
+/** Words of a question as an FTS5 OR-query: letters and digits only, each quoted, three characters or more. */
+function ftsQuery(text: string): string | null {
+  const words = [...new Set((text.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []))];
+  return words.length === 0 ? null : words.map(w => `"${w}"`).join(' OR ');
+}
+
+/** The best-ranked decisions of one repo for a question (bm25), or none when the question has no usable words. */
+export function searchDecisions(params: { root: string; query: string; limit?: number }): { path: string; title: string; rank: number }[] {
+  const { root, query, limit = 1 } = params;
+  const fts = ftsQuery(query);
+  if (!fts) return [];
+  return getDb().prepare('SELECT path, title, bm25(decisions_fts) AS rank FROM decisions_fts WHERE root = ? AND decisions_fts MATCH ? ORDER BY rank LIMIT ?')
+    .all(root, fts, limit) as { path: string; title: string; rank: number }[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conversation memory — see the conversation_memory table above.
+// ---------------------------------------------------------------------------------------------
+
+export interface MemoryRow {
+  key: string;
+  root: string | null;
+  summary: string;
+  turns: number;
+  discriminator: string | null;
+  started_at: string;
+  folded_at: string;
+  fold_failed_at: string | null;
+  fold_count: number;
+  fold_ms: number | null;
+  prompt_version: string;
+}
+
+/**
+ * The stored row as it is, failed folds and all. For fold recovery ONLY, so a retry continues from the
+ * previous summary and cursor. Feature readers use `matchMemory`, which fails closed.
+ */
+export function readMemoryRow(key: string): MemoryRow | null {
+  return (getDb().prepare('SELECT * FROM conversation_memory WHERE key = ?').get(key) as MemoryRow | undefined) ?? null;
+}
+
+/** Writes a successful fold: the whole row, `fold_failed_at` cleared. */
+export function writeMemoryRow(row: Omit<MemoryRow, 'fold_failed_at'>): void {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO conversation_memory
+      (key, root, summary, turns, discriminator, started_at, folded_at, fold_failed_at, fold_count, fold_ms, prompt_version)
+    VALUES (@key, @root, @summary, @turns, @discriminator, @started_at, @folded_at, NULL, @fold_count, @fold_ms, @prompt_version)
+  `).run(row);
+}
+
+/** Records a failed fold on an existing row (summary and cursor untouched); no-op when the row does not exist. */
+export function markMemoryFoldFailed(key: string, at: string): void {
+  getDb().prepare('UPDATE conversation_memory SET fold_failed_at = ? WHERE key = ?').run(at, key);
+}
+
+/** Every row, newest fold first, for `slm-gate memory`. */
+export function listMemoryRows(): MemoryRow[] {
+  return getDb().prepare('SELECT * FROM conversation_memory ORDER BY folded_at DESC').all() as MemoryRow[];
+}
+
+/** Which rule found a memory, recorded as `meta.memory.match` on the rows that used it. */
+export type MemoryMatch = 'key' | 'root-recent' | 'none';
+
+/**
+ * The ONE read path for every feature reader; it fails closed. Returns `none` when the feature is off (stored
+ * rows included), when the newest fold failed, when the last good fold is older than `MEMORY_MATCH_WINDOW_MS`,
+ * or when the row was written under another PROMPT_VERSION. The model gate passes the conversation `key` (and
+ * the request's `discriminator`, which must agree with the stored one when both exist); the MCP gate has no
+ * key and passes `root` plus its own `startedAfter` time: the newest usable row for that workspace whose
+ * conversation began at or after the MCP session did.
+ */
+export function matchMemory(params: { key?: string; discriminator?: string | null; root?: string | null; startedAfter?: string; now?: Date }): { row: MemoryRow | null; match: MemoryMatch } {
+  const none = { row: null, match: 'none' as const };
+  if (!CONFIG.CONVERSATION_MEMORY) return none;
+  const now = params.now ?? new Date();
+  const usable = (row: MemoryRow | undefined | null): row is MemoryRow => {
+    if (!row) return false;
+    if (row.prompt_version !== CONFIG.PROMPT_VERSION) return false;
+    // At or after the last good fold (a success clears the mark, so equal means the failure came later).
+    if (row.fold_failed_at && row.fold_failed_at >= row.folded_at) return false;
+    return now.getTime() - new Date(row.folded_at).getTime() <= CONFIG.MEMORY_MATCH_WINDOW_MS;
+  };
+  if (params.key) {
+    // A fork (same opening, different second entry) lives under key:discriminator and wins when it exists.
+    const forkRow = params.discriminator ? readMemoryRow(`${params.key}:${params.discriminator}`) : null;
+    const row = usable(forkRow) ? forkRow : readMemoryRow(params.key);
+    if (!usable(row)) return none;
+    if (row.discriminator && params.discriminator && row.discriminator !== params.discriminator) return none;
+    return { row, match: 'key' };
+  }
+  if (params.root) {
+    const rows = getDb().prepare('SELECT * FROM conversation_memory WHERE root = ? ORDER BY folded_at DESC').all(params.root) as MemoryRow[];
+    const row = rows.find(r => usable(r) && (!params.startedAfter || r.started_at >= params.startedAfter));
+    return row ? { row, match: 'root-recent' } : none;
+  }
+  return none;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Repository symbol index — see the repo_files / repo_fts / repo_index tables above.
+// ---------------------------------------------------------------------------------------------
+
+/** The indexed mtime of every file of one root (empty when never indexed). */
+export function repoFileMtimes(root: string): Map<string, number> {
+  const rows = getDb().prepare('SELECT path, mtime FROM repo_files WHERE root = ?').all(root) as { path: string; mtime: number }[];
+  return new Map(rows.map(r => [r.path, r.mtime]));
+}
+
+/** Replaces one file's symbol rows and records the mtime they were extracted at. */
+export function replaceRepoFileSymbols(params: { root: string; path: string; mtime: number; symbols: { line: number; kind: string; name: string; tokens: string; signature: string }[] }): void {
+  const { root, path: filePath, mtime, symbols } = params;
+  const db = getDb();
+  const clear = db.prepare('DELETE FROM repo_fts WHERE root = ? AND path = ?');
+  const insert = db.prepare('INSERT INTO repo_fts (root, path, line, kind, name, tokens, signature) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const mark = db.prepare('INSERT OR REPLACE INTO repo_files (root, path, mtime) VALUES (?, ?, ?)');
+  db.transaction(() => {
+    clear.run(root, filePath);
+    for (const s of symbols) insert.run(root, filePath, s.line, s.kind, s.name, s.tokens, s.signature);
+    mark.run(root, filePath, mtime);
+  })();
+}
+
+/** Drops a file that no longer exists from the index. */
+export function deleteRepoFile(root: string, filePath: string): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM repo_fts WHERE root = ? AND path = ?').run(root, filePath);
+    db.prepare('DELETE FROM repo_files WHERE root = ? AND path = ?').run(root, filePath);
+  })();
+}
+
+/** The root's index revision; 0 when never indexed. */
+export function repoIndexRevision(root: string): number {
+  return (getDb().prepare('SELECT revision FROM repo_index WHERE root = ?').pluck().get(root) as number | undefined) ?? 0;
+}
+
+/** Moves the root's revision forward by one and returns it. */
+export function bumpRepoIndexRevision(root: string): number {
+  const next = repoIndexRevision(root) + 1;
+  getDb().prepare('INSERT OR REPLACE INTO repo_index (root, revision) VALUES (?, ?)').run(root, next);
+  return next;
+}
+
+/** Symbols of one root matching the query's words (bm25 over name, identifier words and signature). */
+export function searchRepoSymbols(params: { root: string; query: string; limit?: number }): { path: string; line: number; kind: 'function' | 'class' | 'method' | 'interface' | 'type' | 'enum' | 'const'; name: string; signature: string }[] {
+  const { root, query, limit = 10 } = params;
+  const fts = ftsQuery(query);
+  if (!fts) return [];
+  return getDb().prepare('SELECT path, line, kind, name, signature FROM repo_fts WHERE root = ? AND repo_fts MATCH ? ORDER BY bm25(repo_fts, 0, 0, 0, 0, 2.0, 3.0, 1.0) LIMIT ?')
+    .all(root, fts, limit) as ReturnType<typeof searchRepoSymbols>;
 }
 
 /** What the model gate sent for one tool result: the text and why (distilled, original, timeout, error). */

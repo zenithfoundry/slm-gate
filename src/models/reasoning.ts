@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { SLM } from './slm.js';
 import { roles } from './roles.js';
-import { ClassifyCategory } from './types.js';
 import { withSlmTimeout } from './helpers.js';
 import { CONFIG } from '../config.js';
 
@@ -59,45 +58,6 @@ export async function selfConsistency<T>(
   return withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, 0), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS);
 }
 
-export async function classify(
-  slm: SLM,
-  text: string
-): Promise<ClassifyCategory> {
-  const schema = z.object({
-    category: z.enum(['classify', 'extract', 'format', 'boolean', 'short_factual', 'trivial_edit', 'other'])
-  });
-
-  const prompt = `Categorize the following user request into exactly one category:
-- 'format': Generating, structuring, or converting data to JSON, XML, CSV, or markdown.
-- 'other': Math word problems, arithmetic calculations, multi-step reasoning, logic, coding, or complex tasks.
-- 'short_factual': Simple direct fact lookup (e.g. "What is the capital of Japan?"). NEVER use for arithmetic or math.
-- 'boolean': Answering yes/no or true/false questions.
-- 'extract': Extracting specific data spans from provided text.
-- 'classify': Classifying items into categories.
-- 'trivial_edit': Fixing spelling or grammar.
-
-Rule: Any question requiring arithmetic calculation, word problem math, or multi-step logic MUST be classified as 'other'.
-
-Text: ${text}`;
-  
-  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'classify', CONFIG.SLM_TIMEOUT_MS);
-  return result.category;
-}
-
-export async function compress(
-  slm: SLM,
-  text: string
-): Promise<string> {
-  const schema = z.object({
-    compressedText: z.string()
-  });
-
-  const prompt = `Compress the following text while maintaining the core meaning.\n\nText: ${text}`;
-  
-  const result = await withSlmTimeout(slm.generateJSON(roles.gate, prompt, schema, 0), 'compress', CONFIG.SLM_TIMEOUT_MS);
-  return result.compressedText;
-}
-
 /**
  * Compresses ONE narrative run for `distillToolResult`, which never sends protected content here, so
  * this prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and reliably
@@ -109,6 +69,77 @@ export async function compress(
  * @param params.task Optional task context for the model
  * @returns The compressed run
  */
+/**
+ * The fidelity check for one shortened prose run, the heart of the skill fidelity guard: the brain model answers, for each requirement
+ * sentence the CODE listed from the original, whether the shortened text still states it. The model never
+ * writes the list, so it cannot leave anything out; the schema pins the answer count. One call, the standard
+ * ceiling, SLM_TIMEOUT_MS.
+ */
+export async function checkKept(params: { slm: SLM; inventory: string[]; compressed: string }): Promise<boolean[]> {
+  const { slm, inventory, compressed } = params;
+  const schema = z.object({ kept: z.array(z.boolean()).length(inventory.length) });
+  const prompt = `A text was shortened. For each numbered sentence of the ORIGINAL, answer true only if the SHORTENED text still states it: the same instruction, name, number or path. Answer false when it is missing, weakened or changed. Return exactly ${inventory.length} answers, in order.
+
+ORIGINAL sentences:
+${inventory.map((sentence, i) => `${i + 1}. ${sentence}`).join('\n')}
+
+SHORTENED text:
+${compressed}`;
+  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'fidelity', CONFIG.SLM_TIMEOUT_MS);
+  return result.kept;
+}
+
+/**
+ * Answers a question from one chunk of an elided original (`ask_elision`, ask_elision): the brain model says
+ * whether the chunk holds the answer and gives it in a few sentences, with the chunk-relative lines it used.
+ * One call per chunk, the standard ceiling, SLM_TIMEOUT_MS; the schema bounds the answer.
+ */
+export async function answerFromText(params: { slm: SLM; question: string; text: string; context?: string | null }): Promise<{ found: boolean; answer: string; lines: [number, number] | null }> {
+  const { slm, question, text, context } = params;
+  const schema = z.object({
+    found: z.boolean(),
+    answer: z.string().max(1200),
+    lines: z.array(z.number().int().min(0)).length(2).nullable(),
+  });
+  // Conversation memory (when a usable one exists): what the conversation is about, so a question such as
+  // "which step applies here?" has a here. Never a system entry; part of this one prompt.
+  const conversation = context ? `Conversation so far:\n${context}\n\n` : '';
+  const prompt = `${conversation}Answer the question ONLY from the TEXT below. If the text does not contain the answer, set found to false and leave answer empty. Keep the answer under 80 words; quote names, numbers, paths and commands exactly. "lines" is the 0-based [first, last] line of the text the answer comes from, or null.
+
+QUESTION: ${question}
+
+TEXT:
+${text}`;
+  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'ask_elision', CONFIG.SLM_TIMEOUT_MS);
+  return { found: result.found, answer: result.answer, lines: result.lines ? [result.lines[0], result.lines[1]] : null };
+}
+
+/** The three parts of a conversation summary, bounded in the schema so the brain cannot run long. */
+export const MEMORY_SCHEMA = z.object({
+  goal: z.string().max(300),
+  decided: z.array(z.string().max(160)).max(8),
+  inPlay: z.array(z.string().max(80)).max(12),
+});
+export type MemorySummary = z.infer<typeof MEMORY_SCHEMA>;
+
+/**
+ * Folds new conversation entries into the running summary (conversation memory). The brain reads the previous
+ * summary plus only the new entries, never the whole history, and answers in the three parts. One call, the
+ * standard ceiling, SLM_TIMEOUT_MS; the schema's limits make an over-long answer fail validation.
+ */
+export async function foldSummary(params: { slm: SLM; previous: MemorySummary | null; fresh: string }): Promise<MemorySummary> {
+  const { slm, previous, fresh } = params;
+  const prompt = `You keep a short memory of a conversation for a reader who has not seen it. Update it from the NEW TURNS.
+Rules: copy names, numbers, paths and commands exactly; keep every earlier "decided" line unless the new turns reverse it; "inPlay" lists files, commands and names that keep coming up; short lines, no prose.
+
+PREVIOUS MEMORY:
+${previous ? JSON.stringify(previous) : '(none yet)'}
+
+NEW TURNS:
+${fresh}`;
+  return withSlmTimeout(slm.generateJSON(roles.brain, prompt, MEMORY_SCHEMA, 0), 'memory', CONFIG.SLM_TIMEOUT_MS);
+}
+
 export function compressNarrativeRun(params: { slm: SLM; text: string; task?: string }): Promise<string> {
   const { slm, text, task } = params;
   const wordCount = text.trim().split(/\s+/).length;

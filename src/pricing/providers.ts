@@ -17,7 +17,7 @@
  *
  *    where the unit depends on how the provider actually meters:
  *      - 'compute' providers bill tokens  -> unitsSaved = tokens saved
- *      - 'message' providers bill requests -> unitsSaved = requests never sent (defer_local)
+ *      - 'message' providers bill requests -> unitsSaved = requests never sent (`defer_local` rows written by versions before 1.4)
  *
  *    `windowBudget` is a real quantity the operator must supply; it is NOT knowable from
  *    inside the gate. When it is unset we emit NO score rather than inventing one.
@@ -68,7 +68,12 @@ export const DEFAULT_PROVIDER_REGISTRY: Record<string, ProviderProfile> = {
     agentPatterns: ['claude'],
   },
   chatgpt: {
-    windowMinutes: 180,
+    // The gate only ever sees Codex (CLI / IDE), never the ChatGPT chat UI, and Codex meters a
+    // rolling 5h window plus a weekly cap (re-verified 2026-10-21; see plans.ts). The chat UI's
+    // 3h message window does not apply to traffic recorded here.
+    windowMinutes: 300,
+    // Codex counts "local messages" per window; OpenAI publishes no token figure, so the budget
+    // stays in messages. Measure it with `/status` in the Codex CLI (see .env).
     metering: 'message',
     windowBudget: null,
     // The o-series (o1/o3/o4) is RETIRED — OpenAI merged reasoning into the unified GPT

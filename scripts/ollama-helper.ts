@@ -19,13 +19,10 @@ export const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
 export const SLM_TIMEOUT_MS = process.env.SLM_TIMEOUT_MS || '60000';
 
 /** The fast, primary small language model used for prompt conditioning, disambiguation, and routing. */
-export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen2.5-coder:3b';
+export const SLM_GATE_MODEL = process.env.SLM_GATE_MODEL || 'qwen3.5:2b';
 
 /** A slightly larger secondary local model used when more complex reasoning or verification is needed. */
 export const SLM_BRAIN_MODEL = process.env.SLM_BRAIN_MODEL || 'qwen3.5:4b';
-
-/** The model used specifically for offline testing and benchmarking suites. Defaults to matching SLM_GATE_MODEL. */
-export const SLM_GATE_TESTING_MODEL = process.env.SLM_GATE_TESTING_MODEL || SLM_GATE_MODEL;
 
 /** Duration for which models should remain loaded in VRAM after their last use to prevent cold-start delays. */
 export const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '12h';
@@ -35,12 +32,12 @@ export const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || '12h';
  * Warming up loads the models into memory/VRAM before actual tests or traffic begin,
  * which avoids timeouts caused by the initial cold-start standby delay.
  *
- * @param {string[]} [models] - List of model names to check and warm up. Defaults to the gate, brain, and testing models.
+ * @param {string[]} [models] - List of model names to check and warm up. Defaults to the gate and brain models.
  * @param {number} [mountWaitMs=1000] - Additional buffer delay in ms after warmup requests finish, allowing the model to fully stabilize in VRAM.
  * @returns {Promise<boolean>} True if Ollama is reachable and models were warmed up successfully, false otherwise.
  */
 export async function ensureOllamaReady(
-  models: string[] = Array.from(new Set([SLM_GATE_MODEL, SLM_BRAIN_MODEL, SLM_GATE_TESTING_MODEL])),
+  models: string[] = Array.from(new Set([SLM_GATE_MODEL, SLM_BRAIN_MODEL])),
   mountWaitMs = 1000
 ): Promise<boolean> {
   console.log(`[ollama-helper] Checking Ollama reachability at ${OLLAMA_HOST}...`);

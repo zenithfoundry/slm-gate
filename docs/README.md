@@ -13,6 +13,7 @@ Read these in order the first time.
 - [How It Operates](./integration-layers.md): the MCP gate and the model gate, who pays for what, and which coding tools work with each
 - [Step-by-Step Setup](./setup.md): clone, build, download models, and connect Antigravity, Claude, Cursor, Cline, Continue, Codex or Gemini CLI
 - [Configuration](./configuration.md): RAM presets, the 16 GB baseline `.env`, the ledger path, and every setting explained
+- [The two setups](./setups.md): "local models do more" or "plain shrinking", side by side, with the `.env` keys and values for each
 - [Verification & Day-to-Day Use](./daily-use.md): the health check, what to do when the model gate can't start, checking savings, and the dashboard
 - [Architecture & Advanced Features](./advanced.md): the hosted small-model fallback, and the structured-output rule for contributors
 
@@ -24,7 +25,6 @@ Read these in order the first time.
 ## Measuring
 
 - [Analytics & observability](./analytics-and-observability.md): the local SQLite ledger, the dashboard, and Langfuse setup
-- [Benchmark harness](../harness/README.md): the offline benchmark (API key needed)
 
 ## Editor configs
 

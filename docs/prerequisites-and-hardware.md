@@ -41,7 +41,7 @@ Ollama should be reachable at `http://localhost:11434` (its default address).
 These are not required to get started, but unlock additional capabilities:
 
 - **[Langfuse](https://langfuse.com/)** — A free, open-source web dashboard for visualising your AI usage and token savings. Self-hostable or use the cloud version. You only need this if you want richer visual analytics beyond the CLI metrics command.
-- **Cloud API Key** — An `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or similar. Only needed if you plan to use Layer 2 (`llm-gate` for model endpoint routing) or run the offline benchmarking harness. For Layer 1 subscription users, no API key is needed.
+- **Cloud API Key** — An `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or similar. Only needed for the resolver's optional cloud tier or a hosted small model; the model gate forwards your coding tool's own login. For Layer 1 subscription users, no API key is needed.
 - **[Tech-Lead-Stack](https://github.com/bronz3beard/ai.tech-lead-stack)** — An optional companion MCP server that `slm-gate` can sit in front of. See [How It Operates](integration-layers.md) for details.
 
 ---
@@ -92,10 +92,10 @@ pnpm run dev doctor
 
 | Your RAM | `RAM_PRESET` | Brain model (smarter, shrinks long tool output) | Gate model (fast, quick decisions) | Download (both) | `NUM_CTX` |
 | :--------- | :---------- | :--------------------------------- | :---------------------------- | :-- | :-- |
-| **16–23 GB** | `ram-16` | `qwen2.5-coder:3b` | `qwen2.5-coder:0.5b` | 2.3 GB | 4096 |
-| **24–31 GB** | `ram-24` | `qwen3.5:4b` | `qwen2.5-coder:3b` | 5.3 GB | 8192 |
-| **32–47 GB** | `ram-32` | `qwen2.5:7b` | `qwen2.5-coder:3b` | 6.6 GB | 8192 |
-| **48–63 GB** | `ram-48` | `qwen3.5:9b` | `qwen2.5-coder:3b` | 8.5 GB | 8192 |
+| **16–23 GB** | `ram-16` | `qwen3.5:2b` | `qwen2.5-coder:0.5b` | 2.3 GB | 4096 |
+| **24–31 GB** | `ram-24` | `qwen3.5:4b` | `qwen3.5:2b` | 5.3 GB | 8192 |
+| **32–47 GB** | `ram-32` | `qwen2.5:7b` | `qwen3.5:2b` | 6.6 GB | 8192 |
+| **48–63 GB** | `ram-48` | `qwen3.5:9b` | `qwen3.5:2b` | 8.5 GB | 8192 |
 | **64–127 GB** | `ram-64` | `qwen3.5:9b` | `qwen3.5:4b` | 10.0 GB | 8192 |
 | **128 GB** | `ram-128` | `qwen3:14b` | `qwen3:8b` | 14.5 GB | 8192 |
 | **More than 128 GB** | `custom` | starts from `qwen3:14b` | starts from `qwen3:8b` | 14.5 GB | 8192 |
@@ -111,6 +111,8 @@ pnpm run dev doctor
 > **What is the "Brain" vs. "Gate" model?** `slm-gate` uses two local models:
 > - The **Gate model** is tiny and fast. Its only job is to make split-second routing decisions: "Can I handle this locally, or does it need to go to the cloud?" Speed is everything here.
 > - The **Brain model** is slightly larger and smarter. It does the actual compression, summarisation, and local resolution when the Gate decides a request can be handled on-device.
+
+> **48 GB and up:** besides bigger models, more memory lets you raise `NUM_CTX` and, at 64 GB, run with no cloud model at all. See [More memory, bigger models, and running without a cloud model](setups.md#more-memory-bigger-models-and-running-without-a-cloud-model).
 
 ### Dual-Model Setup: Keeping Both Models Ready at Once
 

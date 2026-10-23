@@ -1,0 +1,16 @@
+{
+  "mustSurvive": [
+    "audience:",
+    "  - new maintainers",
+    "New maintainers MUST pair on their first three changes.",
+    "1. Clone the repository and run `mcp__example__bootstrap` once.",
+    "2. Read docs/architecture/overview.md before touching src/core/.",
+    "3. Ask for access within 2 h of your start; it takes a day to grant.",
+    "| Week | Focus | Buddy |",
+    "| 1 | reading and small fixes | assigned |",
+    "NEVER push directly to the main branch.",
+    "Use mcp__example__ask_buddy for questions that are not in the docs.",
+    "Keep your first change under 200 lines.",
+    "pnpm install && pnpm run bootstrap"
+  ]
+}

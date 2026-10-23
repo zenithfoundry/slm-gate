@@ -2,6 +2,8 @@
 
 `slm-gate` is configured through a `.env` file — a plain text file in the root of the repository that holds your settings. Think of it as a control panel with clearly labelled switches.
 
+> **Two setups.** Once the file exists, the one choice that matters most is how much work the local models take on: "local models do more" or "plain shrinking". [The two setups](setups.md) shows both side by side with the exact keys and values.
+
 ## Quick Start: Copy Your RAM Preset
 
 Instead of starting from scratch, find your machine's RAM in the table below and copy the matching preset file for your editor. These are fully commented templates with sensible defaults already filled in.
@@ -36,19 +38,15 @@ Here is a minimal, working `.env` for a 16 GB machine. Copy this to a file named
 SLM_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_KEEP_ALIVE=12h
-SLM_BRAIN_MODEL=qwen2.5-coder:3b        # The smarter local model (heavier tasks)
+SLM_BRAIN_MODEL=qwen3.5:2b        # The smarter local model (heavier tasks)
 SLM_GATE_MODEL=qwen2.5-coder:0.5b      # The tiny router model (instant decisions)
 NUM_CTX=4096                             # Context window — keep at 4096 for 16 GB
 TEMPERATURE=0
 
-# ── Verifier ───────────────────────────────────────────────────────────────
-STRICTNESS_LEVELS=0,1,2,3,4,5
-HEADLINE_STRICTNESS=4
-
-# ── API model (optional: benchmark and resolver cloud tier only) ──────────
+# ── API model (optional: resolver cloud tier only) ────────────────────────
 CLOUD_API_STYLE=anthropic               # or: openai
 CLOUD_BASE_URL=
-CLOUD_API_KEY=                          # Leave blank unless you run `slm-gate bench`
+CLOUD_API_KEY=                          # Leave blank unless you turn on RESOLVER_CLOUD_TIER
 CLOUD_MODEL=
 
 # ── Servers ────────────────────────────────────────────────────────────────
@@ -120,41 +118,31 @@ Every setting `slm-gate` reads is explained below in plain English. Settings are
 - **`OLLAMA_HOST`** — The address where Ollama is listening. Only change this if you're running Ollama on a different machine or port. Must be a full URL including `http://`. Default: `http://localhost:11434`
   - Note: Ollama's **own** `OLLAMA_HOST` variable, the one its docs and `ollama serve` use, is a bare `host:port` such as `127.0.0.1:11434`. `slm-gate` reads the same variable name but needs the scheme in front. If you have Ollama's form exported in your shell, set `slm-gate`'s value explicitly in its `.env` so the exported one doesn't reach it.
 - **`OLLAMA_KEEP_ALIVE`** — How long a loaded model stays in memory after use. Keeping it loaded means instant responses next time; lowering it frees memory. Default: `12h`
-- **`SLM_BRAIN_MODEL`** — The name of your smarter local model, used for compression, summarisation, and local resolution of harder tasks.
-- **`SLM_GATE_MODEL`** — The name of your tiny, fast local model, used only for routing decisions ("can I handle this locally?"). Speed is the priority here.
-- **`SLM_GATE_TESTING_MODEL`** — Only used when running the benchmarking harness. Ignore for everyday use.
+- **`SLM_BRAIN_MODEL`** — The name of your smarter local model. It checks shortened skill paragraphs (the fidelity guard), answers `ask_elision` questions, settles the resolver's open questions and folds the conversation memory.
+- **`SLM_GATE_MODEL`** — The name of your tiny, fast local model. It shortens tool output and skill paragraphs and rates the risk of a resolver answer. Speed is the priority here.
 - **`NUM_CTX`** — The maximum amount of text the local model can consider in a single request, measured in tokens (roughly ¾ of a word per token). Larger values allow the model to consider more context at once, but use significantly more memory. Default: `8192` — reduce to `4096` for 16 GB machines.
 - **`TEMPERATURE`** — How creative or random the local model's responses are. `0` means fully deterministic (always the same answer for the same input). Keep this at `0` — this tool needs consistent, repeatable decisions. Default: `0`
-- **`SLM_TIMEOUT_MS`** — How long to wait for the local model to respond before giving up and escalating to the cloud. Increase if you have a slow machine. Default: `120000` (2 minutes)
-- **`SELF_CONSISTENCY_K`** — When double-checking a local answer, how many times to silently re-ask the question. If all answers agree, the result is trusted. If they disagree, the request escalates to the cloud. Default: `3`
-- **`SELF_CONSISTENCY_TEMP`** — The randomness used during those re-checks. A small amount of randomness is intentional — if the model gives the same answer even when nudged to vary, that's a strong signal it's correct. Default: `0.7`
+- **`SLM_TIMEOUT_MS`** — How long to wait for the local model to respond before giving up and sending the text on as it was. Increase if you have a slow machine. Default: `120000` (2 minutes)
+- **`SELF_CONSISTENCY_K`** — When the resolver answers an open question from common practice, how many times it asks the brain model. The answer is kept only when the runs agree. Default: `3`
+- **`SELF_CONSISTENCY_TEMP`** — The randomness used during those runs. A small amount of randomness is intentional — if the model gives the same answer even when nudged to vary, that's a strong signal it's correct. Default: `0.7`
 
-### Verifier Strictness
 
-After the local AI answers, a "verifier" grades whether the answer is good enough to trust. These control how strict that grading is.
 
-- **`STRICTNESS_LEVELS`** — The available grading levels, from `0` (very lenient) to `5` (extremely strict). Leave this as-is. Default: `0,1,2,3,4,5`
-- **`HEADLINE_STRICTNESS`** — The grading level actually in use. Higher means more local answers get escalated to the cloud (safer, higher quality, but costs more quota). Lower means more trust in local answers (saves more, but higher risk of lower quality). Default: `4`
-
-### API Model (Optional) & Semantic Cache
-
-The model gate doesn't use the `CLOUD_*` settings: it sends each request on with your coding tool's own login. They are read only by the benchmark (`slm-gate bench`), the resolver's cloud tier (`RESOLVER_CLOUD_TIER`) and `SLM_PROVIDER=openai`.
+The model gate doesn't use the `CLOUD_*` settings: it sends each request on with your coding tool's own login. They are read only by the resolver's cloud tier (`RESOLVER_CLOUD_TIER`) and `SLM_PROVIDER=openai`.
 
 - **`CLOUD_API_STYLE`** — Which API format that provider uses: `openai` or `anthropic`.
 - **`CLOUD_BASE_URL`** — The address of that provider's API.
-- **`CLOUD_API_KEY`** — The API key for it. Leave blank unless you use one of the three features above.
+- **`CLOUD_API_KEY`** — The API key for it. Leave blank unless you use one of the two features above.
 - **`CLOUD_MODEL`** — The exact model name.
-- **`SEMCACHE`** — Turns on "answer reuse." When enabled, identical read-only questions are answered from memory instead of making a new cloud call. Off by default. (`on` / `off`)
-- **`SEMCACHE_THRESHOLD`** — How similar two questions must be before the old answer is reused. `0.95` is very strict. Default: `0.95`
-- **`EMBED_MODEL`** — The local model used to measure question similarity. Default: `nomic-embed-text`
+- **`SEMCACHE`** — Turns on "result reuse" in the MCP gate. When enabled, a tool result very similar to one conditioned before gets the saved conditioning instead of a new local-model run. Needs the embedding model, a third loaded model. Off by default. (`on` / `off`)
+- **`SEMCACHE_THRESHOLD`** — How similar two results must be before the saved conditioning is reused. `0.95` is very strict. Default: `0.95`
+- **`EMBED_MODEL`** — The local model used to measure that similarity. Default: `nomic-embed-text`
 
 ### Server Ports & Downstream MCP
 
 - **`LLM_GATE_PORT`** — The port the model gate (`llm-gate`) listens on. Only change it if another program uses this port; then run `slm-gate restart`, and `slm-gate doctor` to get the new line for each coding tool. Set it only in `slm-gate`'s `.env`: a value in a tool's MCP `env` block or your shell is ignored when finding and starting the model gate. Default: `8787`
 - **`LLM_GATE_AUTOSTART`** — When a coding tool starts `slm-gate`'s MCP server, also start the model gate in the background if it isn't running, and bring it back within a minute if it stops. `off` means you start it yourself with `slm-gate start`. Default: `on`
 - **`LLM_GATE_DISTILL`** — Shrink large command, search and listing output before a request leaves your machine. `off` makes the gate pass requests on unchanged. Default: `on`
-- **`LLM_GATE_LOCAL_FIRST`** — Let the local model try the first message of each conversation (never slash commands, never coding tasks that need the tool's own tools). Default: `on`
-- **`LOCAL_ATTEMPT_BUDGET_MS`** — How long that first message may wait for a local answer before it goes on to your provider. Default: `6000`
 - **`UPSTREAM_ANTHROPIC_URL`**, **`UPSTREAM_OPENAI_URL`**, **`UPSTREAM_CHATGPT_URL`**, **`UPSTREAM_GEMINI_URL`** (optional) — Where the model gate sends each kind of request.
 
   You don't need to fill any of these, whether you use a subscription or an API key. Leave all four blank. The gate already knows where each request goes and uses the correct address automatically.
@@ -204,18 +192,26 @@ When a tool response is very large, `slm-gate` compresses it and keeps only the 
 - **`ELISION_MAX_ENTRIES`** — Maximum number of original (pre-compression) responses stored in the local recovery cache. Default: `5000`
 - **`ELISION_RETENTION_DAYS`** — How long a stored original is kept before automatic cleanup. Default: `180` days
 - **`ELISION_MAX_MB`** — Total disk space budget for the recovery cache. When exceeded, the oldest entries are deleted first. Default: `500 MB`
+- **`DISTILL_SKILLS`** — Whether skill files (the instructions your toolbox sends) may be shortened by the gate model at all. `off` sends them word for word, cut at the ends with a retrieval marker when too long. `on` lets the gate model shorten their plain prose under the fidelity guard below; headings, code, tables, frontmatter, rule lines, tool names, paths and numbers with units are never shown to a model either way. Default: `off`
+- **`DISTILL_FIDELITY_MIN`** — The guard's acceptance bar when a skill paragraph is shortened. The code lists the paragraph's requirement sentences (rules, numbers, code, paths); the brain model answers, sentence by sentence, whether the shortened text still states each one. The paragraph is kept only when the share kept is at least this value. `1.0` means nothing missing is ever accepted. A sentence reported missing is also learned, so its line is protected by code from then on (`pnpm run protections` lists these). Default: `1.0`
+- **`DISTILL_FIDELITY_MAX_RUNS`** — At most this many paragraphs of one skill are shortened and checked; the rest stay word for word. Default: `8`
+- **`DISTILL_FIDELITY_BUDGET_MS`** — Time allowed for shortening one skill; paragraphs past it stay word for word. Default: `60000`
+- **`MAX_CONCURRENT_SEGMENT_CALLS`** — How many paragraphs the gate model shortens at the same time (`1` or `2`). One GPU serves both local models, so `2` is not twice as fast as `1`; `pnpm run bench:gate` measures both on your machine. Default: `2`
 
-### Advanced: Routing Tuner & Misc
+### Advanced: Resolver Cloud Tier & Misc
 
-- **`ROUTING_TUNE`** — When `on`, the gate learns from past results which types of requests the local model handles well, and routes those directly to cloud for request types where it usually fails. (`on` / `off`)
-- **`ROUTING_TUNE_WINDOW`** — How many recent requests (per type) to consider. Default: `20`
-- **`ROUTING_TUNE_MIN_SAMPLES`** — Minimum sample count before the tuner acts on a category's success rate. Default: `8`
-- **`ROUTING_TUNE_THRESHOLD`** — Success rate below which the gate stops trying local for that request type. Default: `0.5`
-- **`ROUTING_TUNE_EXPLORE_RATE`** — How often to try local even for categories it's learned to skip — keeps it adapting to improvement. Default: `0.15`
 - **`RESOLVER_CLOUD_TIER`** — When `on`, allows the local AI to make a small, budgeted cloud call when it hits a genuinely ambiguous decision. (`on` / `off`)
 - **`RESOLVER_CLOUD_BUDGET_USD`** — Hard dollar cap on the above feature. Default: `0` (off until you set a budget)
 - **`RAM_PRESET`** — Picks the two local models for your RAM: `ram-16`, `ram-24`, `ram-32`, `ram-48`, `ram-64`, `ram-128`, or `custom`. `slm-gate` needs 16 GB or more; a size between two presets uses the smaller one, and more than 128 GB is `custom`. `SLM_BRAIN_MODEL` and `SLM_GATE_MODEL` always win. Models per preset and how it is decided: [RAM-by-Machine Model Table](prerequisites-and-hardware.md#ram-by-machine-model-table). For models that fit your computer best, use [llmfit](https://github.com/AlexsJones/llmfit).
 - **`TLS_ADAPTER`** — Enables special handling for Tech-Lead-Stack payloads. Set to `on` only if TLS is your downstream. (`on` / `off`)
+- **`SLM_PIN_MODELS`** — Keeps both local models loaded. `slm-gate` works with a pair, the brain and the gate model, on every request; your RAM decides their size and context (the RAM presets), not their number. Ollama's slot count (`OLLAMA_MAX_LOADED_MODELS`) is therefore set to 2, exactly the pair; when anything else loads a third model — `ollama run some-other-model`, a benchmark trying another gate model, another app — one of `slm-gate`'s models is evicted and every later call pays a reload. With this `on`, the model gate checks every minute and, only when one of its models is missing, unloads the stranger and warms its own model back in; the benchmark does the same when it finishes. Check what is loaded with `ollama ps`, never with `ollama run` (that loads the model you name). (`on` / `off`) Default: `on`
+- **`CONVERSATION_MEMORY`** — The model gate keeps a short running summary of each conversation (what you are trying to do, what was decided, which files and commands keep coming up), folded by the brain model from the newest turns only, off the request path, and read by the local steps beside the message they answer: `ask_elision`, the resolver's open questions, and Step A when it is on. The summary lives only in the ledger's `conversation_memory` table; it never enters event rows, Langfuse or logs. A missing, stale, failed or switched-off memory means today's behaviour exactly. `slm-gate memory` shows what is remembered. (`on` / `off`) Default: `on`
+- **`MEMORY_MAX_TOKENS`** — The summary's size. Over it, the "in play" lines go first, then the oldest "decided" lines. Default: `400`
+- **`MEMORY_FOLD_INPUT_TOKENS`** — The most new conversation text one fold reads; anything beyond it waits for the next fold, nothing is skipped. Default: `3000`
+- **`MEMORY_FOLD_INTERVAL_MS`** — How often one conversation may fold; turns inside the interval are folded together, and only while the gate has no request in flight. Default: `20000`
+- **`MEMORY_MATCH_WINDOW_MS`** — How old a summary may be before every reader ignores it. Default: `600000` (10 minutes)
+- **`RESOLVER_PROMPT_TOKENS`** — The most skill text (in tokens) the brain model is given when it looks for open decisions. A whole skill plus the prompt must fit the local context window, or the call fails; over this, every heading is kept and each section keeps its first share. Default: `3000`
+- **`REPO_INDEX`** — When `on`, the gate keeps a small index of the functions, classes and types your repository defines (in the ledger, refreshed by file time, no model). It powers the `find_existing` tool, lets open decisions be answered from the code the question names, and appends an "Existing code that may already cover this" list to every conditioned skill. (`on` / `off`) Default: `off`
 
 ---
 

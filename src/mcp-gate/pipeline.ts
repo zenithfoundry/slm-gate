@@ -4,12 +4,60 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
-import { cacheGet, cacheSet, writeEvent } from '../ledger/index.js';
+import { cacheDepsFresh, cacheGet, cacheSet, matchMemory, readMemoryRow, writeCacheDeps, writeEvent } from '../ledger/index.js';
+import { parseSummary, renderSummary } from '../llm-gate/memory.js';
 import { handleSlmError } from '../models/helpers.js';
-import { compressNarrativeRun } from '../models/reasoning.js';
+import { checkKept, compressNarrativeRun } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
-import { resolveAmbiguities } from '../resolver/index.js';
-import { distillToolResult } from '../utils/elision.js';
+import { prepareSkillContext, resolveAmbiguities } from '../resolver/index.js';
+import type { ResolverOutput } from '../resolver/types.js';
+import { existingCodeSection, refreshRepoIndex } from '../index/repo-index.js';
+import { repoIndexRevision } from '../ledger/index.js';
+
+/** The repo root as a path, from the editor's root URI. */
+function rootPathOf(rootUri: string): string {
+  if (!rootUri.startsWith('file://')) return rootUri;
+  try { return fileURLToPath(rootUri); } catch { return rootUri.substring(7); }
+}
+
+/**
+ * The "Existing code that may already cover this" section, from the repository index: computed on every call from the current
+ * index, hit or miss, and never cached — a code edit therefore never invalidates a cached conditioning by
+ * itself. Empty when REPO_INDEX is off, there is no root, or nothing matches.
+ */
+function existingCodeFor(params: { rootUri?: string; task: string }): string {
+  if (!CONFIG.REPO_INDEX || !params.rootUri) return '';
+  try {
+    const root = rootPathOf(params.rootUri);
+    refreshRepoIndex(root);
+    return existingCodeSection({ root, task: params.task });
+  } catch (err) {
+    console.error(`[pipeline] repo index skipped: ${err instanceof Error ? err.message : String(err)}`);
+    return '';
+  }
+}
+
+/** Resolves the `index:<root>` pseudo-dependency (the repository index revision) from the ledger; real paths fall through to a stat. */
+/** Resolves pseudo-path dependencies (`index:<root>`, `memory:<key>`) from the ledger; real paths fall through to a stat. */
+const depValue = (depPath: string): number | null | undefined => {
+  if (depPath.startsWith('index:')) return repoIndexRevision(depPath.slice('index:'.length));
+  // `memory:<key>` is the conversation memory's fold time (ms): a newer fold makes the conditioning a miss.
+  if (depPath.startsWith('memory:')) { const row = readMemoryRow(depPath.slice('memory:'.length)); return row ? new Date(row.folded_at).getTime() : null; }
+  return undefined;
+};
+
+// When this MCP session started: a conversation memory qualifies only if its conversation began at or after.
+const MCP_SESSION_STARTED_AT = new Date().toISOString();
+
+/** The usable conversation memory for this workspace, rendered, or nothing (conversation memory). */
+function conversationFor(rootUri?: string): { text: string | null; decided: string[]; row: ReturnType<typeof matchMemory>['row']; match: ReturnType<typeof matchMemory>['match'] } {
+  if (!CONFIG.CONVERSATION_MEMORY || !rootUri) return { text: null, decided: [], row: null, match: 'none' };
+  const found = matchMemory({ root: rootPathOf(rootUri), startedAfter: MCP_SESSION_STARTED_AT });
+  const parsed = found.row ? parseSummary(found.row.summary) : null;
+  if (!found.row || !parsed) return { text: null, decided: [], row: null, match: 'none' };
+  return { text: renderSummary(parsed), decided: parsed.decided, row: found.row, match: found.match };
+}
+import { distillToolResultWithStats, FidelityStats, FidelityVerify } from '../utils/elision.js';
 import { scan } from './ground.js';
 import { buildPreserveList } from '../utils/preserve-patterns.js';
 
@@ -82,12 +130,21 @@ function emitConditionEvent(params: {
   startTime: number;
   cacheHit?: 'exact' | 'semantic';
   errorKinds?: { distill: SlmErrorKind; resolver: SlmErrorKind };
+  /** What the resolver was given and found; absent on cache hits (no resolver work). */
+  resolver?: { context_tok_est: number; skill_tok_est: number; trimmed: 0 | 1; questions: number; stale_decisions: string[] };
+  /** What the fidelity guard measured; `{ mode: 'cache_hit' }` on hits (no measurement), null after a distil error. */
+  fidelity?: FidelityStats | { mode: 'cache_hit' } | null;
+  /** Which conversation memory the resolver read, if any (never the text). */
+  memory?: { match: 'key' | 'root-recent' | 'none' };
 }): void {
-  const { text, conditioned, args, startTime, cacheHit, errorKinds } = params;
+  const { text, conditioned, args, startTime, cacheHit, errorKinds, resolver, fidelity, memory } = params;
   const meta: Record<string, unknown> = {};
   if (cacheHit) meta.cache_hit = cacheHit;
+  if (fidelity) meta.fidelity = fidelity;
+  if (memory) meta.memory = memory;
   if (errorKinds?.distill) meta.distill_error = errorKinds.distill;
   if (errorKinds?.resolver) meta.resolver_error = errorKinds.resolver;
+  if (resolver) meta.resolver = resolver;
 
   writeEvent({
     ts: new Date().toISOString(),
@@ -136,37 +193,52 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // 1. Cache Check
   // PROMPT_VERSION participates in the key. It is documented in .env.example as the lever to
   // bump when prompt logic changes.
+  // Conversation memory: the usable summary for this workspace joins the key (`m<folded_at>` or `nomem`), so
+  // an entry cached without memory misses once memory exists, and a newer fold gives a fresh conditioning.
+  const conversation = conversationFor(rootUri);
+  const memoryPart = conversation.row ? `m${conversation.row.folded_at}` : 'nomem';
   const hash = crypto.createHash('sha256')
-    .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION)
+    .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION + '||' + memoryPart)
     .digest('hex');
   const cacheKey = `condition_${hash}`;
-  const cached = cacheGet(cacheKey);
+  // A hit is served only while the repository state it relied on (decision files and the symbol index) is unchanged; rows without dependencies are served as before. The index is brought up to date
+  // first — forced past its debounce, because this compare must see the revision AFTER any code edit; the
+  // section appended later reuses the fresh index through the debounced path.
+  if (CONFIG.REPO_INDEX && rootUri) {
+    try { refreshRepoIndex(rootPathOf(rootUri), { force: true }); } catch (err) { console.error(`[pipeline] repo index refresh skipped: ${err instanceof Error ? err.message : String(err)}`); }
+  }
+  const cached = cacheDepsFresh(cacheKey, { statMtime: depValue }) ? cacheGet(cacheKey) : null;
   if (cached) {
     // A cache hit is the BEST outcome — full compression at zero SLM compute — yet it used
     // to return before any writeEvent, making it invisible to every metric and biasing all
     // savings figures toward the slow path.
-    emitConditionEvent({ text, conditioned: cached, args, startTime, cacheHit: 'exact' });
-    return cached;
+    emitConditionEvent({ text, conditioned: cached, args, startTime, cacheHit: 'exact', fidelity: { mode: 'cache_hit' }, memory: { match: conversation.match } });
+    return cached + existingCodeFor({ rootUri, task });
   }
   
-  if (CONFIG.SEMCACHE) {
+  // A semantic hit returns before the resolver runs and cannot carry a memory dependency, so it is skipped
+  // whenever a usable conversation memory exists.
+  if (CONFIG.SEMCACHE && !conversation.row) {
     const semCached = await checkSemanticCache(text);
     if (semCached && typeof semCached === 'string') {
-      emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic' });
-      return semCached;
+      emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic', fidelity: { mode: 'cache_hit' } });
+      return semCached + existingCodeFor({ rootUri, task });
     }
   }
 
   const preserveList = await getPreserveList();
 
-  // 2. Distill (the compressor is shared with the model gate; see compressNarrativeRun)
+  // 2. Distill (the compressor is shared with the model gate; see compressNarrativeRun). The brain model
+  // checks every shortened prose run against the requirement sentences the code listed: the skill fidelity guard.
   const slmFunc = (t: string, taskDesc?: string) => compressNarrativeRun({ slm: slmClient, text: t, task: taskDesc });
-  
+  const verify: FidelityVerify = ({ inventory, compressed }) => checkKept({ slm: slmClient, inventory, compressed });
+
   const startDistill = Date.now();
   let conditioned = text;
   let distillErrorKind: SlmErrorKind = null;
+  let fidelity: FidelityStats | null = null;
   try {
-    conditioned = await distillToolResult(slmFunc, text, task, toolName, args, preserveList);
+    ({ text: conditioned, fidelity } = await distillToolResultWithStats({ slm: slmFunc, text, task, toolName, args, preservePatterns: preserveList, verify }));
   } catch (err: any) {
     handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
     distillErrorKind = classifySlmError(err);
@@ -200,12 +272,16 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   }
 
   const startResolver = Date.now();
-  let resolveOut = { autoApplied: [] as any[], askUser: [] as any[] };
+  let resolveOut: ResolverOutput = { autoApplied: [], askUser: [] };
   let resolverErrorKind: SlmErrorKind = null;
+  // Slice 4: the resolver's prompt must fit the local context; a whole skill often does not.
+  const skillContext = prepareSkillContext(text, CONFIG.RESOLVER_PROMPT_TOKENS);
   try {
     resolveOut = await resolveAmbiguities(slmClient, fsReadFn, {
-      skillText: text,
+      skillText: skillContext.text,
       task,
+      conversation: conversation.text,
+      decided: conversation.decided,
       repoRoot: rootUri ? (rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri) : undefined
     });
   } catch (err: any) {
@@ -222,17 +298,18 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     conditioned += `\n\n# Environment Context\n${groundCtx}`;
   }
 
+  // Provenance of a decision-file answer: an answer from a decision file says so, with who verified it and when.
   if (resolveOut.autoApplied.length > 0) {
     conditioned += `\n\n# Auto-Resolved Decisions\n`;
     for (const res of resolveOut.autoApplied) {
-      conditioned += `- **${res.question}**: ${res.answer}\n`;
+      conditioned += `- **${res.question}**: ${res.answer}${res.provenance ? ` (${res.provenance})` : ''}\n`;
     }
   }
 
   if (resolveOut.askUser.length > 0) {
     conditioned += `\n\n# Pending Clarifications (Ask User)\n`;
     for (const ask of resolveOut.askUser) {
-      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'})\n`;
+      conditioned += `- **${ask.question}** (Recommendation: ${ask.recommendedAnswer || 'None'}${ask.provenance ? `; ${ask.provenance}` : ''})\n`;
     }
   }
   
@@ -252,7 +329,17 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     conditioned,
     args,
     startTime,
-    errorKinds: { distill: distillErrorKind, resolver: resolverErrorKind }
+    errorKinds: { distill: distillErrorKind, resolver: resolverErrorKind },
+    fidelity,
+    resolver: {
+      // What the resolver was given (after trimming), beside the skill's full size.
+      context_tok_est: skillContext.tokEst,
+      skill_tok_est: skillContext.originalTokEst,
+      trimmed: skillContext.trimmed ? 1 : 0,
+      questions: resolveOut.autoApplied.length + resolveOut.askUser.length,
+      stale_decisions: resolveOut.staleDecisions ?? [],
+    },
+    memory: { match: conversation.match },
   });
 
   // 6. Cache Set.
@@ -264,10 +351,17 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // longer blocks caching.
   if (!distillErrorKind) {
     cacheSet(cacheKey, conditioned);
+    // The repository state this result relied on (decision files, the symbol index); a change makes the next call a miss.
+    writeCacheDeps(cacheKey, [
+      ...(resolveOut.dependencies ?? []),
+      // The conversation memory this result read: a newer fold recomputes it (depValue resolves `memory:`).
+      ...(conversation.row ? [{ path: `memory:${conversation.row.key}`, mtime: new Date(conversation.row.folded_at).getTime(), expiresAt: null }] : []),
+    ]);
     if (CONFIG.SEMCACHE) {
       await setSemanticCache(text, conditioned);
     }
   }
 
-  return conditioned;
+  // Appended after caching on purpose: the section follows the index, not the cache.
+  return conditioned + existingCodeFor({ rootUri, task });
 }

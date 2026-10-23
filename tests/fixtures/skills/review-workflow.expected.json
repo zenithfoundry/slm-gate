@@ -1,0 +1,16 @@
+{
+  "mustSurvive": [
+    "tags:",
+    "  - review",
+    "Every change MUST have one approving review before it merges.",
+    "1. Open the change with `mcp__example__open_change` and read the description first.",
+    "2. Run the checks from src/ci/checks.ts and wait for them to finish.",
+    "3. Reply within 30 min during working hours; otherwise reassign the review.",
+    "| Size | Reviewers | Turnaround |",
+    "| small | 1 | 2 h |",
+    "NEVER approve a change you have not run locally.",
+    "The call mcp__example__request_changes records the reason in the thread.",
+    "Comments longer than 20 lines belong in a document, not in the review.",
+    "pnpm run checks -- --since origin/main"
+  ]
+}

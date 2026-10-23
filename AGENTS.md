@@ -17,8 +17,8 @@ Two independently-runnable middleware layers plus one shared ledger:
   optionally forwards to a downstream MCP server; it intercepts skill/prompt payloads and runs a local
   small model to **compress, ground, and disambiguate** them before they reach the cloud model.
 - **Layer 2 `llm-gate`** — an OpenAI-**and**-Anthropic-compatible HTTP endpoint a client points its model
-  base URL at. Per request it **defers locally** (SLM + verifier) or **compresses and forwards** to the
-  cloud, metering exact cloud token usage.
+  base URL at. Per request it **compresses and forwards** to the cloud with the tool's own login, metering
+  the token usage, and keeps a short **conversation memory** the local steps read.
 - **Ledger** — every request from either layer writes one SQLite row and (optionally) one Langfuse v4 trace.
 
 **Authoritative scaffolding:** if `AGENTS.md`, `.env.example`, `.gitignore`, `ARCHITECTURE.md`, `README.md`,
@@ -38,7 +38,7 @@ overwrite, rename, or duplicate them.** `.env.example` is the single source of t
   small-language-model-gate/
     src/
       config.ts
-      models/         ledger/        pricing/       verifier/
+      models/         ledger/        pricing/       index/
       resolver/       llm-gate/      mcp-gate/
       adapters/tech-lead-stack.ts
       cli.ts
@@ -68,11 +68,11 @@ overwrite, rename, or duplicate them.** `.env.example` is the single source of t
 ## 3. Tech stack & coding conventions
 
 - **TypeScript**, `"type": "module"`, `strict: true`, Node ≥ 22, ESM. Dev via `tsx`, build via `tsc` → `dist/`.
-  The offline analysis **harness is TypeScript**. The entire project is Node/TypeScript without any Python installed.
+  The ledger metrics script in `harness/` is TypeScript. The entire project is Node/TypeScript without any Python installed.
 - Dependencies: `@modelcontextprotocol/sdk`, `ollama`, `better-sqlite3`, `zod`, `dotenv`, one small HTTP lib
   for `llm-gate` (`hono` or `node:http`), and `langfuse` (kept optional at runtime). **Pin versions**; no
   `@latest` in committed configs.
-- **Typed everything; no `any`.** Model decisions (router, verifier, resolver) use **structured JSON output
+- **Typed everything; no `any`.** Model decisions (fidelity check, resolver, memory fold) use **structured JSON output
   validated with zod** — never regex-over-prose.
 - **Named errors** with actionable messages. Never let a bare lookup throw from inside a loop (e.g. pricing
   misses list the known models).
@@ -108,9 +108,10 @@ overwrite, rename, or duplicate them.** `.env.example` is the single source of t
 
 - **The trap:** token/turn savings are meaningless on their own — you can always cut tokens by sending less.
   The headline metric is **cost-at-equal-quality** (or quality-at-equal-cost), never "tokens saved."
-- Always measure against an **SLM-off baseline arm**; tag every trace `slm_gate=on|off`.
+- Measure on real traffic: the ledger records the request before and after shrinking, and the dashboard's
+  fidelity card records what shrinking a skill cost in requirement sentences.
 - On **subscription** plans, "cost" = quota / tokens / turns (dollars are 0); on **API keys**, "cost" = dollars.
-  The harness measures tokens/turns either way — interpret the number per the setup.
+  The ledger records tokens/turns either way — interpret the number per the setup.
 
 ---
 

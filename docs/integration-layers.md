@@ -2,12 +2,11 @@
 
 `slm-gate` has two independent operating modes — think of them as two different places where the gate can be inserted into your workflow. You can use one, the other, or both at the same time.
 
-> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. It can't answer your questions locally. `llm-gate` sits between your coding tool and the model, so it sees every request. It lets the small model try the first message of a conversation, and shrinks large command, search and listing output in every later request before it leaves your machine.
+> **What each layer can see.** `mcp-gate` only sees what tools send back (skill files, file contents, command output). It never sees the messages you type, so it can only **shrink** those results. `llm-gate` sits between your coding tool and the model, so it sees every request. It shrinks large command, search and listing output in every request before it leaves your machine, and keeps a short memory of each conversation that the local steps of both layers read. Neither layer ever answers a request itself.
 >
 > | Dashboard card | Needs |
 > |---|---|
 > | Tokens Saved, Cost Saved, Routing Decision | either layer |
-> | SLM Accuracy Rate | `llm-gate` (or `pnpm run bench`, shown under Env = `bench`) |
 > | Claude / Gemini Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | either layer **and** that provider's `*_WINDOW_BUDGET` |
 > | ChatGPT Cycle: Est. Seconds Saved (per prompt) + Est. Minutes Saved (total) | `llm-gate` **and** `CHATGPT_WINDOW_BUDGET` |
 
@@ -45,6 +44,8 @@ To use Tech-Lead-Stack as your downstream:
 
 **Works with any MCP server.** Tech-Lead-Stack is the recommended companion, but `mcp-gate` is fully downstream-agnostic. Keep the gate registered as `slm-gate` whatever sits behind it. When a toolbox's own commands or docs call its tools by another server name (TLS's commands say `mcp__tech-lead-stack__get_skills`), the gate handles that for you: it reads the toolbox's tool list when it starts, tells your editor those tools live on `slm-gate`, and rewrites those names in what it returns. Swapping toolboxes needs no config change. Whatever a tool returns reaches your editor whole (pictures, several blocks of text, error flags, structured data); only large text is shrunk. Any MCP server — or a combination — can sit behind it. Popular options include:
 
+**The gate's own tools.** Besides the toolbox's tools, your editor sees up to three from the gate itself (which ones depends on [the setup](setups.md)): `expand_elision` returns the lines the gate cut, one page at a time; `ask_elision` answers a question about the cut text with the local brain model, a few sentences instead of a page; and, with `REPO_INDEX=on`, `find_existing` lists the functions, classes and types your repository already defines that match a few words, from a small index kept in the ledger with no model call.
+
 | MCP Server | What It Does |
 | :--- | :--- |
 | [Tech-Lead-Stack](https://github.com/bronz3beard/ai.tech-lead-stack) | Full software delivery team (planning, review, security, release) |
@@ -67,17 +68,17 @@ To use Tech-Lead-Stack as your downstream:
 
 **How it works:** `llm-gate` (the "model gate") is a small server on your machine at `http://localhost:8787`. You change one setting in your coding tool so it sends its model requests there instead of straight to Anthropic, OpenAI or Google. For each request the gate:
 
-1. **First message of a conversation:** lets your local model try to answer. If it can't, or its answer fails the check, the request carries on as below. Slash commands and coding tasks that need the tool's own tools always carry on.
-2. **Every other request, tool steps included:** shrinks large command, search and listing output (tool results) before the request leaves your machine. Each result is shrunk once and the same shorter text is resent every later turn, so the provider's prompt cache keeps working. Nothing else in the request is changed.
-3. **Sends the request to the provider the tool would have used anyway, with the tool's own login** (your Claude Pro/Max or ChatGPT login, or your API key). You are billed exactly as without the gate; there are just fewer, smaller requests.
+1. **Shrinks large command, search and listing output** (tool results) before the request leaves your machine. Each result is shrunk once and the same shorter text is resent every later turn, so the provider's prompt cache keeps working. Nothing else in the request is changed.
+2. **Sends the request to the provider the tool would have used anyway, with the tool's own login** (your Claude Pro/Max or ChatGPT login, or your API key). You are billed exactly as without the gate; the requests are just smaller.
+3. **Remembers what the conversation is about.** After each reply, while no request is in flight, the brain model folds the turn into a short summary (goal, decisions, files in play). `ask_elision` and the resolver read it; `slm-gate memory` shows it.
 
 ```
 Your coding tool
     │
     ▼
 slm-gate (llm-gate)       ← on http://localhost:8787, started for you
-    │ first message        → local model tries to answer
-    │ everything else      → large tool output shrunk
+    │ every request        → large tool output shrunk
+    │ after each reply     → the brain model folds the turn into a short conversation memory (off the request path)
     ▼
 The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 ```
@@ -96,7 +97,7 @@ The tool's own provider (Anthropic, OpenAI, Google), with the tool's own login
 
 Neither layer needs an API key of its own. Every request that reaches the cloud is billed exactly as it would be without `slm-gate`: to the subscription or API key your coding tool is logged in with. `slm-gate` only makes those requests fewer and smaller.
 
-The `CLOUD_*` settings are optional and separate. They are read only by the benchmark (`slm-gate bench`), the resolver's optional cloud tier (`RESOLVER_CLOUD_TIER`) and a hosted small model (`SLM_PROVIDER=openai`). Most people leave them blank.
+The `CLOUD_*` settings are optional and separate. They are read only by the resolver's optional cloud tier (`RESOLVER_CLOUD_TIER`) and a hosted small model (`SLM_PROVIDER=openai`). Most people leave them blank.
 
 ---
 

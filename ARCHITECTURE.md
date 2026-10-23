@@ -35,9 +35,9 @@ The system consists of two independently-runnable middleware layers plus one sha
 2. **Layer 2: `llm-gate` (the model gate)**
    - One local HTTP server (`LLM_GATE_PORT`, default 8787) speaking four wire formats, with no translation between them: Anthropic Messages (`/v1/messages`), Chat Completions (`/v1/chat/completions`), Responses (`/v1/responses`) and Gemini (`/v1beta/models/{model}:generateContent|streamGenerateContent`). Each format lives in `src/llm-gate/formats/`; behaviour is keyed on the wire format, never on which coding tool sent it.
    - A coding tool points its model address at it. Each request goes back to the provider its format belongs to, with the tool's own login (every header except hop-by-hop ones is forwarded; streams are piped byte for byte with no total timeout).
-   - **Step A — first request of a conversation:** the local model may answer it (not slash commands, not structured-output or forced-tool requests, and only short factual/format questions when the request lists tools). The answer must pass the verifier within `LOCAL_ATTEMPT_BUDGET_MS`; otherwise the attempt is cancelled and the request goes on to Step B.
-   - **Step B — every other request:** only the text of large command, search and listing tool results in the newest turn changes; the system prompt, tool list, anything the person typed, ids, thinking, signatures, images and `cache_control` never do. Each result is distilled once and the stored text is resent every later turn (`llm_distilled`), so the provider's prompt cache keeps hitting and earlier thinking stays valid. A result that fails or runs past `DISTILL_BUDGET_MS` is sent as it was.
-   - Route values in the ledger: `defer_local` (answered locally), `forward_compressed` (distilled), `forward_raw` (unchanged).
+   - The gate never answers a request itself. It only shrinks what a request carries: only the text of large command, search and listing tool results in the newest turn changes; the system prompt, tool list, anything the person typed, ids, thinking, signatures, images and `cache_control` never do. Each result is distilled once and the stored text is resent every later turn (`llm_distilled`), so the provider's prompt cache keeps hitting and earlier thinking stays valid. A result that fails or runs past `DISTILL_BUDGET_MS` is sent as it was.
+   - **Conversation memory** (`CONVERSATION_MEMORY`, on by default): after each reply the turn is noted, and while the gate has no request in flight the brain model folds it into a short summary per conversation (goal, decisions, files in play), stored in the ledger. The MCP gate's `ask_elision` and the resolver read that summary beside the message they answer; a missing, stale, failed or wrong-version summary means today's one-message behaviour. The summary text never leaves the machine and is never written into an event row.
+   - Route values in the ledger: `forward_compressed` (distilled), `forward_raw` (unchanged), `memory_fold` (one fold). `defer_local` rows exist only in ledgers written before 1.4, when the gate could answer a first request itself; they stay readable and are priced as they were.
 
 3. **Ledger**
    - Every request from either layer writes one SQLite row locally.
@@ -51,7 +51,7 @@ Do **NOT** use prompt engineering to request JSON wrapped in markdown blocks, an
 
 ## Credentials and Billing
 
-Neither layer holds a cloud credential of its own. The model gate forwards the coding tool's own login (subscription or API key) unchanged, so every forwarded request is billed exactly as it would be without `slm-gate`. The `CLOUD_*` settings are separate and optional: only the benchmark harness, the resolver's cloud tier and `SLM_PROVIDER=openai` read them.
+Neither layer holds a cloud credential of its own. The model gate forwards the coding tool's own login (subscription or API key) unchanged, so every forwarded request is billed exactly as it would be without `slm-gate`. The `CLOUD_*` settings are separate and optional: only the resolver's cloud tier and `SLM_PROVIDER=openai` read them.
 
 ## How the Model Gate Stays Running
 

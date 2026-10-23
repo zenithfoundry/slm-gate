@@ -56,9 +56,21 @@ const envSchema = z.object({
   SLM_PROVIDER: z.enum(['ollama', 'openai']).default('ollama'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
   OLLAMA_KEEP_ALIVE: z.string().default('12h'),
+  // Conversation memory (docs/briefs/2026-10-22-conversation-memory.md): the model gate keeps a short running
+  // summary per conversation, folded by the brain model off the request path, for the local steps to read.
+  // On by default: every reader fails closed without a usable summary, so nothing changes until a fold lands.
+  CONVERSATION_MEMORY: parseBoolean(true),
+  // The summary's size, the most new text one fold reads, how often a conversation may fold, and how old a
+  // summary may be before every reader ignores it.
+  MEMORY_MAX_TOKENS: parseInteger(400),
+  MEMORY_FOLD_INPUT_TOKENS: parseInteger(3000),
+  MEMORY_FOLD_INTERVAL_MS: parseInteger(20000),
+  MEMORY_MATCH_WINDOW_MS: parseInteger(600000),
+  // Keep the two local models loaded: when a model slm-gate does not use displaces one of its own, unload
+  // the stranger and warm the missing one back in (src/models/pin.ts). Off leaves Ollama's memory alone.
+  SLM_PIN_MODELS: parseBoolean(true),
   SLM_BRAIN_MODEL: z.string().optional(), // resolved below
   SLM_GATE_MODEL: z.string().optional(),  // resolved below
-  SLM_GATE_TESTING_MODEL: z.string().optional(), // resolved below, used for benchmark harness & test runs
   NUM_CTX: parseInteger(8192),
   TEMPERATURE: parseFloatNumber(0),
   SLM_TIMEOUT_MS: parseInteger(120000),
@@ -66,10 +78,6 @@ const envSchema = z.object({
   SELF_CONSISTENCY_TEMP: parseFloatNumber(0.7),
 
   // STEP 2
-  STRICTNESS_LEVELS: parseNumberArray([0, 1, 2, 3, 4, 5]),
-  HEADLINE_STRICTNESS: parseInteger(4),
-
-  // STEP 3
   CLOUD_API_STYLE: z.enum(['openai', 'anthropic']).default('openai'),
   CLOUD_BASE_URL: z.string().optional(),
   CLOUD_API_KEY: z.string().optional(),
@@ -80,7 +88,7 @@ const envSchema = z.object({
   SEMCACHE_THRESHOLD: parseFloatNumber(0.95),
   EMBED_MODEL: z.string().default('nomic-embed-text'),
 
-  // STEP 4
+  // STEP 3
   LLM_GATE_PORT: parseInteger(8787),
   // When a coding tool starts slm-gate's MCP server, also start the model gate (in the background) if it
   // is not running, and keep it running while tools are open. Off = you start it yourself (`slm-gate start`).
@@ -89,11 +97,6 @@ const envSchema = z.object({
   // the gate a plain pass-through; ongoing conversations then resend their distilled history in full
   // once (one prompt-cache miss, and Claude drops its earlier thinking once).
   LLM_GATE_DISTILL: parseBoolean(true),
-  // Offer the first request of a conversation to the local model (Step A). Off sends every request on.
-  LLM_GATE_LOCAL_FIRST: parseBoolean(true),
-  // How long a first request may wait for a local answer before it goes on; the attempt is then cancelled.
-  // A warm local answer (3 samples) measured 3.8 s; deciding a coding task is not eligible takes ~0.25 s.
-  LOCAL_ATTEMPT_BUDGET_MS: parseInteger(6000),
   // Where the model gate forwards each wire format. Built in; override only when your requests
   // must already go through a company gateway. The tool's own login is forwarded either way.
   UPSTREAM_ANTHROPIC_URL: z.string().url().default('https://api.anthropic.com'),
@@ -104,13 +107,13 @@ const envSchema = z.object({
   MCP_GATE_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
   MCP_GATE_PORT: parseInteger(8788),
 
-  // STEP 5
+  // STEP 4
   PROVIDER: z.enum(['gemini', 'claude', 'chatgpt']).optional(),
   LEDGER_PATH: z.string().default(path.join(OUTPUT_DIR, 'ledger.sqlite')),
   LANGFUSE_PUBLIC_KEY: z.string().optional(),
   LANGFUSE_SECRET_KEY: z.string().optional(),
   LANGFUSE_HOST: z.string().optional(),
-  // Langfuse environment dimension. Keeps benchmark/harness runs out of the real
+  // Langfuse environment dimension. Keeps synthetic runs out of the real
   // traffic view — the dashboard's Env selector filters on this. Langfuse requires
   // lowercase alphanumeric plus - and _, and forbids the 'langfuse' prefix.
   // Not 'default': that is where any other writer to the same Langfuse project lands
@@ -123,9 +126,11 @@ const envSchema = z.object({
   PLAN_CHATGPT: z.string().optional(),
   PLAN_GEMINI: z.string().optional(),
 
-  // STEP 6
+  // STEP 5
   RESOLVER_CLOUD_TIER: parseBoolean(false),
   RESOLVER_CLOUD_BUDGET_USD: parseFloatNumber(0),
+  // The most skill text the resolver puts in one local-model prompt; longer skills are trimmed by section.
+  RESOLVER_PROMPT_TOKENS: parseInteger(3000),
   PROMPT_VERSION: z.string().default('v1'),
   // The presets in src/hardware.ts ramPresets. Every value recommendPreset() can print must be accepted
   // here, or following doctor's advice stops slm-gate from starting. slm-gate needs 16 GB of RAM or more.
@@ -136,6 +141,9 @@ const envSchema = z.object({
   DISTILL_PRESERVE_PATH: z.string().optional().transform(v => v?.trim() ? path.resolve(ROOT_DIR, v.trim()) : null),
   DISTILL_PRESERVE_MODE: z.enum(['extend', 'replace']).default('extend'),
   DISTILL_SKILLS: parseBoolean(false),
+  // Repository symbol index: the find_existing tool, index-backed resolver evidence and the
+  // "Existing code that may already cover this" section on conditioned skills. Disk only, no model.
+  REPO_INDEX: parseBoolean(false),
   DISTILL_ADAPTIVE: parseBoolean(false),
   DISTILL_ADAPTIVE_THRESHOLD: parseFloatNumber(0.86),
   DISTILL_ADAPTIVE_EXPLORE_RATE: parseFloatNumber(0.15),
@@ -146,6 +154,16 @@ const envSchema = z.object({
   // How long the model gate may hold one request to distil its new tool results. Past it, a result is
   // sent (and kept, forever) as the original. Warm local-model runs take ~0.5 s per ~600 words.
   DISTILL_BUDGET_MS: parseInteger(3000),
+  // Skill shrinking fidelity guard. A compressed prose run is kept only when the brain model
+  // confirms every code-listed requirement sentence survived: recall >= MIN (1.0 = nothing missing).
+  DISTILL_FIDELITY_MIN: parseFloatNumber(1.0),
+  // At most this many prose runs per document are compressed and checked; the rest stay verbatim.
+  DISTILL_FIDELITY_MAX_RUNS: parseInteger(8),
+  // Wall-clock budget for one document's shrinking; runs past it stay verbatim.
+  DISTILL_FIDELITY_BUDGET_MS: parseInteger(60000),
+  // Prose runs the gate model shortens at the same time. One GPU: two calls share it, so 2 is not twice as
+  // fast as 1; `pnpm run bench:gate` measures both on this machine.
+  MAX_CONCURRENT_SEGMENT_CALLS: parseInteger(2),
   KEEP_RECENT_TOOL_TURNS: parseInteger(2),
   ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),
@@ -154,12 +172,6 @@ const envSchema = z.object({
   // cards cover this rolling window, while the local ledger keeps everything.
   LANGFUSE_RETENTION_DAYS: parseInteger(30),
 
-  // ROUTING TUNE
-  ROUTING_TUNE: parseBoolean(false),
-  ROUTING_TUNE_WINDOW: parseInteger(20),
-  ROUTING_TUNE_MIN_SAMPLES: parseInteger(8),
-  ROUTING_TUNE_THRESHOLD: parseFloatNumber(0.5),
-  ROUTING_TUNE_EXPLORE_RATE: parseFloatNumber(0.15),
 });
 
 // A variable that is present but blank means "unset". dotenv and MCP-host env blocks both
@@ -225,7 +237,6 @@ export const CONFIG = Object.freeze({
   OUTPUT_DIR,
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
-  SLM_GATE_TESTING_MODEL: parsedEnv.SLM_GATE_TESTING_MODEL || parsedEnv.SLM_GATE_MODEL || preset.gate,
   // Where every session looks for, and starts, the one shared model gate: LLM_GATE_PORT as slm-gate's own
   // .env sets it. LLM_GATE_PORT above prefers the process environment, so a value in one coding tool's MCP
   // env block (or the shell) would send that session to another port, where it would start a second gate.
@@ -263,7 +274,7 @@ if (isEntryPoint(import.meta.url)) {
   console.log(JSON.stringify(redactedConfig, null, 2));
 
   console.log('\n--- Summary ---');
-  console.log(`brain: ${CONFIG.SLM_BRAIN_MODEL} | gate: ${CONFIG.SLM_GATE_MODEL} | test: ${CONFIG.SLM_GATE_TESTING_MODEL}`);
+  console.log(`brain: ${CONFIG.SLM_BRAIN_MODEL} | gate: ${CONFIG.SLM_GATE_MODEL}`);
   
   const downstream = CONFIG.DOWNSTREAM_MCP ? (CONFIG.DOWNSTREAM_MCP.command ? `command: ${CONFIG.DOWNSTREAM_MCP.command}` : `url: ${CONFIG.DOWNSTREAM_MCP.url}`) : 'standalone';
   console.log(`downstream: ${downstream}`);

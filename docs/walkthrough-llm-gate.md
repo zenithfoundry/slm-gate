@@ -10,9 +10,9 @@
 ### What is the model gate?
 The model gate (`llm-gate`) is a small server on your computer at `http://localhost:8787`. Your coding tool sends its model requests there instead of straight to Anthropic, OpenAI or Google. The gate:
 
-1. lets your local model try to answer the **first message** of each conversation (never slash commands, never coding tasks that need the tool's own tools);
-2. shrinks large command, search and listing output in **every later request** before it leaves your machine;
-3. sends everything it didn't answer to the provider your tool would have used anyway, **with your tool's own login**.
+1. shrinks large command, search and listing output in **every request** before it leaves your machine;
+2. sends every request to the provider your tool would have used anyway, **with your tool's own login**;
+3. keeps a short memory of each conversation (goal, decisions, files in play), folded by the brain model between requests, which the local steps read; `node dist/cli.js memory` shows it.
 
 You never start it yourself: `slm-gate`'s MCP server starts it when your coding tool starts.
 
@@ -83,13 +83,15 @@ sqlite3 ./output/ledger.sqlite "SELECT route, api_in_tok FROM events WHERE layer
 ```text
 forward_compressed|8200
 forward_raw|1450
-defer_local|0
+memory_fold|0
 ```
 
 **How to read this:**
-- `defer_local`: answered by your local model. Nothing was sent to your provider (0).
 - `forward_compressed`: sent to your provider with some tool output shrunk.
 - `forward_raw`: sent to your provider unchanged (nothing large enough to shrink).
+- `memory_fold`: the brain model folded a turn into the conversation memory. Nothing was sent to your provider (0).
+
+A ledger written by a version before 1.4 may also hold `defer_local` rows, from the time the gate could answer a first message itself. They still count in the totals.
 
 `pnpm run slm-gate metrics` shows the totals.
 
@@ -102,4 +104,4 @@ defer_local|0
 - **Claude Code gets 404 errors:** remove `/v1` from the end of `ANTHROPIC_BASE_URL`.
 - **"slm-gate only accepts requests from programs on this computer" (403):** the address isn't `localhost` or `127.0.0.1`, or the tool runs in a Docker container, a virtual machine or a web page from another site. Only programs on this computer can use the gate.
 - **No rows appear in the ledger:** your tool isn't using the gate yet. Check the setting from Step 1, and restart the tool after changing it.
-- **"Nothing was answered locally":** only the first message of a conversation is tried, and only when it's something a small model can answer. Slash commands and coding tasks always go to your provider. Check that Ollama is running (`node dist/cli.js doctor`).
+- **Every row is `forward_raw`:** nothing in those requests was large enough to shrink (`DISTILL_MIN_TOKENS`), or Ollama is not running, in which case the gate sends everything unchanged. Check with `node dist/cli.js doctor`.

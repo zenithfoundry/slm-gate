@@ -79,11 +79,11 @@ While this example shows dropping from a 9B (or 14B) to a 7B model, this princip
    ```
 2. **Pick a smaller brain:**
    e.g. `qwen2.5:7b` (pull it if needed: `ollama pull qwen2.5:7b`).
-   Keep the small gate model (`qwen2.5-coder:3b`) as-is; it's already tiny (~2GB).
+   Keep the small gate model (`qwen3.5:2b`) as-is; it's already tiny (~2GB).
 3. **Set it in `slm-gate`'s settings file** (`~/.slm-gate/.env`), which the model gate reads:
    ```bash
    SLM_BRAIN_MODEL=qwen2.5:7b
-   SLM_GATE_MODEL=qwen2.5-coder:3b
+   SLM_GATE_MODEL=qwen3.5:2b
    NUM_CTX=4096
    ```
    If your Antigravity `slm-gate` entry also sets these in its `env` block, change them there too: that block wins

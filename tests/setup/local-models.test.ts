@@ -5,7 +5,7 @@ import { AddressInfo } from 'node:net';
 const config = {
   SLM_PROVIDER: 'ollama',
   OLLAMA_HOST: '',
-  SLM_GATE_MODEL: 'qwen2.5-coder:3b',
+  SLM_GATE_MODEL: 'qwen3.5:2b',
   SLM_BRAIN_MODEL: 'qwen3.5:4b',
   EMBED_MODEL: 'nomic-embed-text',
   SEMCACHE: false,
@@ -46,17 +46,17 @@ afterAll(() => new Promise(resolve => {
 
 beforeEach(() => {
   mode = 'ollama';
-  Object.assign(config, { SLM_PROVIDER: 'ollama', OLLAMA_HOST: ollamaUrl, SLM_GATE_MODEL: 'qwen2.5-coder:3b', SLM_BRAIN_MODEL: 'qwen3.5:4b', SEMCACHE: false });
+  Object.assign(config, { SLM_PROVIDER: 'ollama', OLLAMA_HOST: ollamaUrl, SLM_GATE_MODEL: 'qwen3.5:2b', SLM_BRAIN_MODEL: 'qwen3.5:4b', SEMCACHE: false });
 });
 
 describe('checkLocalModels', () => {
   it('finds nothing wrong when every configured model is downloaded', async () => {
-    pulled = ['qwen2.5-coder:3b', 'qwen3.5:4b', 'llama3:8b'];
+    pulled = ['qwen3.5:2b', 'qwen3.5:4b', 'llama3:8b'];
     expect((await checkLocalModels()).problems).toEqual([]);
   });
 
   it('names each missing model with the command that fetches it', async () => {
-    pulled = ['qwen2.5-coder:3b'];
+    pulled = ['qwen3.5:2b'];
     const { problems } = await checkLocalModels();
     expect(problems).toHaveLength(1);
     expect(problems[0].message).toContain('qwen3.5:4b (SLM_BRAIN_MODEL,');
@@ -64,10 +64,10 @@ describe('checkLocalModels', () => {
   });
 
   it('also checks the models the running model gate uses, which come from slm-gate\'s .env', async () => {
-    pulled = ['qwen2.5-coder:3b', 'qwen3.5:4b'];
+    pulled = ['qwen3.5:2b', 'qwen3.5:4b'];
     const gateModels = [
-      { name: 'qwen2.5:7b', setting: 'SLM_BRAIN_MODEL', purpose: 'answering first messages locally' },
-      { name: 'qwen2.5-coder:3b', setting: 'SLM_GATE_MODEL', purpose: 'sorting requests' },
+      { name: 'qwen2.5:7b', setting: 'SLM_BRAIN_MODEL', purpose: 'the conversation memory' },
+      { name: 'qwen3.5:2b', setting: 'SLM_GATE_MODEL', purpose: 'shrinking tool output' },
     ];
     const { problems } = await checkLocalModels({ gateModels });
     expect(problems).toHaveLength(1);
@@ -77,19 +77,19 @@ describe('checkLocalModels', () => {
 
   it('accepts a model setting without a tag when Ollama has it as :latest', async () => {
     config.SLM_BRAIN_MODEL = 'mymodel';
-    pulled = ['qwen2.5-coder:3b', 'mymodel:latest'];
+    pulled = ['qwen3.5:2b', 'mymodel:latest'];
     expect((await checkLocalModels()).problems).toEqual([]);
   });
 
   it('reports a model named by two settings once', async () => {
-    config.SLM_BRAIN_MODEL = 'qwen2.5-coder:3b';
+    config.SLM_BRAIN_MODEL = 'qwen3.5:2b';
     pulled = [];
-    expect((await checkLocalModels()).problems.map(problem => problem.fix)).toEqual(['ollama pull qwen2.5-coder:3b']);
+    expect((await checkLocalModels()).problems.map(problem => problem.fix)).toEqual(['ollama pull qwen3.5:2b']);
   });
 
   it('also needs the embedding model when the semantic cache is on', async () => {
     config.SEMCACHE = true;
-    pulled = ['qwen2.5-coder:3b', 'qwen3.5:4b'];
+    pulled = ['qwen3.5:2b', 'qwen3.5:4b'];
     expect((await checkLocalModels()).problems.map(problem => problem.fix)).toEqual(['ollama pull nomic-embed-text']);
   });
 

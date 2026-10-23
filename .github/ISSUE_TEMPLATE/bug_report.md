@@ -15,7 +15,7 @@ A clear and concise description of what the bug is.
 - Ollama version: [e.g. 0.5.8]
 - SLM Models configured (`.env`):
   - `SLM_BRAIN_MODEL`: [e.g. qwen3.5:9b]
-  - `SLM_GATE_MODEL`: [e.g. qwen2.5-coder:3b]
+  - `SLM_GATE_MODEL`: [e.g. qwen3.5:2b]
 - Client: [e.g. Antigravity, Cursor, Claude Code, Cline, Claude Desktop]
 - Mode: [e.g. Layer 1 (`mcp-gate`), Layer 2 (`llm-gate`)]
 

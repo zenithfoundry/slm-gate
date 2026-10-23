@@ -82,6 +82,13 @@ Commit `site/` and push; the included Pages workflow deploys it (one-time setup:
 
 The published page is a snapshot and does not refresh itself: re-export and push, or schedule `scripts/dashboard-publish.sh` to do it daily at no cost — see [Keeping the published dashboard current](analytics-and-observability.md#keeping-the-published-dashboard-current).
 
+Two cards appear once there is data for them:
+
+- **Tool definitions in context per request** — how many tool schemas each model-gate request lists and how many stay deferred (kept out of the context until the model searches for them). A warning on the card means the latest request listed many tools and deferred none: set `ENABLE_TOOL_SEARCH=true` next to `ANTHROPIC_BASE_URL` in Claude Code's settings.
+- **Skill fidelity** — what survived skill shrinking (`DISTILL_SKILLS=on`): the share of requirement sentences the brain model confirmed kept, the share of conditionings with every protected block intact, how many went out unshrunk, expansions per conditioning, the lowest-recall skills, and how many sentences are now protected by code because they were once reported missing.
+
+Three commands go with them, all local and free: `pnpm run fidelity` runs the shrinking guard over every skill in your cache plus three fixtures and prints one outcome per skill; `pnpm run protections` lists the learned protections (`-- --forget "<sentence>"` removes one); `pnpm run bench:gate -- --model qwen3.5:2b` compares gate models and concurrency on your machine. See [Analytics & observability](analytics-and-observability.md#4-skill-shrinking-fidelity-learned-protections-and-the-gate-model-bench).
+
 ## Verify Active Compression in Your Editor
 
 When your editor calls a tool (like `get_skill` in Tech-Lead-Stack), the response that arrives in your editor's context should be noticeably shorter than the raw output — but still contain all the critical content (headings marked `MUST`, YAML frontmatter, phase markers).
@@ -100,9 +107,87 @@ To see `slm-gate` working in real-time, check your editor's MCP logs for the str
 ## Cloud API Keys
 
 Neither layer needs a `CLOUD_API_KEY`: the model gate sends each request on with your coding tool's own login. The `CLOUD_*` variables are only required if:
-- You run the offline testing harness (`slm-gate bench`), or
 - You turn on the resolver's cloud tier (`RESOLVER_CLOUD_TIER`), or use `SLM_PROVIDER=openai`
 
 ---
 
 [README](../README.md) · [All docs](README.md) · Next: [Architecture & Advanced Features](advanced.md)
+
+## Decision memory: answer a question once per repository
+
+The resolver finds open questions in a skill ("API-first or UI-first?") and tries to answer them from your
+repository. Write the answer down once and it is never asked again in that repo:
+
+```text
+.slm-gate/decisions/architecture-direction.md
+```
+```markdown
+---
+type: Decision
+title: Architecture direction
+verified_by: human:<your name>
+verified_at: 2026-10-21
+stale_after: 2027-04-01
+---
+API-first. The primary product boundary is the MCP protocol and the wire formats.
+```
+
+How it is used: the question is matched against the titles and bodies of your decision files (full-text search
+in the ledger, no embeddings), the brain model confirms the decision really answers it, and the answer goes
+through the same risk gate as every answer read from your code — a security or destructive question is never
+auto-applied from a file. A file with a `human:` `verified_by` line that is not past `stale_after` is applied
+under `# Auto-Resolved Decisions`, with the file name and who verified it printed next to the answer; any other
+file is only offered as a recommendation under `# Pending Clarifications`. Editing, adding or removing a decision
+file, or a file passing its `stale_after` date, makes the next conditioning recompute instead of using its cache.
+Commit the folder with the repository.
+
+Decision memory, the fidelity guard and the repository index belong to the "local models do more" setup; see
+[The two setups](setups.md) for the keys that turn them on or off together.
+
+## What the local model remembers of a conversation
+
+Every local step used to answer from a single message. Now the model gate keeps a short memory of each
+conversation it forwards: the goal, what was decided, and the files, commands and names that keep coming up.
+It is folded by the brain model from the newest turns only, a few hundred tokens at most, and only while the
+gate is idle, so it never slows a request. See it any time:
+
+```bash
+slm-gate memory
+```
+
+Who reads it: `ask_elision` (so "which step are we on?" has a here), the resolver (it stops asking questions the
+conversation already settled, and offers an earlier decision as the suggested answer, never applied on its own).
+The MCP gate cannot know which conversation a tool call belongs to, so it takes
+the newest memory for the same workspace from a conversation that began after the session did, within ten
+minutes; two sessions in the same repository at once can cross, and every ledger row says which memory it used
+(`memory.match`). The summary text stays in the ledger file on this machine: it is never written to event rows,
+sent to Langfuse, or printed in logs. `CONVERSATION_MEMORY=off` turns it off; stored summaries are then ignored
+too.
+
+What a fold is, and what it costs: one pass of the brain model that takes the previous summary plus only the
+turns since the last fold and writes the new summary; it never re-reads the whole conversation. Each fold writes
+one ledger row (route `memory_fold`: how long it took and roughly how many tokens it read; never the text), and
+`slm-gate memory` shows each conversation's fold count and last fold time. A conversation folds at most once per
+`MEMORY_FOLD_INTERVAL_MS`, and only while the gate has no request in flight. The first fold after a quiet spell
+is slower while the brain model wakes up.
+
+## Learned protections: a lost sentence is never lost twice
+
+With `DISTILL_SKILLS=on`, whenever the brain model reports that a shortened paragraph dropped a requirement
+sentence, that paragraph goes out word for word and the sentence is stored in the ledger. From then on any
+line of any skill that contains that sentence is protected by code before a model sees anything, so the list
+grows with use and you never edit patterns by hand. `pnpm run protections` shows the list, most often hit
+first; `pnpm run protections -- --forget "<sentence>"` removes one. The **Skill fidelity** card shows the count.
+Your own hand-written patterns in `DISTILL_PRESERVE_PATH` still apply as before.
+
+## If the local models keep unloading
+
+`slm-gate` needs its two models, the brain and the gate, loaded together: they work as a pair on every
+request. Your RAM decides how big those two models are and how much context they get (the RAM presets), not
+how many there are. So Ollama's slot count (`OLLAMA_MAX_LOADED_MODELS`) is set to 2, exactly the pair. When
+anything loads a third model, one of the pair is evicted and the next call pays a reload. The usual
+causes are `ollama run some-other-model` (it loads the model you name, and with an empty prompt it also waits
+for input until you quit), and `pnpm run bench:gate -- --model …`, which tries other gate models. With
+`SLM_PIN_MODELS=on` (the default) the model gate checks every minute and, only when one of its models is
+missing, unloads the stranger and warms its own model back in; the bench does the same when it finishes. To
+see what is loaded, use `ollama ps`, never `ollama run`.

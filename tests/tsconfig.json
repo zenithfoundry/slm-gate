@@ -11,5 +11,5 @@
     "rootDir": "..",
     "noEmit": true
   },
-  "include": ["**/*", "../scripts/ollama-helper.ts"]
+  "include": ["**/*", "../scripts/ollama-helper.ts", "../scripts/fidelity.ts", "../scripts/protections.ts", "../scripts/bench-gate.ts"]
 }

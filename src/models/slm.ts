@@ -26,7 +26,7 @@ export class SLM {
    * Relying on prompt engineering and markdown parsing for JSON has caused severe rambling and timeouts 
    * (especially on Apple Silicon / llama.cpp) where the model fails to emit a closing brace or stop token.
    * 
-   * @param model The ID of the local model to execute (e.g., 'qwen2.5-coder:3b')
+   * @param model The ID of the local model to execute (e.g., 'qwen3.5:2b')
    * @param prompt The instruction prompt for the model
    * @param schema A Zod schema defining the exact JSON structure expected back
    * @param temperature Generation temperature (randomness). Defaults to CONFIG.TEMPERATURE

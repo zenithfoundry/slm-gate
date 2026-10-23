@@ -72,10 +72,10 @@ function getRunPath(srcPath: string) {
   return { command: tsxPath, args: [path.join(ROOT_DIR, srcPath)] };
 }
 
-/** `bench` and `metrics` run the evaluation harness with tsx; only a git checkout has either. */
+/** `metrics` runs the ledger metrics script with tsx; only a git checkout has it. */
 function requireCheckout(params: { command: string; script: string }): void {
   if (fs.existsSync(path.join(ROOT_DIR, params.script)) && fs.existsSync(tsxPath)) return;
-  console.error(`\`slm-gate ${params.command}\` needs a git checkout of slm-gate (https://github.com/zenithfoundry/slm-gate): it runs the evaluation harness, which an npm install does not include.`);
+  console.error(`\`slm-gate ${params.command}\` needs a git checkout of slm-gate (https://github.com/zenithfoundry/slm-gate): it runs a script from the harness folder, which an npm install does not include.`);
   process.exit(1);
 }
 
@@ -109,9 +109,7 @@ Commands:
   start          Start the model gate in the background (if it is not running)
   stop           Stop the model gate; it stays stopped until start, restart or a reboot
   restart        Stop and start the model gate (e.g. after updating slm-gate)
-  bench          Run the offline evaluation harness
-                 Options:
-                   --n <number>             (number of tasks to run)
+  memory         Show what the local model remembers of each conversation (conversation memory)
   metrics        Show performance and cost metrics from the local ledger
   ledger:sync    Sync local SQLite ledger traces and scores to Langfuse
                  Options:
@@ -207,11 +205,6 @@ Commands:
       const { command: cmd, args: cmdArgs } = getRunPath(src);
       runCommand(cmd, cmdArgs, envOverride);
     }
-  } else if (command === 'bench') {
-    requireCheckout({ command: 'bench', script: 'harness/run.ts' });
-    // Pass all args after bench to the run script
-    const benchArgs = args.slice(1);
-    runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/run.ts'), ...benchArgs]);
   } else if (command === 'metrics') {
     requireCheckout({ command: 'metrics', script: 'harness/metrics.ts' });
     runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/metrics.ts')]);
@@ -228,15 +221,13 @@ Commands:
       path.join(outputDir, 'ledger.sqlite'),
       path.join(outputDir, 'ledger.sqlite-wal'),
       path.join(outputDir, 'ledger.sqlite-shm'),
-      path.join(outputDir, 'deferral_curve.svg'),
-      path.join(outputDir, 'leaderboard.md')
     ];
     for (const f of filesToNuke) {
       if (fs.existsSync(f)) {
         fs.unlinkSync(f);
       }
     }
-    console.log('Local SQLite ledger and benchmark outputs nuked successfully.');
+    console.log('Local SQLite ledger deleted.');
     process.exit(0);
   } else if (command === 'config') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/config.ts');
@@ -248,6 +239,9 @@ Commands:
     runCommand(cmd, cmdArgs);
   } else if (command === 'doctor') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/doctor.ts');
+    runCommand(cmd, cmdArgs);
+  } else if (command === 'memory') {
+    const { command: cmd, args: cmdArgs } = getRunPath('src/llm-gate/memory-cli.ts');
     runCommand(cmd, cmdArgs);
   } else if (command === 'start' || command === 'stop' || command === 'restart') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/setup/gate-command.ts');

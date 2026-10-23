@@ -30,7 +30,6 @@ export function settingsForRam(ramGb: number): { preset: string; lines: Record<s
       RAM_PRESET: preset,
       SLM_BRAIN_MODEL: brain,
       SLM_GATE_MODEL: gate,
-      SLM_GATE_TESTING_MODEL: gate,
       NUM_CTX: String(recommendNumCtx(ramGb)),
       PROVIDER: '',
     },

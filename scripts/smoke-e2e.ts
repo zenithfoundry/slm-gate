@@ -17,7 +17,7 @@
  * compression/preservation logic.
  * 
  * Warning Expectations / Potential Flakiness:
- * - Requires Ollama running locally with the target model (e.g. `qwen2.5-coder:3b`).
+ * - Requires Ollama running locally with the target model (e.g. `qwen3.5:2b`).
  * - Distillation length assertions can occasionally be flaky depending on the specific 
  *   local SLM's generative output for the "fluff" text. If the distillation takes too 
  *   long (hitting `SLM_TIMEOUT_MS`), it will fallback safely, which logs a warning but 
@@ -82,8 +82,10 @@ CACHE_BUST_${Date.now()}
 
   const transport = new StdioServerTransport();
   server.connect(transport).catch(console.error);
-  // Keep alive
+  // Keep alive while the gate talks to us; leave when it hangs up. Without the exit this helper outlived
+  // every run and, under a shell pipe (`pnpm run test:e2e | tail`), held the pipe open for hours.
   setInterval(() => {}, 1000);
+  process.stdin.on('end', () => process.exit(0));
 } 
 // 2. Main E2E Test Mode
 else {
@@ -110,12 +112,12 @@ else {
       // realistic DISTILL_MIN_TOKENS — under the shipped thresholds nothing happened at all and
       // the assertion below could never pass.
       //
-      // What this exercises is the HARD-TRUNCATION path, not SLM summarisation: `get_skill` is
-      // 'verbatim' in the seeded distill_policy table (skill contracts must never be reworded),
-      // so the model is deliberately never invoked for this payload. The value of the assertions
-      // is therefore that the MUST line and the heading survive truncation and the remainder is
-      // left recoverable behind an elision marker.
-      // SLM compression itself is covered by e2e:standalone-mcp and tests/mcp-gate/distill.test.ts.
+      // What this exercises depends on DISTILL_SKILLS in your .env. Off: the hard-truncation path
+      // only (skills go out word for word, cut at the ends with a marker; no model call). On: the
+      // gate model shortens the one long paragraph and the brain model checks it, so the local
+      // models must be running. Either way the assertions are the same: the MUST line and the
+      // heading survive and the remainder is recoverable behind an elision marker.
+      // SLM compression itself is covered by e2e:standalone-mcp and tests/mcp-gate/distill*.test.ts.
       DISTILL_MIN_TOKENS: '50',
       DISTILL_MAX_TOKENS: '180'
     });

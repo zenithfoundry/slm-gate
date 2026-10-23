@@ -5,6 +5,10 @@ import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
 import { withSlmTimeout } from '../models/helpers.js';
+import { estimateTokens } from '../utils/elision.js';
+import { DecisionMemory, decisionAnswer, loadDecisionMemory } from './decisions.js';
+import { findExisting, linesAround, refreshRepoIndex } from '../index/repo-index.js';
+import { repoIndexRevision } from '../ledger/index.js';
 import {
   RiskLevel,
   SourceKind,
@@ -17,10 +21,55 @@ import {
 
 export type FsReadFn = (pattern: string) => Promise<string[]>;
 
+const HEADING = /^#{1,6}\s/;
+const MIN_SECTION_TOKENS = 150;
+
+/**
+ * The skill text the resolver may put in one prompt. A whole skill plus the prompt can exceed the local
+ * model's context (NUM_CTX), and Ollama then truncates silently: the reply is cut off or empty and the call
+ * is recorded as a `format` error. Over the budget, every heading is kept (the outline survives) and each
+ * section keeps its first share of the budget; what is cut is marked with an ellipsis line. Pure.
+ */
+export function prepareSkillContext(skillText: string, maxTokens: number): { text: string; tokEst: number; originalTokEst: number; trimmed: boolean } {
+  const originalTokEst = estimateTokens(skillText);
+  if (originalTokEst <= maxTokens) return { text: skillText, tokEst: originalTokEst, originalTokEst, trimmed: false };
+
+  const sections: string[][] = [[]];
+  for (const line of skillText.split('\n')) {
+    if (HEADING.test(line) && sections[sections.length - 1].length > 0) sections.push([]);
+    sections[sections.length - 1].push(line);
+  }
+  const perSection = Math.max(MIN_SECTION_TOKENS, Math.floor(maxTokens / sections.length));
+
+  const out: string[] = [];
+  let total = 0;
+  for (const section of sections) {
+    let used = 0;
+    let cut = false;
+    for (const line of section) {
+      const cost = estimateTokens(line) + 1;
+      const isHeading = HEADING.test(line);
+      if (!isHeading && (used + cost > perSection || total + cost > maxTokens)) {
+        if (!cut) { out.push('…'); cut = true; }
+        continue;
+      }
+      out.push(line);
+      used += cost;
+      total += cost;
+    }
+  }
+  const text = out.join('\n');
+  return { text, tokEst: estimateTokens(text), originalTokEst, trimmed: true };
+}
+
 export interface ResolveInput {
   skillText: string;
   task: string;
   repoRoot?: string;
+  /** The conversation memory's rendered summary, when a usable one exists (conversation memory). */
+  conversation?: string | null;
+  /** The summary's "Decided" lines, offered as pre-filled recommendations, never auto-applied. */
+  decided?: string[];
 }
 
 // Helper to determine if we can afford a cloud call
@@ -146,10 +195,16 @@ Respond in JSON matching this schema:
   }
 }
 
+/**
+ * Lists the open decisions in a skill. With the conversation memory's summary (`conversation`) the brain is told
+ * not to list a decision the conversation already made (docs/briefs/2026-10-22-conversation-memory.md).
+ */
 export async function extractAmbiguities(
   slm: SLM,
   skillText: string,
-  task: string
+  task: string,
+  /** The conversation so far (conversation memory); when given, decisions it already made are not listed. */
+  conversation?: string | null
 ): Promise<OpenDecision[]> {
   const schema = z.object({
     decisions: z.array(z.object({
@@ -159,7 +214,8 @@ export async function extractAmbiguities(
     }))
   });
 
-  const prompt = `Extract concrete open decisions or ambiguities from the following task and skill context.
+  const so_far = conversation ? `Conversation so far (do NOT list a decision it has already made):\n${conversation}\n\n` : '';
+  const prompt = `${so_far}Extract concrete open decisions or ambiguities from the following task and skill context.
 Task: ${task}
 Context: ${skillText}
 
@@ -173,11 +229,40 @@ export async function resolveEach(
   slm: SLM,
   fsRead: FsReadFn,
   decisions: OpenDecision[],
-  repoRoot?: string
+  repoRoot?: string,
+  /** The repo's decision files; null or absent keeps the evidence path only. */
+  memory?: DecisionMemory | null,
+  /** The conversation memory's "Decided" lines; a line that answers a question pre-fills it (never auto-applied). */
+  decided: string[] = []
 ): Promise<ResolvedItem[]> {
   const results: ResolvedItem[] = [];
 
   for (const dec of decisions) {
+    // (00) CONVERSATION MEMORY: something the session itself already settled. Offered as a recommendation
+    // with confidence 0.6 — under the auto-apply bar on purpose (owner decision) — so it lands in askUser
+    // pre-filled. Null, an error or a timeout falls through to the paths below.
+    if (decided.length > 0) {
+      const schema = z.object({ answered: z.boolean(), answer: z.string().max(300) });
+      try {
+        const prompt = `These lines were decided earlier in the same conversation:\n${decided.map((d, i) => `${i + 1}. ${d}`).join('\n')}\n\nDoes any of them settle this question? Set answered to true only when one does, and give the answer in that line's own words.\nQuestion: ${dec.question}`;
+        const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+        if (res.answered && res.answer.trim()) {
+          results.push({
+            id: dec.id,
+            question: dec.question,
+            answer: res.answer.trim(),
+            confidence: 0.6,
+            source: 'conversation',
+            evidence: 'decided earlier in this conversation',
+            provenance: 'conversation memory',
+          });
+          continue;
+        }
+      } catch {
+        // fall through
+      }
+    }
+
     let resolved: ResolvedItem = {
       id: dec.id,
       question: dec.question,
@@ -185,6 +270,53 @@ export async function resolveEach(
       confidence: 0,
       source: 'unresolved'
     };
+
+    // (0) DECISION MEMORY: an answer the owner wrote down once, as evidence under the same risk
+    // gate as everything else. Null means nothing matched or the brain said it does not apply: fall through.
+    if (memory) {
+      const hit = await decisionAnswer({ slm, memory, question: dec.question });
+      if (hit) {
+        results.push({
+          id: dec.id,
+          question: dec.question,
+          answer: hit.answer,
+          confidence: hit.confidence,
+          source: 'decision',
+          evidence: hit.provenance,
+          provenance: hit.provenance,
+          dependency: hit.dependency,
+        });
+        continue;
+      }
+    }
+
+    // (a0) INDEX EVIDENCE (the repository index, REPO_INDEX=on): the symbols the question names, read around their
+    // definitions, instead of a guessed file path. One brain call; the index revision is the cache dependency.
+    if (repoRoot && CONFIG.REPO_INDEX) {
+      try {
+        refreshRepoIndex(repoRoot);
+        const hits = findExisting({ root: repoRoot, query: dec.question, limit: 3 });
+        if (hits.length > 0) {
+          const evidence = hits.map(h => `${h.path}:${h.line} (${h.kind} ${h.name})\n${linesAround(repoRoot, h)}`).join('\n\n');
+          const ansSchema = z.object({ answer: z.string(), options: z.array(z.string()) });
+          const ansPrompt = `Given this evidence from the repository:\n${evidence.slice(0, 3000)}\nAnswer the question: ${dec.question}`;
+          const ansRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+          results.push({
+            id: dec.id,
+            question: dec.question,
+            answer: ansRes.answer,
+            confidence: 0.95,
+            source: 'evidence',
+            evidence: `index: ${hits.map(h => `${h.path}:${h.line}`).join(', ')}`,
+            options: ansRes.options,
+            dependency: { path: `index:${repoRoot}`, mtime: repoIndexRevision(repoRoot), expiresAt: null },
+          });
+          continue;
+        }
+      } catch (err) {
+        // ignore and fall through to the pattern path
+      }
+    }
 
     // (a) EVIDENCE
     if (repoRoot) {
@@ -308,6 +440,7 @@ Categories:
         id: item.id,
         question: item.question,
         answer: item.answer || 'Unknown',
+        provenance: item.provenance,
         note: `Auto-resolved based on ${item.source}`
       });
     } else {
@@ -317,7 +450,8 @@ Categories:
         recommendedAnswer: item.answer,
         confidence: item.confidence,
         options: item.options || [],
-        evidence: item.evidence
+        evidence: item.evidence,
+        provenance: item.provenance
       });
     }
   }
@@ -330,12 +464,17 @@ export async function resolveAmbiguities(
   fsRead: FsReadFn,
   input: ResolveInput
 ): Promise<ResolverOutput> {
-  const decisions = await extractAmbiguities(slm, input.skillText, input.task);
+  // Decision memory is read once per run; a repo without the folder gets an empty memory.
+  const memory = input.repoRoot ? loadDecisionMemory(input.repoRoot) : null;
+  const dependencies = memory?.dirDependency ? [memory.dirDependency] : [];
+  const staleDecisions = memory?.stale ?? [];
+
+  const decisions = await extractAmbiguities(slm, input.skillText, input.task, input.conversation);
   if (decisions.length === 0) {
-    return { autoApplied: [], askUser: [] };
+    return { autoApplied: [], askUser: [], dependencies, staleDecisions };
   }
 
-  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot);
+  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot, memory, input.decided ?? []);
 
   // Cloud API Tier
   const unresolved = resolved.filter(r => r.confidence < 0.8);
@@ -343,5 +482,7 @@ export async function resolveAmbiguities(
     await batchCloudResolve(unresolved, input.skillText, input.task);
   }
 
-  return gateDecisions(slm, resolved);
+  const output = await gateDecisions(slm, resolved);
+  for (const item of resolved) if (item.dependency) dependencies.push(item.dependency);
+  return { ...output, dependencies, staleDecisions };
 }

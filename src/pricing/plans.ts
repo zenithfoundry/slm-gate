@@ -31,8 +31,12 @@ const RAW_PLANS: Record<string, RawPlanDef> = {
   'claude-max-5x':   { provider: 'claude', windowMinutes: 300 },
   'claude-max-20x':  { provider: 'claude', windowMinutes: 300 },
 
-  // CHATGPT — 3h rolling window
-  'chatgpt-go':      { provider: 'chatgpt', windowMinutes: 180 },
+  // CHATGPT — 3h rolling window for chat. Traffic that reaches the gate is Codex, which meters a
+  // rolling 5h window plus a weekly cap (restored for Plus 2026-08-25; Go is included in Codex but
+  // OpenAI publishes no per-window number for it). Re-verified 2026-10-21 against
+  // https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan and
+  // https://www.techrepublic.com/article/news-openai-five-hour-codex-limit-chatgpt-plus/
+  'chatgpt-go':      { provider: 'chatgpt', windowMinutes: 300 },
   'chatgpt-plus':    { provider: 'chatgpt', windowMinutes: 180 },
   'chatgpt-pro-5x':  { provider: 'chatgpt', windowMinutes: 180 },
   'chatgpt-pro-20x': { provider: 'chatgpt', windowMinutes: 180 },

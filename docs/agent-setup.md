@@ -95,12 +95,20 @@ One question at a time, with your default:
 3. For each of those tools, how do I pay for its AI? (a) a subscription login (Claude Pro or Max, ChatGPT),
    (b) an API key, or (c) nothing, local models only. For (a) and (b), offer to also send that tool's AI
    requests through slm-gate, which saves more; `slm-gate doctor` lists which tools can. Default: yes, where it
-   can.
+   can. The gate never answers a request itself: it only shrinks what the request carries and sends it on.
 4. Which paid plan or plans do I have? Valid plans are listed below. Default: skip. This only improves the
    savings figures.
 5. Do I use a toolbox (extra tools and skills, such as Tech-Lead-Stack)? If STEP 2 found one, confirm it.
    Default: keep what is there.
-6. Tell me, in two sentences, that extras exist and I can ask for any of them now or later: a savings dashboard
+6. Which setup? Explain both in one sentence each. SETUP A, "local models do more": the local models also
+   shorten my toolbox's skill files under a guard that never lets a rule go missing, answer repeated questions
+   from decisions I write down once, and keep a small index of my code so the AI checks what exists before
+   writing something new; it costs a few seconds more the first time a skill is used. SETUP B, "plain
+   shrinking": skills are sent word for word; everything else is the same. Default: A. The two differ in three
+   settings only: SETUP A is DISTILL_SKILLS=on, REPO_INDEX=on and CONVERSATION_MEMORY=on; SETUP B is all three off. Both keep
+   SLM_PIN_MODELS=on (it keeps my two models loaded). The full comparison is docs/setups.md in the slm-gate
+   repository.
+7. Tell me, in two sentences, that extras exist and I can ask for any of them now or later: a savings dashboard
    (Langfuse), separate settings for work and personal, a local cache for repeated questions, and running fully
    on this computer. Set up an extra only if I ask for it.
 
@@ -114,7 +122,11 @@ a. Settings file.
      this computer's memory minus 8, and at least 16. init never replaces a settings file that exists. With an
      old checkout, do the same: copy nothing from its folder, and never move or delete it.
    - A settings file exists: change only the lines we agreed. For the models, use the chosen option's values
-     from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL, SLM_GATE_TESTING_MODEL and NUM_CTX.
+     from the RAM table: RAM_PRESET, SLM_BRAIN_MODEL, SLM_GATE_MODEL and NUM_CTX.
+   - The setup from question 6: set DISTILL_SKILLS, REPO_INDEX and CONVERSATION_MEMORY to on (SETUP A) or off
+     (SETUP B). If a
+     settings file already exists and I changed either model, also move PROMPT_VERSION up by one (v12 becomes
+     v13): saved results are keyed on it, and a different model must not be served another model's results.
 b. Models: download each one with `ollama pull <model>`: the ones init printed, or every model
    `slm-gate doctor` says is missing. Warn me first: this can take a while.
 c. Connect each tool. Add an entry named slm-gate with the command slm-gate and the argument mcp (with npx: the
@@ -193,30 +205,28 @@ Tell me, in a short list:
 ALLOWED SETTINGS
 They go in ~/.slm-gate/.env (for every tool), or in the env of one tool's slm-gate entry (for that tool only;
 it wins). The settings file explains each one above its line.
-Most people only touch: `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`, `SLM_GATE_TESTING_MODEL`, `RAM_PRESET`, `NUM_CTX`,
+Most people only touch: `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`, `RAM_PRESET`, `NUM_CTX`,
 `DOWNSTREAM_MCP`, `TLS_ADAPTER`, `PROVIDER`, `SUBSCRIPTION_PLAN`, `LLM_GATE_PORT`.
 Every setting that exists:
 - Local models: `SLM_PROVIDER`, `OLLAMA_HOST`, `OLLAMA_KEEP_ALIVE`, `SLM_BRAIN_MODEL`, `SLM_GATE_MODEL`,
-  `SLM_GATE_TESTING_MODEL`, `RAM_PRESET`, `NUM_CTX`, `TEMPERATURE`, `SLM_TIMEOUT_MS`, `SELF_CONSISTENCY_K`,
-  `SELF_CONSISTENCY_TEMP`, `STRICTNESS_LEVELS`, `HEADLINE_STRICTNESS`, `EMBED_MODEL`, `SEMCACHE`,
-  `SEMCACHE_THRESHOLD`.
+  `RAM_PRESET`, `NUM_CTX`, `TEMPERATURE`, `SLM_TIMEOUT_MS`, `SELF_CONSISTENCY_K`, `SELF_CONSISTENCY_TEMP`,
+  `EMBED_MODEL`, `SEMCACHE`, `SEMCACHE_THRESHOLD`.
 - Background service (the model gate): `LLM_GATE_PORT`, `LLM_GATE_AUTOSTART`, `LLM_GATE_DISTILL`,
-  `LLM_GATE_LOCAL_FIRST`, `LOCAL_ATTEMPT_BUDGET_MS`, `UPSTREAM_ANTHROPIC_URL`, `UPSTREAM_OPENAI_URL`,
-  `UPSTREAM_CHATGPT_URL`, `UPSTREAM_GEMINI_URL`.
-- Coding tools and toolboxes: `DOWNSTREAM_MCP`, `TLS_ADAPTER`, `MCP_GATE_TRANSPORT`, `MCP_GATE_PORT`.
+  `UPSTREAM_ANTHROPIC_URL`, `UPSTREAM_OPENAI_URL`, `UPSTREAM_CHATGPT_URL`, `UPSTREAM_GEMINI_URL`.
+- Coding tools and toolboxes: `DOWNSTREAM_MCP`, `TLS_ADAPTER`, `MCP_GATE_TRANSPORT`, `MCP_GATE_PORT`, `REPO_INDEX`.
 - Plans and savings figures: `PROVIDER`, `SUBSCRIPTION_PLAN`, `PLAN_CLAUDE`, `PLAN_CHATGPT`, `PLAN_GEMINI`,
   `CLAUDE_WINDOW_BUDGET`, `CHATGPT_WINDOW_BUDGET`, `GEMINI_WINDOW_BUDGET`, `PROVIDER_REGISTRY_PATH`,
   `LEDGER_PATH`.
 - Dashboard (an extra): `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`, `LANGFUSE_ENVIRONMENT`,
   `LANGFUSE_RETENTION_DAYS`.
 - Hosted AI for hard cases (an extra; it costs money): `CLOUD_API_STYLE`, `CLOUD_BASE_URL`, `CLOUD_API_KEY`,
-  `CLOUD_MODEL`, `RESOLVER_CLOUD_TIER`, `RESOLVER_CLOUD_BUDGET_USD`.
+  `CLOUD_MODEL`, `RESOLVER_CLOUD_TIER`, `RESOLVER_CLOUD_BUDGET_USD`, `RESOLVER_PROMPT_TOKENS`.
 - Shrinking tool output: `DISTILL_PRESERVE_PATH`, `DISTILL_PRESERVE_MODE`, `DISTILL_SKILLS`, `DISTILL_ADAPTIVE`,
   `DISTILL_ADAPTIVE_THRESHOLD`, `DISTILL_ADAPTIVE_EXPLORE_RATE`, `DISTILL_FEEDBACK_RETENTION_DAYS`,
   `DISTILL_FEEDBACK_MAX_ROWS`, `DISTILL_MAX_TOKENS`, `DISTILL_MIN_TOKENS`, `DISTILL_BUDGET_MS`,
+  `DISTILL_FIDELITY_MIN`, `DISTILL_FIDELITY_MAX_RUNS`, `DISTILL_FIDELITY_BUDGET_MS`, `MAX_CONCURRENT_SEGMENT_CALLS`, `SLM_PIN_MODELS`,
+  `CONVERSATION_MEMORY`, `MEMORY_MAX_TOKENS`, `MEMORY_FOLD_INPUT_TOKENS`, `MEMORY_FOLD_INTERVAL_MS`, `MEMORY_MATCH_WINDOW_MS`,
   `KEEP_RECENT_TOOL_TURNS`, `ELISION_MAX_ENTRIES`, `ELISION_RETENTION_DAYS`, `ELISION_MAX_MB`, `PROMPT_VERSION`.
-- Routing: `ROUTING_TUNE`, `ROUTING_TUNE_WINDOW`, `ROUTING_TUNE_MIN_SAMPLES`, `ROUTING_TUNE_THRESHOLD`,
-  `ROUTING_TUNE_EXPLORE_RATE`.
 - Where the settings file lives (only in a tool's env, for separate sets of settings): `SLM_GATE_HOME`.
 Valid values:
 - RAM_PRESET: ram-16, ram-24, ram-32, ram-48, ram-64, ram-128, custom (more than 128 GB). The models for each:

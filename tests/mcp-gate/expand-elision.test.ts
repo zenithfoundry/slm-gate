@@ -1,4 +1,8 @@
-import { jest } from '@jest/globals';
+/**
+ * @fileoverview `expand_elision` paging, and its ledger row (expansion accounting): the feedback event is written after
+ * paging with the tokens of the exact returned text, and an expansion never asks Ollama for an embedding model.
+ */
+import { describe, expect, it, jest } from '@jest/globals';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // A tiny page budget so a 100-line document needs several pages.
@@ -34,7 +38,9 @@ jest.unstable_mockModule('@modelcontextprotocol/sdk/client/index.js', () => ({
   }))
 }));
 
-const { writeElision } = await import('../../src/ledger/index.js');
+const { writeElision, getDb } = await import('../../src/ledger/index.js');
+const { estimateTokens } = await import('../../src/utils/elision.js');
+const embedding = await import('../../src/utils/embedding.js');
 const { createServer } = await import('../../src/mcp-gate/server.js');
 
 const lines = Array.from({ length: 100 }, (_, i) => `line ${i} of the original skill text`);
@@ -93,5 +99,19 @@ describe('expand_elision', () => {
     const text = await expand();
     expect(text.startsWith(lines[0])).toBe(true);
     expect(nextRange(text)?.endLine).toBe(99);
+  });
+
+  it('charges the feedback row with the tokens of the page actually returned, marker included', async () => {
+    const text = await expand({ startLine: 10, endLine: 80 });
+    const row = getDb().prepare("SELECT out_tok, in_tok, meta FROM events WHERE route = 'feedback' ORDER BY rowid DESC LIMIT 1").get() as { out_tok: number; in_tok: number; meta: string };
+    expect(row.out_tok).toBe(estimateTokens(text));
+    expect(row.out_tok).toBeGreaterThan(0);
+    expect(row.in_tok).toBe(0);
+    expect(JSON.parse(row.meta).page).toEqual({ start: 10, end: 80, next: nextRange(text)!.startLine });
+  });
+
+  it('never asks for an embedding model on expansion, whatever the adaptive setting', async () => {
+    await expand({ startLine: 0, endLine: 5 });
+    expect(embedding.embedText).not.toHaveBeenCalled();
   });
 });

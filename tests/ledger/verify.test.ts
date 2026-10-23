@@ -1,3 +1,4 @@
+import { describe, expect, it } from '@jest/globals';
 import { expectedScoreCounts, parseWindow, scoreDeltas } from '../../src/ledger/verify.js';
 import type { LedgerEvent } from '../../src/ledger/index.js';
 
@@ -7,7 +8,7 @@ const mcpEvent = (requestId: string): LedgerEvent => ({
   request_id: requestId,
   route: 'condition',
   is_local_call: 1,
-  slm_model: 'qwen2.5-coder:3b',
+  slm_model: 'qwen3.5:2b',
   in_tok: 1000,
   out_tok: 200,
   api_in_tok: 0,

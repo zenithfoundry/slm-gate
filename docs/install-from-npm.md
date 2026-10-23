@@ -78,8 +78,8 @@ restart the tool.
 
 **Optional: let `slm-gate` handle your tool's AI requests too.** Tools that let you change where their AI
 requests go (Claude Code, Codex, Gemini CLI, Cline, Continue, OpenCode, Aider and others) can send them through
-`slm-gate`, which answers easy first messages on your computer and passes the rest to the same AI company, with
-your tool's own login or key. `slm-gate doctor` prints the exact line for each tool.
+`slm-gate`, which shrinks the large tool output in them on your computer and passes every request to the same AI
+company, with your tool's own login or key. `slm-gate doctor` prints the exact line for each tool.
 [Which tools can](integration-layers.md#client-compatibility-matrix).
 
 **Without "no install": npx.** Instead of steps 1 and 5 above, a tool can start `slm-gate` straight from npm:

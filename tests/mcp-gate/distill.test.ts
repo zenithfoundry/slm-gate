@@ -162,7 +162,7 @@ You MUST do this
 ${filler}`;
 
     // This is the measured worst case: asked to reproduce nine placeholder tokens verbatim,
-    // qwen2.5-coder:3b returned its own prose and kept none of them. Under the old
+    // qwen3.5:2b returned its own prose and kept none of them. Under the old
     // placeholder-custody design that destroyed the compression. It can no longer destroy
     // anything, because the protected line is never handed to the model in the first place.
     const destructiveSlm = jest.fn(async () => 'Completely unrelated replacement prose.');
