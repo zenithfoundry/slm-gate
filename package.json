@@ -108,7 +108,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/jest": "^30.0.0",
     "@types/markdown-it": "^14.2.0",
-    "@types/node": "^20.14.9",
+    "@types/node": "^26.6.5",
     "fast-check": "^4.10.2",
     "jest": "^30.5.2",
     "ts-jest": "^29.4.13",
