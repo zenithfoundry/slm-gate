@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-10-23T12:16:29.520Z",
-  "firstEventTs": null,
-  "lastEventTs": null,
-  "realEvents": 0,
+  "generatedAt": "2026-10-27T00:00:04.503Z",
+  "firstEventTs": "2026-10-26T23:26:20.503Z",
+  "lastEventTs": "2026-10-26T23:33:40.932Z",
+  "realEvents": 2,
   "benchEvents": 0,
   "routing": {
     "resolvedLocal": 0,
-    "distilledForwarded": 0,
+    "distilledForwarded": 2,
     "escalatedCloud": 0
   },
   "toolDefs": {
@@ -18,16 +18,26 @@
     "warn": false
   },
   "fidelity": {
-    "conditionings": 0,
-    "measured": 0,
+    "conditionings": 2,
+    "measured": 1,
     "avgRecall": null,
-    "deterministicPassPct": null,
+    "deterministicPassPct": 100,
     "notShrunk": 0,
-    "expansionRate": null,
+    "expansionRate": 0,
     "worst": [],
-    "learned": null
+    "learned": 0
   },
-  "days": [],
+  "days": [
+    {
+      "day": "2026-10-26",
+      "events": 2,
+      "tokensSaved": 2645,
+      "baselineTokens": 5709,
+      "resolvedLocal": 0,
+      "distilledForwarded": 2,
+      "escalatedCloud": 0
+    }
+  ],
   "providers": [
     {
       "id": "claude",
@@ -35,13 +45,27 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 0,
-      "tokensSaved": 0,
-      "minutesTotal": 0,
-      "avgMinutesPerCycle": null,
-      "medianMinutesPerCycle": null,
-      "cycles": [],
-      "weeks": []
+      "events": 2,
+      "tokensSaved": 2645,
+      "minutesTotal": 0.345,
+      "avgMinutesPerCycle": 0.345,
+      "medianMinutesPerCycle": 0.345,
+      "cycles": [
+        {
+          "start": "2026-10-26T23:26:20.503Z",
+          "events": 2,
+          "tokensSaved": 2645,
+          "minutes": 0.345
+        }
+      ],
+      "weeks": [
+        {
+          "weekStart": "2026-10-26",
+          "events": 2,
+          "tokensSaved": 2645,
+          "minutes": 0.345
+        }
+      ]
     },
     {
       "id": "chatgpt",
