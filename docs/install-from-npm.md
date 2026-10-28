@@ -196,13 +196,18 @@ settings and history back afterwards: [Switch slm-gate to npm](switch-to-npm.md)
 2. **Copy your settings and history:**
 
    ```bash
-   mkdir -p ~/.slm-gate/output
-   cp -pn /path/to/slm-gate/.env ~/.slm-gate/.env
-   cp -Rpn /path/to/slm-gate/output/. ~/.slm-gate/output/
+   mkdir -p ~/.slm-gate
+   if [ -e ~/.slm-gate/output ]; then mv ~/.slm-gate/output ~/.slm-gate/output-before-switch; fi
+   if [ -e ~/.slm-gate/.env ]; then mv ~/.slm-gate/.env ~/.slm-gate/.env-before-switch; fi
+   cp -Rp /path/to/slm-gate/output ~/.slm-gate/output
+   cp -p /path/to/slm-gate/.env ~/.slm-gate/.env
    chmod 600 ~/.slm-gate/.env
    ```
 
-   `-n` never replaces a file that is already there. Then fix any line in `~/.slm-gate/.env` that names the old
+   An earlier `npx` run, `slm-gate init` or `slm-gate doctor` may already have made `~/.slm-gate/.env` and a new,
+   nearly empty history in `~/.slm-gate/output`. The two `if` lines move those aside (`…-before-switch`, nothing is
+   deleted), so your old history is copied whole. Copying over them instead keeps the new history and drops yours,
+   and can mix files from two histories into one that no longer opens. Then fix any line in `~/.slm-gate/.env` that names the old
    folder, since it stops working once that folder is deleted. `grep -n /path/to/slm-gate ~/.slm-gate/.env` lists
    them:
    - `LEDGER_PATH`: make it blank (`LEDGER_PATH=`), so your history is kept in `~/.slm-gate/output`.
@@ -239,7 +244,9 @@ settings and history back afterwards: [Switch slm-gate to npm](switch-to-npm.md)
    When `doctor` says `READY`, open your coding tools again.
 
 5. **The old folder is no longer used.** Once everything works, and no tool entry or setting names it any more,
-   you can delete it.
+   you can delete it. Publishing the savings dashboard from it? Keep it, and point the dashboard at the new history
+   ([Coding tools on the npm install?](analytics-and-observability.md#keeping-the-published-dashboard-current)):
+   otherwise the page stops on the day you switched.
 
 **Rather keep your settings in the old folder?** Skip step 2. Add `"SLM_GATE_HOME": "/path/to/slm-gate"` to each
 tool's `env` block, and run commands as `SLM_GATE_HOME=/path/to/slm-gate slm-gate doctor`. The old folder must then

@@ -36,6 +36,8 @@ const HEALTH = {
   startedAt: new Date().toISOString(),
   // So the MCP servers also check the models the gate's own settings (slm-gate's .env) name.
   models: requiredModels(),
+  // So the dashboard, which may run from another install, can tell it is reading a different history.
+  ledger: CONFIG.LEDGER_PATH,
 };
 
 function generateId(): string {

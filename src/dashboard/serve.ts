@@ -15,6 +15,7 @@ import { CONFIG } from '../config.js';
 import { isEntryPoint } from '../utils/entry-point.js';
 import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { loadDashboardData } from './data.js';
+import { otherGateLedger, otherLedgerMessage } from './gate-ledger.js';
 
 const PAGE_PATH = path.join(CONFIG.ROOT_DIR, 'src', 'dashboard', 'index.html');
 
@@ -55,6 +56,8 @@ async function main(): Promise<void> {
     onListening: () => {
       console.log(`SLM Gate metrics dashboard: http://localhost:${port}`);
       console.log(`Reading ${CONFIG.LEDGER_PATH} (read-only, computed fresh on every reload). Ctrl-C to stop.`);
+      // A warning, not a refusal: this page is only on your screen, and the line is printed where you started it.
+      void otherGateLedger().then(gateLedger => gateLedger && console.warn(`\n${otherLedgerMessage(gateLedger)}`)).catch(() => {});
     },
   });
 }

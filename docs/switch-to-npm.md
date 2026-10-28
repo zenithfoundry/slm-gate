@@ -66,6 +66,10 @@ connected.
 Want your old settings or history back? Do [the optional steps](#optional-bring-back-your-old-settings-and-history)
 below first: they copy from this folder.
 
+Publishing the savings dashboard from that folder? Keep it instead, and point the dashboard at your new history
+([Coding tools on the npm install?](analytics-and-observability.md#keeping-the-published-dashboard-current)):
+otherwise the page stops on the day you switched.
+
 The assistant tells you which folder it was. Once everything works, drag that folder to the Trash. If anything stops
 working, drag it back out and [tell us what happened](https://github.com/zenithfoundry/slm-gate/issues).
 

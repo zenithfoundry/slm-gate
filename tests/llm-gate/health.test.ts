@@ -21,6 +21,7 @@ describe('GET /slm-gate/health', () => {
     expect(health).toMatchObject({ service: 'slm-gate', pid: process.pid, port: gatePort });
     expect(String(health.entry)).toMatch(/llm-gate[/\\]server\.(ts|js)$/);
     expect(health.build).toMatch(/^\d+$/);
+    expect(health.ledger).toBe(process.env.LEDGER_PATH);
     expect(health.models).toEqual(expect.arrayContaining([expect.objectContaining({ setting: 'SLM_GATE_MODEL' })]));
   });
 });

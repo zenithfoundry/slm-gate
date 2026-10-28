@@ -362,6 +362,24 @@ No GitHub needed at all, either: open anyone's hosted copy of the page and **dra
 `site/` changes on `main`. New gate traffic reaches the public page only when the export is
 re-run and pushed.
 
+**Coding tools on the npm install?** The dashboard runs from this git checkout and reads the checkout's ledger,
+`output/ledger.sqlite`. A gate installed from npm writes to `~/.slm-gate/output/ledger.sqlite` instead, so the
+checkout's ledger stops growing on the day you switch, and the page would show only what came before. Point the
+dashboard at the gate's ledger with `LEDGER_PATH`: put it in front of each command by hand, and add it to the
+launchd agent (setup step 2 below).
+
+```bash
+LEDGER_PATH=$HOME/.slm-gate/output/ledger.sqlite pnpm run dashboard:export
+```
+
+Set `LEDGER_PATH` here, not in the checkout's `.env`: the gate does not read the checkout's `.env`, and anything you
+run from the checkout, benchmarks and tests included, would then write into your real history. The export checks
+this for you: when the running gate writes to another ledger, it stops with `dashboard:export failed: The model gate
+on port 8787 writes your requests to …` and names the `LEDGER_PATH` to set, so the page is never refreshed with the
+wrong numbers. `pnpm run dashboard` prints the same message and still opens. A gate started from an older build does not name
+its ledger, so then nothing is checked. Updating slm-gate (`npm update -g @zenithfoundry/slm-gate`; `npx …@latest`
+updates itself) and running `slm-gate restart` turns the check on.
+
 **By hand, any time:**
 
 ```bash
@@ -447,6 +465,13 @@ After a publish your local `main` is one commit behind GitHub; `git pull` as usu
    switching Node versions with nvm, update `<NODE_BIN>`. The log sits in `~/Library/Logs`
    so it is still written when step 1 is missing. To change the time, edit `Hour`/`Minute`;
    for twice a day, turn `StartCalendarInterval` into an `<array>` of two such `<dict>`s.
+
+   **If your coding tools run the npm install**, also add this line under the `PATH` line, so the job publishes the
+   history the gate writes (see [Coding tools on the npm install?](#keeping-the-published-dashboard-current) above):
+
+   ```xml
+       <key>LEDGER_PATH</key><string><HOME>/.slm-gate/output/ledger.sqlite</string>
+   ```
 3. **Check it:** `plutil -lint ~/Library/LaunchAgents/com.zenithfoundry.slm-gate-dashboard.plist`,
    then `scripts/dashboard-publish.sh --dry-run` from the repo.
 4. **Load it, then run it once now** — as yourself, without `sudo`. The agent belongs to your
@@ -483,6 +508,8 @@ while the machine was off):
 | `Operation not permitted` in the log | macOS folder protection; see setup step 1. |
 | `pnpm not found on PATH` in the log | `<NODE_BIN>` in the plist is wrong or outdated. |
 | `push rejected` in the log | `main` moved on GitHub; the next run retries, or run the script by hand. |
+| `dashboard:export failed: The model gate … writes your requests to …` in the log | Your coding tools run another install (usually npm), so the checkout's ledger is not the one being written. Add the `LEDGER_PATH` line from setup step 2 to the plist, then `bootout` and `bootstrap` again. |
+| The page shows far fewer requests than you made, or stops on one day | Same cause, with a gate too old to name its ledger. `slm-gate doctor` from the npm install names its ledger; add that `LEDGER_PATH` to the plist. |
 | `git pull` conflicts on `site/data.json` | You also committed a hand-made export. Keep either version; the next export replaces it. |
 | Changed the dashboard page itself | The timer never publishes `site/index.html`. Run `pnpm run dashboard:export`, commit `site/`, push. |
 

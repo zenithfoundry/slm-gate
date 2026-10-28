@@ -15,8 +15,14 @@ import path from 'node:path';
 import { CONFIG } from '../config.js';
 import { isEntryPoint } from '../utils/entry-point.js';
 import { computeDashboardData, loadDashboardData } from './data.js';
+import { otherGateLedger, otherLedgerMessage } from './gate-ledger.js';
 
-function main(): void {
+async function main(): Promise<void> {
+  // Refuse rather than warn: the daily publish job runs unattended, and a warning in its log went unseen while
+  // the public page showed a near-empty ledger in place of real savings.
+  const gateLedger = await otherGateLedger();
+  if (gateLedger) throw new Error(otherLedgerMessage(gateLedger));
+
   const args = process.argv.slice(2);
   const outIdx = args.indexOf('--out');
   const outDir = path.resolve(CONFIG.ROOT_DIR, outIdx >= 0 ? args[outIdx + 1] : 'site');
@@ -41,10 +47,8 @@ function main(): void {
 }
 
 if (isEntryPoint(import.meta.url)) {
-  try {
-    main();
-  } catch (err) {
+  main().catch(err => {
     console.error('dashboard:export failed:', err instanceof Error ? err.message : err);
     process.exit(1);
-  }
+  });
 }

@@ -28,6 +28,8 @@ export interface GateHealth {
   startedAt: string;
   /** The local models the gate's own settings use (absent from gates started before this was added). */
   models?: ModelUse[];
+  /** The ledger the gate writes every request to (absent from gates started before this was added). */
+  ledger?: string;
 }
 
 export type GateProbe =
