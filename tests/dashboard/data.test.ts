@@ -95,11 +95,9 @@ describe('dashboard day totals net expansions against savings', () => {
 describe('dashboard cycle clustering', () => {
   beforeEach(() => {
     // 240,000 tokens per 300-minute window → 800 tokens saved = 1 minute. Round numbers on purpose.
-    process.env.CLAUDE_WINDOW_BUDGET = '240000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 240000 });
   });
   afterEach(() => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
     __resetProviderRegistry();
   });
 
@@ -127,7 +125,6 @@ describe('dashboard cycle clustering', () => {
   });
 
   it('reports minutes as null, never 0, when the provider has no window budget', () => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
     __resetProviderRegistry();
     const [cycle] = clusterCycles({ events: [ev({})], windowMinutes: 300, providerId: 'claude' });
     expect(cycle.minutes).toBeNull();

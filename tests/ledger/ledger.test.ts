@@ -117,10 +117,8 @@ describe('Ledger', () => {
   });
 
   const withGeminiBudget = (fn: () => void) => {
-    process.env.GEMINI_WINDOW_BUDGET = '1000000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 1000000 });
     try { fn(); } finally {
-      delete process.env.GEMINI_WINDOW_BUDGET;
       __resetProviderRegistry();
     }
   };
@@ -277,9 +275,7 @@ describe('Ledger', () => {
       }
     ];
 
-    process.env.GEMINI_WINDOW_BUDGET = '1000000';
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 1000000, claude: 250 });
     try {
       const v1 = formatEventForLangfuse(rows[0]).scores?.find(s => s.name === 'cycle_extended_minutes_gemini')?.value as number;
       const v2 = formatEventForLangfuse(rows[1]).scores?.find(s => s.name === 'cycle_extended_minutes_gemini')?.value as number;
@@ -292,8 +288,6 @@ describe('Ledger', () => {
       expect(avg.claude).toBeCloseTo(v3, 9);
       expect(avg.chatgpt).toBeNull();
     } finally {
-      delete process.env.GEMINI_WINDOW_BUDGET;
-      delete process.env.CLAUDE_WINDOW_BUDGET;
       __resetProviderRegistry();
     }
   });

@@ -11,6 +11,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import { CONFIG, CONFIG_ENV_KEYS } from '../config.js';
 import { claimWindow } from './claim.js';
 import type { ModelUse } from './local-models.js';
@@ -31,6 +32,18 @@ export interface GateHealth {
   /** The ledger the gate writes every request to (absent from gates started before this was added). */
   ledger?: string;
 }
+
+/** The health answer as read off the wire: anything else on the port is not a gate this build can use. */
+const gateHealthSchema: z.ZodType<GateHealth> = z.object({
+  service: z.literal('slm-gate'),
+  pid: z.number().int(),
+  port: z.number().int(),
+  entry: z.string(),
+  build: z.string(),
+  startedAt: z.string(),
+  models: z.array(z.object({ name: z.string(), setting: z.string(), purpose: z.string() })).optional(),
+  ledger: z.string().optional(),
+});
 
 export type GateProbe =
   | { kind: 'slm-gate'; health: GateHealth; stale: boolean }
@@ -72,8 +85,8 @@ export function probeGate(params: { port?: number; timeoutMs?: number } = {}): P
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
         try {
-          const health = JSON.parse(Buffer.concat(chunks).toString('utf8')) as GateHealth;
-          resolve(res.statusCode === 200 && health.service === 'slm-gate' ? { kind: 'slm-gate', health, stale: isStale(health) } : { kind: 'other' });
+          const health = gateHealthSchema.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          resolve(res.statusCode === 200 && health.success ? { kind: 'slm-gate', health: health.data, stale: isStale(health.data) } : { kind: 'other' });
         } catch {
           resolve({ kind: 'other' });
         }

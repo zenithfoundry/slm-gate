@@ -77,6 +77,11 @@ describe('probeGate', () => {
     expect(await gate.probeGate({ port })).toMatchObject({ kind: 'slm-gate', stale: true });
   });
 
+  it('reports a health answer that names the service but not the rest as other, not as a gate', async () => {
+    const port = await healthServer({ service: 'slm-gate', pid: 'forty-two', entry, build });
+    expect(await gate.probeGate({ port })).toEqual({ kind: 'other' });
+  });
+
   it('reports another program on the port as other', async () => {
     const port = await serve((_req, res) => { res.writeHead(404); res.end('<html>not found</html>'); });
     expect(await gate.probeGate({ port })).toEqual({ kind: 'other' });

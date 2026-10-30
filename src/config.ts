@@ -1,3 +1,9 @@
+/**
+ * Loads this install's `.env` (never the workspace's) and exposes the frozen CONFIG every module reads.
+ * The only module allowed to read `process.env`: everything the gates take from the environment is a key of
+ * `envSchema`, which is also what `.env.example` must list (tests/config/env-template.test.ts) and what the
+ * MCP server strips before it starts the shared model gate (src/setup/model-gate.ts).
+ */
 import { config } from 'dotenv';
 import os from 'os';
 import path from 'path';
@@ -5,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { ramPresets } from './hardware.js';
 import { resolveHomeDir } from './home-dir.js';
-import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey } from './pricing/plans.js';
+import { getSubscriptionPlan, getValidPlanKeys, isValidPlanKey, type ProviderId } from './pricing/plans.js';
 import { isEntryPoint } from './utils/entry-point.js';
 
 const filename = fileURLToPath(import.meta.url);
@@ -29,29 +35,37 @@ const envFile = config({ path: path.join(HOME_DIR, '.env') });
 
 // Zod pre-processors for env strings
 const parseInteger = (fallback: number) => z.string().optional().transform(v => v ? parseInt(v, 10) : fallback);
+// Blank stays undefined: the default is worked out below from another setting.
+const parseDerivedInteger = () => z.string().optional().transform(v => v ? parseInt(v, 10) : undefined);
 const parseFloatNumber = (fallback: number) => z.string().optional().transform(v => v ? parseFloat(v) : fallback);
 const parseBoolean = (fallback: boolean) => z.string().optional().transform(v => {
   if (!v) return fallback;
   return v.toLowerCase() === 'on' || v.toLowerCase() === 'true' || v === '1';
 });
 const parseNumberArray = (fallback: number[]) => z.string().optional().transform(v => v ? v.split(',').map(n => parseInt(n.trim(), 10)) : fallback);
-const parseDownstreamMcp = () => z.string().optional().transform(v => {
+// The toolbox to proxy: a command to start (stdio) or a URL (streamable HTTP). Anything else stops slm-gate
+// here, naming the setting, instead of silently running standalone.
+const downstreamMcpSchema = z.union([
+  z.object({ command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string()).optional() }),
+  z.object({ url: z.string().url(), headers: z.record(z.string()).optional() }),
+]);
+export type DownstreamMcp = z.infer<typeof downstreamMcpSchema>;
+const parseDownstreamMcp = () => z.string().optional().transform((v, ctx): DownstreamMcp | null => {
   if (!v) return null;
+  let json: unknown;
   try {
-    const parsed = JSON.parse(v);
-    if (parsed.command) {
-      return { command: parsed.command, args: parsed.args, env: parsed.env } as any;
-    }
-    if (parsed.url) {
-      return { url: parsed.url, headers: parsed.headers } as any;
-    }
-    return null;
+    json = JSON.parse(v);
   } catch {
-    return null;
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DOWNSTREAM_MCP is not valid JSON' });
+    return z.NEVER;
   }
+  const parsed = downstreamMcpSchema.safeParse(json);
+  if (parsed.success) return parsed.data;
+  ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'DOWNSTREAM_MCP must be {"command": "...", "args": [...], "env": {...}} or {"url": "...", "headers": {...}}' });
+  return z.NEVER;
 });
 
-const envSchema = z.object({
+export const envSchema = z.object({
   // STEP 1
   SLM_PROVIDER: z.enum(['ollama', 'openai']).default('ollama'),
   OLLAMA_HOST: z.string().default('http://localhost:11434'),
@@ -61,9 +75,10 @@ const envSchema = z.object({
   // On by default: every reader fails closed without a usable summary, so nothing changes until a fold lands.
   CONVERSATION_MEMORY: parseBoolean(true),
   // The summary's size, the most new text one fold reads, how often a conversation may fold, and how old a
-  // summary may be before every reader ignores it.
-  MEMORY_MAX_TOKENS: parseInteger(400),
-  MEMORY_FOLD_INPUT_TOKENS: parseInteger(3000),
+  // summary may be before every reader ignores it. The first two must fit NUM_CTX with the answer, so blank
+  // means the value for this NUM_CTX (see CONFIG below).
+  MEMORY_MAX_TOKENS: parseDerivedInteger(),
+  MEMORY_FOLD_INPUT_TOKENS: parseDerivedInteger(),
   MEMORY_FOLD_INTERVAL_MS: parseInteger(20000),
   MEMORY_MATCH_WINDOW_MS: parseInteger(600000),
   // Keep the two local models loaded: when a model slm-gate does not use displaces one of its own, unload
@@ -125,13 +140,24 @@ const envSchema = z.object({
   PLAN_CLAUDE: z.string().optional(),
   PLAN_CHATGPT: z.string().optional(),
   PLAN_GEMINI: z.string().optional(),
+  // Usage-window budgets for the savings cards (src/pricing/providers.ts): tokens per window for Claude and
+  // Gemini, messages per window for ChatGPT. Blank = the estimate for the plan named above, or no card at all
+  // when no plan is named: the gate never invents a budget.
+  CLAUDE_WINDOW_BUDGET: z.coerce.number().int().positive().optional(),
+  CHATGPT_WINDOW_BUDGET: z.coerce.number().int().positive().optional(),
+  GEMINI_WINDOW_BUDGET: z.coerce.number().int().positive().optional(),
+  // A JSON file that overrides the built-in provider registry (window lengths, model name patterns).
+  PROVIDER_REGISTRY_PATH: z.string().optional(),
 
   // STEP 5
   RESOLVER_CLOUD_TIER: parseBoolean(false),
   RESOLVER_CLOUD_BUDGET_USD: parseFloatNumber(0),
   // The most skill text the resolver puts in one local-model prompt; longer skills are trimmed by section.
-  RESOLVER_PROMPT_TOKENS: parseInteger(3000),
-  PROMPT_VERSION: z.string().default('v1'),
+  // Blank means the value for this NUM_CTX (see CONFIG below).
+  RESOLVER_PROMPT_TOKENS: parseDerivedInteger(),
+  // Part of every cache key. The shipped value: a settings file without it must hit the same cache rows as
+  // one written by `slm-gate init`.
+  PROMPT_VERSION: z.string().default('v12'),
   // The presets in src/hardware.ts ramPresets. Every value recommendPreset() can print must be accepted
   // here, or following doctor's advice stops slm-gate from starting. slm-gate needs 16 GB of RAM or more.
   RAM_PRESET: z.enum(['ram-16', 'ram-24', 'ram-32', 'ram-48', 'ram-64', 'ram-128', 'custom']).default('custom'),
@@ -147,8 +173,6 @@ const envSchema = z.object({
   DISTILL_ADAPTIVE: parseBoolean(false),
   DISTILL_ADAPTIVE_THRESHOLD: parseFloatNumber(0.86),
   DISTILL_ADAPTIVE_EXPLORE_RATE: parseFloatNumber(0.15),
-  DISTILL_FEEDBACK_RETENTION_DAYS: parseInteger(180),
-  DISTILL_FEEDBACK_MAX_ROWS: parseInteger(5000),
   DISTILL_MAX_TOKENS: parseInteger(2000),
   DISTILL_MIN_TOKENS: parseInteger(500),
   // How long the model gate may hold one request to distil its new tool results. Past it, a result is
@@ -164,8 +188,6 @@ const envSchema = z.object({
   // Prose runs the gate model shortens at the same time. One GPU: two calls share it, so 2 is not twice as
   // fast as 1; `pnpm run bench:gate` measures both on this machine.
   MAX_CONCURRENT_SEGMENT_CALLS: parseInteger(2),
-  KEEP_RECENT_TOOL_TURNS: parseInteger(2),
-  ELISION_MAX_ENTRIES: parseInteger(5000),
   ELISION_RETENTION_DAYS: parseInteger(180),
   ELISION_MAX_MB: parseInteger(500),
   // How many days of data your Langfuse plan keeps (Hobby: 30). Only the dashboard text reads it: the
@@ -191,34 +213,26 @@ const parsedEnv = envSchema.parse(envInput);
 
 const preset = ramPresets[parsedEnv.RAM_PRESET] || ramPresets['custom'];
 
-const resolvePlan = (provider: 'claude'|'chatgpt'|'gemini') => {
-  // 1. PLAN_<P>
-  const planProviderKey = `PLAN_${provider.toUpperCase()}` as keyof typeof parsedEnv;
-  let planKey = parsedEnv[planProviderKey] as string | undefined;
+const DEFAULT_PLANS: Record<ProviderId, string> = { claude: 'claude-pro', chatgpt: 'chatgpt-plus', gemini: 'gemini-pro' };
 
-  // 2. SUBSCRIPTION_PLAN
-  if (!planKey && parsedEnv.SUBSCRIPTION_PLAN) {
-    if (parsedEnv.SUBSCRIPTION_PLAN.startsWith(provider)) {
-      planKey = parsedEnv.SUBSCRIPTION_PLAN;
-    }
-  }
-
-  // 3. Default
-  if (!planKey) {
-    if (provider === 'claude') planKey = 'claude-pro';
-    else if (provider === 'chatgpt') planKey = 'chatgpt-plus';
-    else if (provider === 'gemini') planKey = 'gemini-pro';
-  }
-
-  if (planKey && !isValidPlanKey(planKey)) {
+/**
+ * The plan behind a provider's usage window: PLAN_<PROVIDER>, else SUBSCRIPTION_PLAN when it names this
+ * provider, else the provider's base plan. Only a plan the user named carries a window-budget estimate: the
+ * savings cards stay empty rather than show minutes for a plan nobody chose.
+ */
+const resolvePlan = (provider: ProviderId) => {
+  const named = parsedEnv[`PLAN_${provider.toUpperCase()}` as 'PLAN_CLAUDE' | 'PLAN_CHATGPT' | 'PLAN_GEMINI']
+    || (parsedEnv.SUBSCRIPTION_PLAN?.startsWith(provider) ? parsedEnv.SUBSCRIPTION_PLAN : undefined);
+  const planKey = named || DEFAULT_PLANS[provider];
+  if (!isValidPlanKey(planKey)) {
     throw new Error(`Invalid plan key '${planKey}' for ${provider}. Valid keys: ${getValidPlanKeys().join(', ')}`);
   }
-
-  const resolved = getSubscriptionPlan(planKey!);
+  const resolved = getSubscriptionPlan(planKey);
   return {
     windowMinutes: resolved.windowMinutes,
     source: resolved.source,
-    plan: planKey
+    plan: planKey,
+    windowBudget: named ? resolved.windowBudget : null,
   };
 };
 
@@ -226,9 +240,9 @@ const claudePlan = resolvePlan('claude');
 const chatgptPlan = resolvePlan('chatgpt');
 const geminiPlan = resolvePlan('gemini');
 
-console.error(`[config] claude plan: ${claudePlan.plan} (windowMinutes: ${claudePlan.windowMinutes})`);
-console.error(`[config] chatgpt plan: ${chatgptPlan.plan} (windowMinutes: ${chatgptPlan.windowMinutes})`);
-console.error(`[config] gemini plan: ${geminiPlan.plan} (windowMinutes: ${geminiPlan.windowMinutes})`);
+// Three prompt budgets that must fit NUM_CTX next to the answer: the smaller values are for the 16 GB preset
+// (NUM_CTX 4096), where the larger ones made Ollama cut prompts silently.
+const roomy = parsedEnv.NUM_CTX >= 8192;
 
 export const CONFIG = Object.freeze({
   ...parsedEnv,
@@ -237,6 +251,9 @@ export const CONFIG = Object.freeze({
   OUTPUT_DIR,
   SLM_BRAIN_MODEL: parsedEnv.SLM_BRAIN_MODEL || preset.brain,
   SLM_GATE_MODEL: parsedEnv.SLM_GATE_MODEL || preset.gate,
+  MEMORY_MAX_TOKENS: parsedEnv.MEMORY_MAX_TOKENS ?? (roomy ? 400 : 300),
+  MEMORY_FOLD_INPUT_TOKENS: parsedEnv.MEMORY_FOLD_INPUT_TOKENS ?? (roomy ? 3000 : 2000),
+  RESOLVER_PROMPT_TOKENS: parsedEnv.RESOLVER_PROMPT_TOKENS ?? (roomy ? 3000 : 2000),
   // Where every session looks for, and starts, the one shared model gate: LLM_GATE_PORT as slm-gate's own
   // .env sets it. LLM_GATE_PORT above prefers the process environment, so a value in one coding tool's MCP
   // env block (or the shell) would send that session to another port, where it would start a second gate.
@@ -275,8 +292,11 @@ if (isEntryPoint(import.meta.url)) {
 
   console.log('\n--- Summary ---');
   console.log(`brain: ${CONFIG.SLM_BRAIN_MODEL} | gate: ${CONFIG.SLM_GATE_MODEL}`);
+  for (const plan of [claudePlan, chatgptPlan, geminiPlan]) {
+    console.log(`plan: ${plan.plan} (${plan.windowMinutes} min window, budget ${plan.windowBudget ?? 'not set'})`);
+  }
   
-  const downstream = CONFIG.DOWNSTREAM_MCP ? (CONFIG.DOWNSTREAM_MCP.command ? `command: ${CONFIG.DOWNSTREAM_MCP.command}` : `url: ${CONFIG.DOWNSTREAM_MCP.url}`) : 'standalone';
+  const downstream = CONFIG.DOWNSTREAM_MCP ? ('command' in CONFIG.DOWNSTREAM_MCP ? `command: ${CONFIG.DOWNSTREAM_MCP.command}` : `url: ${CONFIG.DOWNSTREAM_MCP.url}`) : 'standalone';
   console.log(`downstream: ${downstream}`);
   
   const sinks = ['sqlite'];

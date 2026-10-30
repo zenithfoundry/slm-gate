@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { recommendNumCtx } from '../../src/hardware.js';
-import { fillSettings, initSettings, settingsForRam } from '../../src/setup/init.js';
+import { PROFILES, fillSettings, initSettings, settingsFor, settingsForRam } from '../../src/setup/init.js';
 
 // The real template from this checkout: the same file an npm install ships.
 const installDir = process.cwd();
@@ -23,8 +23,8 @@ afterEach(() => {
 describe('initSettings', () => {
   it('creates the settings folder and a file set up for a 64 GB computer', () => {
     const result = initSettings({ installDir, homeDir, ramGb: 64 });
-    // The template turns on adaptive shrinking, which needs the embedding model too.
-    expect(result).toMatchObject({ created: true, preset: 'ram-64', models: ['qwen3.5:4b', 'qwen3.5:9b', 'nomic-embed-text'] });
+    // Just the pair: the template leaves the embedding model's features off.
+    expect(result).toMatchObject({ created: true, preset: 'ram-64', models: ['qwen3.5:4b', 'qwen3.5:9b'] });
     expect(parse(fs.readFileSync(result.envPath))).toMatchObject({
       RAM_PRESET: 'ram-64',
       SLM_BRAIN_MODEL: 'qwen3.5:9b',
@@ -49,7 +49,7 @@ describe('initSettings', () => {
 
   it('sets up more than 128 GB as custom, starting from the 128 GB models', () => {
     const result = initSettings({ installDir, homeDir, ramGb: 192 });
-    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:8b', 'qwen3:14b', 'nomic-embed-text'] });
+    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:8b', 'qwen3:14b'] });
     expect(parse(fs.readFileSync(result.envPath))).toMatchObject({ RAM_PRESET: 'custom', SLM_BRAIN_MODEL: 'qwen3:14b', SLM_GATE_MODEL: 'qwen3:8b' });
   });
 
@@ -69,6 +69,39 @@ describe('initSettings', () => {
   (process.platform === 'win32' ? it.skip : it)('makes the file readable by its owner only, since it may later hold keys', () => {
     const { envPath } = initSettings({ installDir, homeDir, ramGb: 16 });
     expect(fs.statSync(envPath).mode & 0o777).toBe(0o600);
+  });
+
+  it('writes the provider when one was chosen', () => {
+    const { envPath } = initSettings({ installDir, homeDir, ramGb: 24, provider: 'claude' });
+    expect(parse(fs.readFileSync(envPath))).toMatchObject({ PROVIDER: 'claude', RAM_PRESET: 'ram-24' });
+  });
+});
+
+describe('profiles', () => {
+  it('starter is the template as shipped: no third model, no toolbox, the adapter off', () => {
+    const { envPath } = initSettings({ installDir, homeDir, ramGb: 24, profile: 'starter' });
+    expect(parse(fs.readFileSync(envPath))).toMatchObject({ DISTILL_ADAPTIVE: 'off', DOWNSTREAM_MCP: '', TLS_ADAPTER: 'off', DISTILL_SKILLS: 'off' });
+  });
+
+  it('proven sets the three lines of the maintainer\'s setup and nothing else beyond the RAM lines', () => {
+    const { lines } = settingsFor({ ramGb: 24, profile: 'proven' });
+    expect(lines).toEqual({ ...settingsForRam(24).lines, DISTILL_SKILLS: 'on', REPO_INDEX: 'on', SELF_CONSISTENCY_K: '1' });
+    const { envPath } = initSettings({ installDir, homeDir, ramGb: 24, profile: 'proven' });
+    expect(parse(fs.readFileSync(envPath))).toMatchObject({ DISTILL_SKILLS: 'on', REPO_INDEX: 'on', SELF_CONSISTENCY_K: '1', DISTILL_ADAPTIVE: 'off' });
+  });
+
+  it('toolbox is proven with tech-lead-stack behind the MCP gate, so doctor\'s adapter rule holds', () => {
+    const { lines } = settingsFor({ ramGb: 24, profile: 'toolbox' });
+    expect(lines).toMatchObject(PROFILES.proven.lines);
+    expect(lines.TLS_ADAPTER).toBe('on');
+    expect(JSON.parse(lines.DOWNSTREAM_MCP)).toMatchObject({ command: 'npx' });
+    expect(lines.DISTILL_PRESERVE_PATH).toBe('configs/preserve/tls.json');
+  });
+
+  it('every profile line names a setting the template has, so init can set it', () => {
+    for (const profile of Object.values(PROFILES)) {
+      expect(() => fillSettings(template, profile.lines)).not.toThrow();
+    }
   });
 });
 

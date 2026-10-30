@@ -37,6 +37,20 @@ describe('Config blank-value handling', () => {
     expect(CONFIG.DOWNSTREAM_MCP).toBeNull();
   });
 
+  it('reads DOWNSTREAM_MCP as a command or a URL, and refuses anything else naming the setting', async () => {
+    process.env.DOWNSTREAM_MCP = '{"command":"npx","args":["-y","toolbox"],"env":{"A":"1"}}';
+    expect((await loadConfig('downstream-command')).CONFIG.DOWNSTREAM_MCP).toEqual({ command: 'npx', args: ['-y', 'toolbox'], env: { A: '1' } });
+
+    process.env.DOWNSTREAM_MCP = '{"url":"http://127.0.0.1:9000/mcp"}';
+    expect((await loadConfig('downstream-url')).CONFIG.DOWNSTREAM_MCP).toEqual({ url: 'http://127.0.0.1:9000/mcp' });
+
+    process.env.DOWNSTREAM_MCP = '{"cmd":"npx"}';
+    await expect(loadConfig('downstream-shape')).rejects.toThrow(/DOWNSTREAM_MCP must be/);
+
+    process.env.DOWNSTREAM_MCP = 'not json';
+    await expect(loadConfig('downstream-json')).rejects.toThrow(/DOWNSTREAM_MCP is not valid JSON/);
+  });
+
   it('puts the gate\'s Langfuse traffic in its own environment, not the shared default', async () => {
     // 'default' is where any other writer to the same project lands when it sets none.
     process.env.LANGFUSE_ENVIRONMENT = '';

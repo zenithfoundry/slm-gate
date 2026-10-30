@@ -46,9 +46,6 @@ const cycleSecondsScore = (e: LedgerEvent, provider: string) =>
 
 describe('cycle extension requires a real denominator', () => {
   const clearBudgets = () => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
-    delete process.env.CHATGPT_WINDOW_BUDGET;
-    delete process.env.GEMINI_WINDOW_BUDGET;
     __resetProviderRegistry();
   };
   beforeEach(clearBudgets);
@@ -66,8 +63,7 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('never reproduces the old ratio-times-window figure', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '1000000'; // tokens per 5h window
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 1000000 });
     const e = ev({ provider: 'claude', in_tok: 4511, out_tok: 1825 });
 
     // Old formula: 300 * (1 - 1825/4511) = 178.63
@@ -75,8 +71,7 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('claude counts tokens: a distilled tool result extends the window', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '1000000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 1000000 });
     // 2,686 tokens saved * (300 min / 1,000,000 tokens) = 0.8058 min
     const e = ev({ provider: 'claude', route: 'condition', in_tok: 4511, out_tok: 1825 });
     expect(perEventCycleMinutes(e, 'claude')).toBeCloseTo(0.8058, 4);
@@ -84,8 +79,7 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('publishes the same saving in seconds, so the card does not read 0.8058', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '1000000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 1000000 });
     const e = ev({ provider: 'claude', route: 'condition', in_tok: 4511, out_tok: 1825 });
 
     // 0.8058 min x 60 = 48.348s, rounded to one decimal for display.
@@ -93,8 +87,7 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('keeps the two units in agreement for every provider', () => {
-    process.env.GEMINI_WINDOW_BUDGET = '1000000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 1000000 });
     const e = ev({ provider: 'gemini', route: 'condition', in_tok: 4511, out_tok: 1825 });
 
     const minutes = cycleScore(e, 'gemini')!.value as number;
@@ -103,37 +96,32 @@ describe('cycle extension requires a real denominator', () => {
   });
 
   it('message metering: one locally-resolved prompt frees one message of the window', () => {
-    process.env.CHATGPT_WINDOW_BUDGET = '90';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ chatgpt: 90 });
     // Codex meters a 5h window: 300 minutes / 90 messages = 3.333 minutes per message avoided.
     expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'defer_local' }), 'chatgpt')).toBeCloseTo(300 / 90, 6);
   });
 
   it('message metering: a distilled-but-forwarded prompt frees nothing — the message was still sent', () => {
-    process.env.CHATGPT_WINDOW_BUDGET = '90';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ chatgpt: 90 });
     expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'condition' }), 'chatgpt')).toBe(0);
     expect(perEventCycleMinutes(ev({ provider: 'chatgpt', route: 'forward_compressed' }), 'chatgpt')).toBe(0);
   });
 
   it('compute metering: minutes scale with tokens saved against the token budget', () => {
-    process.env.GEMINI_WINDOW_BUDGET = '1000000'; // tokens per 5h window
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 1000000 });
     // 2,686 tokens saved * (300 min / 1,000,000 tokens) = 0.8058 min
     const e = ev({ provider: 'gemini', route: 'condition', in_tok: 4511, out_tok: 1825 });
     expect(perEventCycleMinutes(e, 'gemini')).toBeCloseTo(0.8058, 4);
   });
 
   it('clamps to the window length however large the claimed saving', () => {
-    process.env.GEMINI_WINDOW_BUDGET = '10';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 10 });
     const e = ev({ provider: 'gemini', route: 'defer_local', in_tok: 10_000_000, out_tok: 0 });
     expect(perEventCycleMinutes(e, 'gemini')).toBe(300);
   });
 
   it('never returns a negative value', () => {
-    process.env.GEMINI_WINDOW_BUDGET = '1000';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ gemini: 1000 });
     const e = ev({ provider: 'gemini', route: 'forward_compressed', api_in_tok: 5000, api_out_tok: 500, meta: JSON.stringify({ raw_in_tok: 1 }) });
     expect(perEventCycleMinutes(e, 'gemini')).toBeGreaterThanOrEqual(0);
   });
@@ -208,7 +196,7 @@ describe('cost is priced against the event model, not a global reference', () =>
   it('prices Claude traffic at Claude rates, not the Gemini fallback', () => {
     // claude-opus-5 is $5/M input (verified 2026-09-13), vs $0.30/M at the old
     // gemini-2.5-flash fallback the gate used to price all Claude traffic with.
-    expect(calculateCostUsd('claude-opus-5[1m]', 1_000_000, 0)).toBeCloseTo(5, 6);
+    expect(calculateCostUsd({ model: 'claude-opus-5[1m]', inTok: 1_000_000, outTok: 0 })).toBeCloseTo(5, 6);
   });
 
   it('uses the event model for baseline cost on a local event', () => {

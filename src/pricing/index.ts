@@ -47,6 +47,12 @@ export const PRICING: Record<string, { in: number; out: number }> = {
 
 export const LOCAL_RATE = { in: 0, out: 0 };
 
+/**
+ * The model an event is priced against when it names none and CLOUD_MODEL is unset. A current, cheap
+ * model: the retired gemini-2.5-flash it replaces carried the same rates, so historical figures are unchanged.
+ */
+export const FALLBACK_CLOUD_MODEL = 'gemini-3.5-flash-lite';
+
 export function isLocal(model: string): boolean {
   // Keep as ONLY a fallback guess. The real decision is explicit in the ledger caller.
   if (model.startsWith('local:')) return true;
@@ -97,7 +103,8 @@ export function ratesFor(model: string): { in: number; out: number } {
   throw error;
 }
 
-export function calculateCostUsd(model: string, inTok: number, outTok: number): number {
+export function calculateCostUsd(params: { model: string; inTok: number; outTok: number }): number {
+  const { model, inTok, outTok } = params;
   let rate;
   if (isLocal(model)) {
     rate = LOCAL_RATE;
@@ -108,13 +115,14 @@ export function calculateCostUsd(model: string, inTok: number, outTok: number): 
   return (inTok * rate.in + outTok * rate.out) / 1e6;
 }
 
-export function safeCalculateCostUsd(model: string | undefined, inTok: number, outTok: number, fallbackModel = 'gemini-2.5-flash'): number {
+export function safeCalculateCostUsd(params: { model: string | undefined; inTok: number; outTok: number; fallbackModel?: string }): number {
+  const { model, inTok, outTok, fallbackModel = FALLBACK_CLOUD_MODEL } = params;
   const target = model || fallbackModel;
   try {
-    return calculateCostUsd(target, inTok, outTok);
+    return calculateCostUsd({ model: target, inTok, outTok });
   } catch {
     try {
-      return calculateCostUsd(fallbackModel, inTok, outTok);
+      return calculateCostUsd({ model: fallbackModel, inTok, outTok });
     } catch {
       return 0;
     }
