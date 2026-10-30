@@ -1,6 +1,6 @@
 # slm-gate
 
-**Make your AI coding plan last longer.** A small model on your own computer shrinks the large tool output your coding assistant sends to the paid cloud, and keeps a short memory of each conversation so its local steps answer with the conversation in view. Works with Claude Code, Codex, Cursor, Gemini CLI, Cline and any MCP client. Runs on [Ollama](https://ollama.com/). Free and MIT-licensed.
+**Make your AI coding plan last longer.** Two small local models shrink the large tool output your coding assistant sends to the paid cloud, and keep a short memory of each conversation. Works with Claude Code, Codex, Cursor, Gemini CLI, Cline and any MCP client. Runs on [Ollama](https://ollama.com/). Free and MIT-licensed.
 
 **[See the live savings dashboard →](https://zenithfoundry.github.io/slm-gate/)** Measured from real daily use.
 
@@ -18,244 +18,39 @@
 [![TypeScript](https://img.shields.io/github/package-json/dependency-version/zenithfoundry/slm-gate/dev/typescript)](tsconfig.json)
 [![MCP server](https://img.shields.io/badge/MCP-server-green)](https://modelcontextprotocol.io/)
 [![Runs on Ollama](https://img.shields.io/badge/runs%20on-Ollama-black)](https://ollama.com/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](docs/prerequisites-and-hardware.md)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](docs/reference/hardware.md)
 [![Live dashboard](https://img.shields.io/badge/savings%20dashboard-live-blue)](https://zenithfoundry.github.io/slm-gate/)
-[![AI setup prompt](https://img.shields.io/badge/AI%20setup-prompt-blueviolet)](docs/agent-setup.md)
+[![AI setup prompt](https://img.shields.io/badge/AI%20setup-prompt-blueviolet)](docs/npm/ai-assisted-setup.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/zenithfoundry/slm-gate/pulls)
-
----
-
-## Table of Contents
-
-1. [What is slm-gate?](#what-is-slm-gate)
-2. [How It Works: Visual](#how-it-works-visual)
-3. [Quick Start](#quick-start)
-4. [Documentation](#documentation)
-5. [Contributing & Security](#contributing--security)
-6. [Related Project](#related-project)
-7. [Intended Use](#intended-use)
-8. [License](#license)
 
 ---
 
 ## What is slm-gate?
 
-`small-language-model-gate` (CLI shortname: **`slm-gate`**) is a **local AI pre-processing and routing layer** that sits in front of your AI coding assistant and quietly does two very useful things before anything reaches the paid cloud:
+Your coding tool sends huge files, long logs and sprawling command output to the cloud AI with every message, and most of it is content the AI skims past. `slm-gate` (the CLI short name of `small-language-model-gate`) runs two small, free AI models on your own computer and shrinks that text before it leaves your machine. It never answers a prompt itself: every request still goes to the provider your tool uses, with your own login. Less is sent, so your plan's usage window lasts longer, and on a pay-per-token key you pay less for the same work.
 
-**It compresses the noise.** Your editor constantly packages up huge files, long logs, and sprawling system instructions and sends them to the cloud AI with every single message. Most of that is content the AI skims past. `slm-gate` intercepts this, runs a small, fast, free AI on your own computer, and strips it down to what actually matters — sending a fraction of the original text to the cloud.
+It is two small servers, started for you:
 
-**It never puts words in your assistant's mouth.** Every request still goes to the provider your coding tool uses, with your own login. `slm-gate` only makes those requests smaller. A short running memory of each conversation (the goal, what was decided, the files in play) lets its local steps answer questions about cut text and settle open questions in a skill with the conversation in view, instead of one message at a time.
+- The **MCP gate** sits in front of your tools (optionally a whole [toolbox](docs/README.md#glossary) such as Tech-Lead-Stack) and shrinks what they return before your coding tool sees it. It adds a few tools of its own: `expand_elision` gets cut lines back, `ask_elision` answers a question about them locally, and `find_existing` lists code your repository already has.
+- The **model gate** is a local address your coding tool sends its AI requests to. It shrinks the new tool output in each request, forwards it to the provider with your tool's own login, and keeps a short memory of the conversation so its local steps answer with the conversation in view.
 
-The result: your paid AI plan lasts dramatically longer. Whether you're on a subscription (Claude Pro, Cursor Pro, Gemini Advanced, ChatGPT Plus) or paying per-token via an API key, you spend far less on the same amount of real work.
+Both record what they saved in a local ledger, which `slm-gate metrics`, the built-in dashboard and (optionally) Langfuse read. Nothing is billed differently, and less of your code leaves your machine.
 
-### Why You Need This
+## How it works
 
-Every AI subscription comes with rate limits. Claude Pro's five-hour windows, Cursor's monthly turn caps, ChatGPT Plus's hourly message limits — these aren't just numbers. Hit them mid-project and you're waiting hours to continue. `slm-gate` acts as a buffer. By intercepting routine traffic and compressing what does go to the cloud, your effective quota stretches much further.
+If a local model fails or runs out of time, the text it was working on goes on as it was.
 
-On pay-per-token API plans (like `gpt-4o` or Claude Sonnet via API key), every token costs money. Sending a 500-line file when the model only needed 30 lines of context is a direct waste of budget. `slm-gate` eliminates that waste automatically.
+![The two paths: a tool call goes through the MCP gate (optional toolbox, then shrink long text; skills under the fidelity guard) and back smaller; a model request goes through the model gate (shrink new tool output, forward with the tool's own login) and the reply comes back unchanged while the brain model folds the conversation memory when idle](docs/diagrams/request-path.png)
 
-### Key Benefits
+Explore it: [request-path.html](docs/diagrams/request-path.html) (open in a browser; nodes expand, paths can be traced).
 
-| Benefit | What It Means For You |
-| :--- | :--- |
-| **Quota Protection** | Fewer turns and tokens consumed means your subscription window lasts longer |
-| **$0 Local Execution** | Small, repetitive queries answered free by your local machine |
-| **Context Compression** | Large files, logs, and tool responses trimmed intelligently before hitting the cloud |
-| **Privacy** | Less of your actual code and data leaves your machine |
-| **Provider-Agnostic** | Works with Claude, GPT, Gemini, or any OpenAI-compatible endpoint |
+Both gates write one row per request to the local ledger: token counts before and after, the route taken and timings, never the text. Minutes of your usage window are estimated from your plan.
 
-### What Gets Measured: Your Savings Dashboard
+![Where the numbers go: both gates write rows to the ledger (src/ledger/); slm-gate metrics, the dashboard and the optional Langfuse mirror read it; plans and window sizes turn tokens saved into estimated minutes; the dashboard's aggregates are published to GitHub Pages daily](docs/diagrams/where-the-data-goes.png)
 
-`slm-gate` records every decision it makes in a local database file on your computer (a SQLite database — think of it as a simple, fast spreadsheet that lives on your machine). For every request, it logs:
+Explore it: [where-the-data-goes.html](docs/diagrams/where-the-data-goes.html) (open in a browser; nodes expand, paths can be traced).
 
-- How many tokens (units of text) were in the original payload
-- How many tokens remained after compression
-- Whether the request went out shrunk or unchanged (shrinking model requests is `llm-gate` only; see [How It Operates](docs/integration-layers.md))
-- How long the local processing took
-- The simulated dollar cost saved (for API key users)
-
-**Checking your savings is one command:**
-
-```bash
-pnpm run slm-gate metrics
-```
-
-This prints a clean, offline summary showing tokens saved, compression ratio, and how many extra minutes of subscription headroom you've gained — no API keys, no internet connection required.
-
-**Want a visual dashboard?** Run `pnpm run dashboard` for the built-in one-page dashboard — per-cycle window time returned per provider, tokens saved, weekly charts and routing split, straight from the local ledger, publishable to GitHub Pages for free (see [The Metrics Dashboard](docs/daily-use.md#the-metrics-dashboard)). If you also set up [Langfuse](https://langfuse.com/) (a free, open-source observability tool), `slm-gate` will send traces there for session-by-session analysis. Both are optional — the local metrics command always works regardless.
-
-### How It Works: Visual
-
-Five small diagrams, each answering one question. Read them in order. Numbers on the arrows show the order things happen.
-
-#### 1. The big picture
-
-slm-gate is two small servers on your computer, between your coding tool and the outside world. Both use small local models, run by Ollama:
-
-- **Tool calls** go through the **MCP gate**. It passes each call to your toolbox, then trims long text in the result before your coding tool sees it: fixed rules first, then the small model summarises what is still too long. It also adds a short note on what your project uses, and lists any open decisions it found in the text, answered where it can.
-- **Model requests** go through the **model gate**. It shrinks new command, search and listing output, and sends the request to your AI provider with your own login. The gate also keeps a short running memory of each conversation (goal, decisions, files in play), folded by the brain model while the gate is idle, so the local steps answer with the conversation in view; `slm-gate memory` shows it.
-
-If the small model fails or runs out of time, the text it was working on goes on as it was. Both gates record what they did in a local ledger (diagram 5).
-
-```mermaid
-flowchart LR
-  tool(("Coding tool"))
-
-  subgraph mcpRow["Tool calls: MCP gate"]
-    direction LR
-    mcp["MCP gate"] -->|"pass on"| toolbox["Downstream MCP<br/>toolbox"]
-    toolbox -->|"raw result"| trim["MCP gate trims long text:<br/>rules first, then small model<br/>(skills: checked by the brain model)"]
-  end
-
-  subgraph llmRow["Model requests: model gate"]
-    direction LR
-    llm["Model gate"] -->|"every request"| shrink["Shrink new command,<br/>search and listing output"]
-    llm -.->|"after each reply,<br/>while idle"| memory["Brain model folds the turn<br/>into the conversation memory"]
-    shrink --> cloud["Your AI provider<br/>(your login or API key)"]
-  end
-
-  tool --> mcp
-  trim -->|"smaller result"| tool
-  tool --> llm
-  answer -.->|"answer passed the check:<br/>reply, no cloud call"| tool
-  cloud -->|"reply, back through<br/>the gate unchanged"| tool
-```
-
-#### 2. What happens to a tool call (MCP gate)
-
-The MCP gate passes each tool call to your downstream toolbox unchanged. When the result comes back, it works on the text only: pictures, structured data and the error flag go back as the toolbox sent them. The gate also adds tools of its own: `expand_elision` fetches back any lines it cut; `ask_elision` lets the coding model ask a question about the cut text and get a few sentences back from the local brain model instead of a 2,000-token page; and, with `REPO_INDEX=on`, `find_existing` lists the functions, classes and types your repository already defines that match a few words, so the model checks before writing something new. With no toolbox set, the gate offers a single tool instead, `condition_prompt`, which runs the same steps on text you send it.
-
-```mermaid
-flowchart LR
-  tool(("Coding tool"))
-  server["MCP server<br/>[mcp-gate/server.ts]"]
-  toolbox["Downstream MCP"]
-  cond["Condition the text<br/>[mcp-gate/pipeline.ts]"]
-  helpers["In order: saved result?,<br/>trim (skills: under the fidelity guard),<br/>project scan, open decisions<br/>(decision memory, repo index, files),<br/>existing code (REPO_INDEX)"]
-  ledger[("Ledger")]
-  paid["Cloud model<br/>(CLOUD_API_KEY)"]
-
-  tool -->|"1. tool call"| server
-  server -->|"2. pass it on"| toolbox
-  toolbox -->|"3. raw result"| server
-  server -->|"4. text only"| cond
-  cond -->|"5. uses"| helpers
-  cond -->|"6. log it"| ledger
-  server -->|"7. smaller result"| tool
-  helpers -.->|"optional, off by default"| paid
-  tool -.->|"later: expand_elision, ask_elision,<br/>find_existing"| server
-  ledger -.->|"the cut lines, the original<br/>for ask_elision, the symbol index"| server
-```
-
-| Step | File | What it does |
-| :--- | :--- | :--- |
-| Saved result | `src/ledger/index.ts`; `src/cache/index.ts` with `SEMCACHE=on` | If the same tool returned the same text before, sends the saved result and skips the steps below. With `SEMCACHE=on`, very similar text counts too. |
-| Trim | `src/utils/elision.ts` | Leaves text under `DISTILL_MIN_TOKENS` alone. Otherwise saves the original for `expand_elision`, then cuts by tool name: a file keeps its outline and the lines about the task, a log keeps its errors and last 50 lines, a search keeps its first 50 lines. If it is still over `DISTILL_MAX_TOKENS`, the gate model summarises the plain prose, never code blocks, tables, headings, frontmatter, rule lines, tool names, paths or numbers with units (and never file reads). Skills are summarised only with `DISTILL_SKILLS=on`, and then under a guard: the brain model checks every shortened paragraph against the requirement sentences the code listed from the original; any sentence reported missing keeps that paragraph word for word, and a sentence lost once is protected by code on every later run. Anything still too long keeps only its start and end. |
-| Project scan | `src/mcp-gate/ground.ts` | Reads the project's root files (`package.json`, `tsconfig.json`, lockfiles, `Cargo.toml`, `go.mod`) and adds a short list of what the project uses. Only when your coding tool shares the project folder. |
-| Open decisions | `src/resolver/index.ts` | The brain model lists up to 3 open decisions in the text and answers each from a decision you wrote down once in `.slm-gate/decisions/` (printed with the file name and who verified it), from the symbols the question names when `REPO_INDEX=on`, from your project's files, or from common practice; the gate model rates each one's risk. Low-risk answers found in your files are added as decided; the rest are added as questions to ask you, with a suggested answer. With `RESOLVER_CLOUD_TIER=on` and a budget set, unsure ones go to a paid cloud model using `CLOUD_API_KEY`. |
-
-#### 3. What happens to a model request (model gate)
-
-The model gate is a small server at `http://localhost:8787`. It reads four request formats (Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini) and makes one change to save you money before anything goes to your AI provider:
-
-- **Shrink.** New command, search and listing output of at least `DISTILL_MIN_TOKENS` is trimmed the same way as in the MCP gate. File reads (including `cat` and similar run from a shell), web fetches and MCP tool results are never changed. Each decision is saved and resent unchanged on every later turn, so the provider's prompt cache keeps working. At most 3 seconds; after that, the original goes.
-
-The request then goes to the provider its address belongs to, with every header your coding tool sent, so your own subscription login or API key is used; slm-gate never adds or swaps credentials. The reply streams back unchanged. Once the reply is done, the turn is noted for the conversation memory; the brain model folds it into the summary later, only while the gate has no request in flight. Token counts, model lists and hello pings skip all of this.
-
-```mermaid
-flowchart LR
-  tool(("Coding tool"))
-  server["Model gate<br/>[llm-gate/server.ts]"]
-  shrink["Shrink new output<br/>[llm-gate/distill.ts]"]
-  memory["Conversation memory<br/>[llm-gate/memory.ts]"]
-  fwd["Forward<br/>[llm-gate/forward.ts]"]
-  cloud["Your AI provider<br/>(your login or API key)"]
-  ledger[("Ledger")]
-
-  tool -->|"1. request"| server
-  server -->|"2. every request"| shrink
-  shrink -->|"3. smaller request"| fwd
-  fwd -->|"4. same headers"| cloud
-  cloud -->|"5. reply"| fwd
-  fwd -->|"6. reply, unchanged"| tool
-  server -->|"7. log it: route, tokens,<br/>tool schemas counted"| ledger
-  shrink -.->|"saved decisions"| ledger
-  server -.->|"8. note the turn; fold it<br/>while idle (brain model)"| memory
-  memory -.->|"summary row"| ledger
-```
-
-#### 4. How it starts, and what the CLI does
-
-You rarely start anything by hand. Your coding tool starts the MCP gate. Before the MCP gate answers the tool (it waits at most 1.5 seconds), it starts the model gate in the background if nothing is running on its port, and checks that Ollama is running and every model your settings name is downloaded. It checks again 15 seconds later and then every minute, restarting the model gate if it stopped, unless you stopped it with `slm-gate stop`. With `LLM_GATE_AUTOSTART=off` it never starts the model gate and only checks once. It never starts Ollama or downloads a model. Problems show up as a desktop notification, and problems found at start-up are also passed to your AI assistant. The CLI is for doing this by hand, and for checks and reports.
-
-```mermaid
-flowchart LR
-  tool(("Coding tool"))
-  you(("You"))
-  mcp["MCP gate<br/>[mcp-gate/index.ts]"]
-  checks["Start-up checks<br/>[setup/startup.ts]"]
-  ollama["Ollama"]
-  llm["Model gate<br/>[llm-gate/index.ts]"]
-  cli["CLI<br/>[cli.ts]"]
-
-  tool -->|"1. starts"| mcp
-  mcp -->|"2. at start, after 15 s,<br/>then every minute"| checks
-  checks -->|"3. running? models downloaded?"| ollama
-  checks -->|"4. start it if not running"| llm
-  checks -.->|"problems: desktop notification"| you
-  checks -.->|"problems at start:<br/>told to your AI assistant"| tool
-  you --> cli
-  cli -->|"start, stop, restart, serve"| llm
-```
-
-| Command | Runs | Does |
-| :--- | :--- | :--- |
-| `start`, `stop`, `restart` | `src/setup/gate-command.ts` | Starts or stops the background model gate; `stop` lasts until `start`, `restart` or a reboot |
-| `serve` | `src/llm-gate/index.ts` | Runs the model gate in this terminal (`--layer mcp` or `both` runs the MCP gate too) |
-| `doctor` | `src/doctor.ts` | Preflight checks, and the exact line to paste into each coding tool |
-| `config` | `src/config.ts` | Prints your settings |
-| `models:check` | `src/models/check.ts` | Checks your models are downloaded and fit in memory |
-| `metrics` | `harness/metrics.ts` | Rows, tokens and cost in the ledger |
-| `ledger:sync` | `src/ledger/sync.ts` | Sends ledger history to Langfuse |
-| `setup-dashboard` | `src/ledger/setup-dashboard.ts` | Builds the Langfuse dashboard |
-| `ledger:reset` | `src/cli.ts` | Deletes the local ledger |
-
-#### 5. Where the data goes
-
-Both gates write one row to the local ledger, a SQLite file (`output/ledger.sqlite` by default): one for each tool result the MCP gate conditions, and one for each model request the model gate forwards (and one for each memory fold). A row holds token counts, the route taken and timings, not the text itself. Rows for your coding tool's traffic carry no price; only the optional resolver cloud call records one. Cost saved (from the price list) and minutes saved (from each provider's usage-window size) are worked out for Langfuse as each row is written and again by `ledger:sync`; the dashboard works out minutes saved each time it loads. The same file also keeps saved results, the original of anything cut (for `expand_elision`), and the model gate's shrink decisions.
-
-If all three Langfuse keys are set, each gate sends its new rows there as it runs (at start-up, every 15 seconds and at shutdown), and `ledger:sync` re-sends history.
-
-```mermaid
-flowchart LR
-  gates["Both gates"]
-  ledger[("Ledger<br/>[ledger/index.ts]")]
-  pricing["Prices and window sizes<br/>[pricing/]"]
-  metrics["slm-gate metrics<br/>[harness/metrics.ts]"]
-  report["Tokens saved per day<br/>[ledger/report.ts]"]
-  dash["Dashboard: savings, routing,<br/>tool definitions, skill fidelity<br/>[dashboard/serve.ts]"]
-  site["site/ folder for GitHub Pages<br/>[dashboard/export.ts]"]
-  langfuse["Langfuse (optional)"]
-
-  gates -->|"1. a row per request:<br/>route, tokens, fidelity,<br/>tool schemas, memory state"| ledger
-  ledger --> metrics
-  ledger --> report
-  ledger --> dash
-  ledger --> site
-  pricing -->|"minutes saved"| dash
-  pricing -->|"cost and minutes saved"| langfuse
-  ledger -.->|"new rows every 15 s;<br/>ledger:sync for history"| langfuse
-```
-
-| Reader | Command | Shows |
-| :--- | :--- | :--- |
-| Metrics | `slm-gate metrics` | Rows, tokens and cost in the ledger |
-| Report | `pnpm run ledger:report` | Tokens saved per day and all-time |
-| Dashboard | `pnpm run dashboard` | Minutes of each provider's usage window returned, tokens saved, weekly charts, routing split, tool definitions, skill fidelity |
-| Static copy | `pnpm run dashboard:export` | The dashboard with numbers and dates only, written to `site/` for the Pages workflow |
-| Langfuse | runs by itself; `slm-gate ledger:sync` for history | A trace per request, with cost, tokens and minutes saved |
-
----
+Step by step, with the diagrams for one tool call, one model request and the start-up: [How it works](docs/reference/how-it-works.md).
 
 ## Quick Start
 
@@ -263,68 +58,40 @@ You need a Mac or Linux computer with 16 GB of RAM or more, Node.js 22+ and [Oll
 
 ```bash
 npm install -g @zenithfoundry/slm-gate
-slm-gate init        # creates ~/.slm-gate/.env for this computer and prints the next steps
-slm-gate doctor      # after the `ollama pull` line init printed
+slm-gate init        # creates ~/.slm-gate/.env for this computer's RAM; --profile starter|proven|toolbox
+slm-gate doctor      # after the `ollama pull` line init printed; ends with READY
 ```
 
-Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`; for Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. Run `init` even if your tool starts `slm-gate` with `npx` (`npx -y @zenithfoundry/slm-gate@1 init`). The background model gate that every tool shares reads only the settings file, never a tool's own `env` settings, so set your local models there ([why](docs/install-from-npm.md#where-settings-come-from)). The [Install from npm](docs/install-from-npm.md) guide walks through every step: any coding tool, any AI provider or fully local, toolboxes, updates.
+Then add an MCP server to your coding tool that runs `slm-gate` with the argument `mcp`. For Claude Code: `claude mcp add --scope user slm-gate -- slm-gate mcp`. `doctor` also prints the one line that sends the tool's own AI requests through the gate. Every step, every tool: [Install](docs/npm/install.md).
 
-> **Rather have an AI assistant set it up?** After `npm install -g @zenithfoundry/slm-gate`, paste the [AI setup prompt](docs/agent-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks you a few questions, and connects everything. **Using a git checkout today?** [Switch slm-gate to npm](docs/switch-to-npm.md): a fresh install with the same prompt, and optional steps to bring back your old settings and history.
+> **Rather have an AI assistant set it up?** After the install line, paste the [AI setup prompt](docs/npm/ai-assisted-setup.md) into Claude Code, Codex, Gemini CLI or any other assistant. It checks your computer, asks a few questions, and connects everything.
 
-**From source** (to change `slm-gate` itself). You also need pnpm 10+. This is the setup for a 16 GB machine with Claude Code; other editors and machine sizes are in the [setup guide](docs/setup.md).
-
-```bash
-git clone https://github.com/zenithfoundry/slm-gate.git small-language-model-gate
-cd small-language-model-gate
-pnpm install && pnpm run build
-cp configs/claude-code/.env.16gb.example .env
-ollama pull qwen3.5:2b && ollama pull qwen2.5-coder:0.5b && ollama pull nomic-embed-text
-claude mcp add --scope user slm-gate -- node "$PWD/dist/mcp-gate/index.js"
-node dist/cli.js doctor
-```
-
-Then restart Claude Code. `doctor` checks Ollama, your models and the model gate, and prints the one line to add to Claude Code's settings if you also want its model requests to go through the gate ([Layer 2](docs/integration-layers.md#layer-2-llm-gate--the-model-endpoint-proxy)).
-
----
+**From source** (to change `slm-gate` itself): [Set up from source](docs/source/setup.md).
 
 ## Documentation
 
-Setup and reference guides live in [`docs/`](docs/README.md). The first time through, read them in this order:
+All pages, in reading order, with a glossary: [docs/README.md](docs/README.md).
 
-1. [Prerequisites & Hardware Sizing](docs/prerequisites-and-hardware.md): what to install, and which local models fit your machine's memory
-2. [How It Operates](docs/integration-layers.md): the two layers, who pays for what, and which coding tools work with each
-3. [Step-by-Step Setup](docs/setup.md): clone, build, download models, and connect your editor
-4. [Configuration](docs/configuration.md): RAM presets, the 16 GB baseline `.env`, and every setting explained
-5. [The two setups](docs/setups.md): "local models do more" or "plain shrinking", with the `.env` keys and values for each
-6. [Verification & Day-to-Day Use](docs/daily-use.md): the health check, fixing start-up problems, checking savings, the dashboard
-7. [Architecture & Advanced Features](docs/advanced.md): the hosted small-model fallback, and a rule for contributors
-
-Also: [walkthroughs](docs/README.md#walkthroughs), [analytics & observability](docs/analytics-and-observability.md), [architecture overview](ARCHITECTURE.md), and [every doc on one page](docs/README.md).
-
----
+| Section | Pages |
+| :--- | :--- |
+| **Installed from npm** | [Install](docs/npm/install.md) · [Profiles](docs/npm/profiles.md) · [Connect your tool](docs/npm/connect-your-tool.md) · [Daily use](docs/npm/daily-use.md) · [Measure your savings](docs/npm/measure-savings.md) · [AI-assisted setup](docs/npm/ai-assisted-setup.md) |
+| **From source (contributors)** | [Set up from source](docs/source/setup.md) · [Switch to npm](docs/source/switch-to-npm.md) · [Diagrams](docs/source/diagrams.md) · [Architecture](ARCHITECTURE.md) · [AGENTS.md](AGENTS.md) |
+| **Reference (both)** | [Settings](docs/reference/settings.md) · [Hardware](docs/reference/hardware.md) · [How it works](docs/reference/how-it-works.md) · [Analytics](docs/reference/analytics.md) |
 
 ## Contributing & Security
 
 Pull requests are welcome; read the [contributing guide](.github/CONTRIBUTING.md) first. For help, and what is supported, see [support](SUPPORT.md). Please report security problems privately, as the [security policy](SECURITY.md) describes, not in a public issue.
 
----
-
 ## Related Project
 
 > [!NOTE]
-> **Tech-Lead-Stack:** An agent-agnostic library of Markdown "skills" plus an MCP
-> server that turns Claude, Gemini, or GPT into a full software-delivery team (planning,
-> building, review, security, release), organized around a nine-phase lifecycle. Its
-> self-correcting Reflexion loop grades implementation plans against four engineering
-> pillars before any code is written. `slm-gate` can sit in front of it and shrink its skill payloads.
+> **Tech-Lead-Stack:** An agent-agnostic library of Markdown "skills" plus an MCP server that turns Claude, Gemini, or GPT into a full software-delivery team (planning, building, review, security, release), organized around a nine-phase lifecycle. `slm-gate` can sit in front of it and shrink its skill payloads: `slm-gate init --profile toolbox`.
 >
 > <a href="https://github.com/bronz3beard/ai.tech-lead-stack" target="_blank" rel="noopener noreferrer">Explore tech-lead-stack on GitHub →</a>
 
----
-
 ## Intended Use
 
-This software runs locally and drives third-party AI tools and models that **you** install and authenticate. You are responsible for complying with the terms of any tool, model, or subscription you connect to it. It is designed for single-user, local use with your own accounts — it does not proxy or share third-party credentials between users. Provided "as is" under the MIT License, without warranty of any kind.
+This software runs locally and drives third-party AI tools and models that **you** install and authenticate. You are responsible for complying with the terms of any tool, model, or subscription you connect to it. It is designed for single-user, local use with your own accounts; it does not proxy or share third-party credentials between users. Provided "as is" under the MIT License, without warranty of any kind.
 
 ## License
 

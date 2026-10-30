@@ -1,5 +1,9 @@
 # Antigravity MCP Configuration
 
+First: `npm install -g @zenithfoundry/slm-gate`, then `slm-gate init --profile starter` (or `proven` or `toolbox`,
+see [Profiles](../../docs/npm/profiles.md)), the `ollama pull` line it prints, and `slm-gate doctor`
+([Install](../../docs/npm/install.md)). Then add the entry below.
+
 **File Location:** `~/.gemini/config/mcp_config.json` (all workspaces) or `.agents/mcp_config.json` in a workspace's
 folder. In the IDE: agent side panel → MCP Servers → Manage MCP Servers → View raw config.
 
@@ -17,19 +21,19 @@ folder. In the IDE: agent side panel → MCP Servers → Manage MCP Servers → 
 - **Without installing it:** `"command": "npx", "args": ["-y", "@zenithfoundry/slm-gate@1", "mcp"]`.
 - **From a git checkout:** `"command": "node", "args": ["/full/path/to/small-language-model-gate/dist/mcp-gate/index.js"]`.
 - **A toolbox behind `slm-gate` (optional):** add an `env` block to the entry, as in
-  [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional).
+  [Connect a toolbox](../../docs/npm/install.md#connect-a-toolbox).
 - **By web address** (`slm-gate serve --layer mcp --transport http`): Antigravity needs `serverUrl`, not `url`.
 
 Then restart Antigravity and check with `slm-gate doctor`.
 
 > **Where settings go:** in `slm-gate`'s own settings file (`~/.slm-gate/.env`, made by `slm-gate init`), for every
 > tool. A value in this entry's `env` block changes it for Antigravity's MCP server only, and wins over the file.
-> The model gate (Layer 2), shared by all your coding tools, reads only the settings file. The MCP server checks
-> that the models named in both places are downloaded.
+> The model gate, shared by all your coding tools, reads only the settings file. The MCP gate checks that the
+> models named in both places are downloaded.
 
-## Model gate (Layer 2)
+## Model gate
 
-- **Antigravity IDE / Antigravity 2:** not possible. There is no setting for the model's address. Use the MCP server above (Layer 1).
+- **Antigravity IDE / Antigravity 2:** not possible. There is no setting for the model's address. Use the MCP gate above.
 - **Antigravity CLI (`agy`), with a Gemini API key only:** set `{ "modelProvider": "gemini" }` in `~/.gemini/antigravity-cli/settings.json`, then
   ```bash
   export GOOGLE_GEMINI_BASE_URL=http://localhost:8787
@@ -48,7 +52,7 @@ When deploying Ollama on macOS via Homebrew (`brew install ollama`), developers 
 > **The Configuration Trap:** Running `brew services restart ollama` aggressively overwrites the `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` file. This silently deletes any custom `EnvironmentVariables` you have manually added, resulting in aggressive model swapping and context truncation. Furthermore, Homebrew's native `.env` injection (via `~/.config/homebrew/services/`) is frequently ignored by the macOS LaunchDaemon for the Ollama formula.
 
 **The Solution:**
-To persistently apply critical environment variables for high-performance SLM routing without them being overwritten by Homebrew:
+To keep the environment variables the two local models need, without Homebrew overwriting them:
 1. Stop the brew service: `brew services stop ollama`
 2. Manually add your `EnvironmentVariables` dictionary to `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`.
 3. Natively load the daemon: `launchctl load ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist`
@@ -56,9 +60,9 @@ To persistently apply critical environment variables for high-performance SLM ro
 **Required Variables for this Repo:**
 - `OLLAMA_CONTEXT_LENGTH="8192"` (Ensures Ollama's global context matches the app's `NUM_CTX`)
 - `OLLAMA_KEEP_ALIVE="12h"` (Prevents unloaded models, ensuring warm latency)
-- `OLLAMA_MAX_LOADED_MODELS="2"` (or `1`, depending on VRAM capacity to prevent model swapping)
+- `OLLAMA_MAX_LOADED_MODELS="2"` (exactly the pair; `slm-gate` keeps both loaded with `SLM_PIN_MODELS=on`)
 
-*For further reading, refer to the [official Ollama FAQ on memory and concurrency](https://docs.ollama.com/faq).*
+*More in [Hardware](../../docs/reference/hardware.md#keep-both-models-loaded) and the [official Ollama FAQ](https://docs.ollama.com/faq).*
 
 ### ⚠️ RAM Sizing & Troubleshooting Disclaimer: If Your RAM Config Is Not Working
 
@@ -69,7 +73,7 @@ If your models are getting evicted, Ollama is thrashing/swapping back and forth 
 Memory = Model Weights + (NUM_CTX × KV-Cache) × Models Loaded
 ```
 
-**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done — memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
+**Dropping the brain model to a 7B is exactly the right lever, and yes it'll cut RAM. But don't just hand-edit `NUM_CTX` to a smaller number and call it done: memory is model weights + (`NUM_CTX` × KV-cache) × models loaded.**
 
 While this example shows dropping from a 9B (or 14B) to a 7B model, this principle is a general rule that applies to all RAM capacities:
 
@@ -90,10 +94,9 @@ While this example shows dropping from a 9B (or 14B) to a 7B model, this princip
    for Antigravity's MCP server.
 4. **Shrink `NUM_CTX`:**
    Lowering `NUM_CTX` from `8192` → `4096` is where a lot of the RAM savings actually comes from (the KV cache shrinks with it), and it's the single biggest knob after model size.
-5. **Fallback to Single-Model Mode if still heavy:**
-   If memory is still heavy, set `OLLAMA_MAX_LOADED_MODELS=1` for Ollama itself, as in the Homebrew section above
-   (it is Ollama's setting: `slm-gate` does not read it). This forces one model in memory at a time (slower
-   switching between gate and brain, but drastically reduces RAM usage).
+5. **Keep two Ollama slots.** Do not drop `OLLAMA_MAX_LOADED_MODELS` to `1` while `SLM_PIN_MODELS=on`: the
+   gate would keep reloading its missing model and Ollama would keep evicting the other. If you must run with
+   one slot, set `SLM_PIN_MODELS=off` too, and accept a reload whenever the two models take turns.
 6. **Use doctor to sanity-check** the fit for your RAM:
    ```bash
    slm-gate doctor   # in a git checkout: node dist/cli.js doctor

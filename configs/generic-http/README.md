@@ -1,6 +1,10 @@
 # Generic HTTP MCP Configuration
 
-For clients that connect to an MCP server by web address (streamable HTTP; not the older SSE transport). Run `slm-gate serve --layer mcp --transport http` and keep it running: a client that connects by address does not start the server itself. Once running, it starts and watches the model gate (Layer 2) the same way the stdio server does.
+First: `npm install -g @zenithfoundry/slm-gate`, then `slm-gate init --profile starter` (or `proven` or `toolbox`,
+see [Profiles](../../docs/npm/profiles.md)), the `ollama pull` line it prints, and `slm-gate doctor`
+([Install](../../docs/npm/install.md)).
+
+For clients that connect to an MCP server by web address (streamable HTTP; not the older SSE transport). Run `slm-gate serve --layer mcp --transport http` and keep it running: a client that connects by address does not start the server itself. Once running, it starts and watches the model gate the same way the stdio server does.
 
 Only programs on this computer can connect. Other computers on your network, web pages from other sites, and clients inside a Docker container or virtual machine are refused, because this server's tools can read and change your files. Use `localhost` or `127.0.0.1` in the address, as below.
 

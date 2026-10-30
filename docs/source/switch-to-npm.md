@@ -1,8 +1,10 @@
-# Switch slm-gate to npm
+# Switch to npm
 
-You set up `slm-gate` by downloading its code into a folder. It now installs like any other program. These steps
-install it fresh, then an AI assistant sets it up with you: your settings, the local models, your coding apps and
-any toolbox. Nothing is copied from the old folder.
+Leave a git checkout of `slm-gate` behind and install it like any other program, with an AI assistant doing the setup.
+
+You set up `slm-gate` by downloading its code into a folder. It now installs from npm. These steps install it
+fresh, then an AI assistant sets it up with you: your settings, the local models, your coding apps and any
+toolbox. Nothing is copied from the old folder.
 
 ## Before you start
 
@@ -10,21 +12,21 @@ any toolbox. Nothing is copied from the old folder.
 - Your old settings and savings history stay behind in the old folder. The new install starts its own. You can
   bring the old ones back afterwards: see [the optional steps](#optional-bring-back-your-old-settings-and-history)
   at the end.
-- Used extras that need a key, such as the savings dashboard? Have the key ready: the assistant asks you to type
-  keys into the new settings file yourself, never into the chat.
+- Used extras that need a key, such as Langfuse? Have the key ready: the assistant asks you to type keys into the
+  new settings file yourself, never into the chat.
 
 ## Steps
 
 ### 1. Install the new slm-gate
 
-Open **Terminal** and run:
+Install the program as [Install, step 1](../npm/install.md#1-install-the-program) says, then check in
+**Terminal**:
 
 ```bash
-npm install -g @zenithfoundry/slm-gate
 slm-gate --version
 ```
 
-The last line prints the version: 1.3.0 or higher. A "permission denied" error? Follow
+It prints the version: 1.3.0 or higher. A "permission denied" error during the install? Follow
 [npm's guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), then
 run this step again.
 
@@ -35,8 +37,8 @@ assistant tells you when to restart them.
 
 ### 3. Give it the setup prompt
 
-Open the [AI setup prompt](./agent-setup.md#the-prompt), copy everything in the box under "The prompt", paste it
-into the assistant and press Enter.
+Open the [AI setup prompt](../npm/ai-assisted-setup.md#the-prompt), copy everything in the box under "The prompt",
+paste it into the assistant and press Enter.
 
 ### 4. Answer its questions
 
@@ -67,13 +69,13 @@ Want your old settings or history back? Do [the optional steps](#optional-bring-
 below first: they copy from this folder.
 
 Publishing the savings dashboard from that folder? Keep it instead, and point the dashboard at your new history
-([Coding tools on the npm install?](analytics-and-observability.md#keeping-the-published-dashboard-current)):
-otherwise the page stops on the day you switched.
+([Publishing the dashboard](../reference/analytics.md#publishing-the-dashboard)): otherwise the page stops on the
+day you switched.
 
 The assistant tells you which folder it was. Once everything works, drag that folder to the Trash. If anything stops
 working, drag it back out and [tell us what happened](https://github.com/zenithfoundry/slm-gate/issues).
 
-**From now on,** update `slm-gate` with `npm update -g @zenithfoundry/slm-gate`, then run `slm-gate restart`.
+**From now on,** update `slm-gate` as [Install: upgrade](../npm/install.md#upgrade-and-uninstall) says.
 
 ## Optional: bring back your old settings and history
 
@@ -131,7 +133,8 @@ open -e ~/.slm-gate/.env
 - A line starting `LEDGER_PATH=`: delete everything after the `=`, so it reads `LEDGER_PATH=`
 - A line starting `DISTILL_PRESERVE_PATH=`: make it read `DISTILL_PRESERVE_PATH=configs/preserve/tls.json`
 
-Save the file, then run the `grep` line again: it should print nothing now.
+Save the file, then run the `grep` line again: it should print nothing now. An old settings file may also name
+settings that no longer exist; `slm-gate doctor` ignores them, and the template `init` writes is the current list.
 
 ### 5. Start it and check
 
@@ -166,4 +169,4 @@ slm-gate restart
 
 ---
 
-The full guide, with every option: [Install from npm](./install-from-npm.md).
+Next: [Diagrams](diagrams.md)

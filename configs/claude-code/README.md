@@ -1,6 +1,8 @@
 # Claude Code MCP Configuration
 
-Add `slm-gate` for all your projects with one command:
+First: `npm install -g @zenithfoundry/slm-gate`, then `slm-gate init --profile starter` (or `proven` or `toolbox`,
+see [Profiles](../../docs/npm/profiles.md)), the `ollama pull` line it prints, and `slm-gate doctor`
+([Install](../../docs/npm/install.md)). Then add `slm-gate` for all your projects with one command:
 
 ```bash
 claude mcp add --scope user slm-gate -- slm-gate mcp
@@ -21,14 +23,14 @@ Tech-Lead-Stack from npm:
 claude mcp add-json --scope user slm-gate '{"command":"slm-gate","args":["mcp"],"env":{"DOWNSTREAM_MCP":"{\"command\":\"npx\",\"args\":[\"-y\",\"tech-lead-stack@1\"]}","TLS_ADAPTER":"on"}}'
 ```
 
-Other toolboxes: see [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional). To change an
+Other toolboxes: see [Connect a toolbox](../../docs/npm/install.md#connect-a-toolbox). To change an
 existing entry, `claude mcp remove slm-gate --scope user` first; `claude mcp get slm-gate` shows what it holds.
 
 Then restart Claude Code. `claude mcp list` shows `slm-gate` as connected, and `slm-gate doctor` checks the rest.
 
 The `env` values above apply to this MCP server only. The model gate below is shared by all your coding tools and reads its settings only from `slm-gate`'s own `.env`.
 
-## Model gate (Layer 2): send Claude Code's model requests through slm-gate
+## Model gate: send Claude Code's AI requests through slm-gate
 
 Add this to `~/.claude/settings.json` (no `/v1` at the end; Claude Code adds it):
 

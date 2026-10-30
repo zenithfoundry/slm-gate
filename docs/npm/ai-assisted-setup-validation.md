@@ -1,15 +1,13 @@
 # Testing the AI setup prompt
 
-How to check that the [AI setup prompt](./agent-setup.md) works, before its validation record says it does. Rerun
-this after any change to the prompt.
+The nine runs to do before the [AI setup prompt](./ai-assisted-setup.md)'s validation record says it works.
 
-Nine runs: three assistants, each from three starting points, each at a different comfort level. Every run starts
-from a clean spare macOS account and is scored against the same list.
+Rerun this after any change to the prompt. Nine runs: three assistants, each from three starting points, each at
+a different comfort level. Every run starts from a clean spare macOS account and is scored against the same list.
 
 ## Before you start (once)
 
-1. **Release the version you are testing.** The prompt uses `slm-gate --version`, which is new after 1.2.2. After
-   the release PR is merged, approve the staged package:
+1. **Release the version you are testing.** After the release PR is merged, approve the staged package:
 
    ```bash
    npm stage list @zenithfoundry/slm-gate
@@ -60,7 +58,7 @@ its Ollama check, tell you to open the Ollama app, and wait. Open it, then type 
 account on this Mac, so the "not installed" pause can only be tested on a Mac without it.
 
 **Old git checkout with Tech-Lead-Stack.** Don't install `slm-gate` from npm: the assistant should offer to. Build
-the old version and the toolbox:
+the old version and the toolbox, the way a contributor would:
 
 ```bash
 git clone --branch v1.2.2 https://github.com/zenithfoundry/slm-gate.git ~/old-slm-gate
@@ -86,8 +84,8 @@ the assistant once and quit it, so the old checkout has started and has some his
 
 ## During each run
 
-1. Start the assistant in `~/setup-test` and paste the prompt from [agent-setup.md](./agent-setup.md), exactly as
-   released.
+1. Start the assistant in `~/setup-test` and paste the prompt from [the setup page](./ai-assisted-setup.md#the-prompt),
+   exactly as released.
 2. Answer the first question with the run's comfort level. After that, take its defaults, and say yes when it
    offers to send the assistant's AI requests through `slm-gate`.
 3. Don't help it. If it gets stuck or asks something odd, write it down: that is a finding.
@@ -159,9 +157,13 @@ ls -l ~/.slm-gate/.env                               # -rw------- : readable by 
 
 ## Record the results
 
-Add one row per run to the [validation record](./agent-setup.md#validation-record): the date, the assistant, the
-starting point, and Pass, or Fail with one line saying what went wrong. Replace "Not validated yet." with
-"Last validated: <date>, against <version>."
+Add one row per run to the [validation record](./ai-assisted-setup.md#validation-record): the date, the
+assistant, the starting point, and Pass, or Fail with one line saying what went wrong. Replace "Not validated
+yet." with "Last validated: <date>, against <version>."
 
 A failure is a bug in the prompt. Fix it, then rerun every run from a clean account: a fix for one assistant can
 break another.
+
+---
+
+Next: [Settings](../reference/settings.md)
