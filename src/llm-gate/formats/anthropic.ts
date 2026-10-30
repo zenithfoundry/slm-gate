@@ -1,3 +1,8 @@
+/**
+ * The Anthropic Messages shape of the model gate contract: finds tool results and the calls that produced
+ * them in a request body and rewrites their text in place.
+ */
+import { CHARS_PER_TOKEN } from '../../utils/elision.js';
 import { HistoryEntry, JsonObject, ToolResult, ToolStats, typedText } from './contract.js';
 
 // ---------------------------------------------------------------------------------------------------
@@ -74,7 +79,7 @@ export function toolStats(body: JsonObject): ToolStats | null {
     if (tool?.defer_loading === true) { deferred++; continue; }
     chars += JSON.stringify(tool ?? null).length;
   }
-  return { count: tools.length, deferred, tokEst: Math.ceil(chars / 4) };
+  return { count: tools.length, deferred, tokEst: Math.ceil(chars / CHARS_PER_TOKEN) };
 }
 
 /** How much of a tool result the memory fold sees: enough to know what it was about, never the whole thing. */

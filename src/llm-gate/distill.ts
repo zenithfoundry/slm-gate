@@ -18,6 +18,7 @@
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
 import { getDistillDecision, recordDistillDecision } from '../ledger/index.js';
+import { log } from '../log.js';
 import { compressNarrativeRun } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
 import { distillToolResult, estimateTokens, rewriteElisionHint } from '../utils/elision.js';
@@ -114,14 +115,11 @@ function distillableKind(result: ToolResult<unknown>): Kind | null {
 }
 
 /**
- * Identifies the conversation by its first user entry, which never changes while the conversation lasts
- * (the history only grows). Two sessions that meet the same tool output must not share a decision: one
- * of them may already have sent the original.
- */
-/**
- * Only what cannot change for a result within a conversation. Engine version, prompt version and marker
- * wording are deliberately left out: a changed key would find no decision for history the provider has
- * already seen distilled.
+ * The key a distillation decision is stored under: the conversation (its first user entry, which never
+ * changes while the conversation lasts) plus only what cannot change for a result within it. Two sessions
+ * that meet the same tool output must not share a decision, since one may already have sent the original.
+ * Engine version, prompt version and marker wording are deliberately left out: a changed key would find no
+ * decision for history the provider has already seen distilled.
  */
 function decisionKey(params: { conversation: string; result: ToolResult<unknown> }): string {
   const { conversation, result } = params;
@@ -140,7 +138,7 @@ const defaultEngine: DistillEngine = async ({ text, toolName, callArgs, kind }) 
   preserveList ??= buildPreserveList();
   const compress = (run: string, task?: string) => compressNarrativeRun({ slm: client, text: run, task });
   // An empty task keeps the engine's own cache key the same on every turn.
-  return distillToolResult(compress, text, '', `${ENGINE_RULE[kind]}:${toolName}`, callArgs, await preserveList);
+  return distillToolResult({ slm: compress, text, task: '', toolName: `${ENGINE_RULE[kind]}:${toolName}`, args: callArgs, preservePatterns: await preserveList });
 };
 
 /** One distillation per key at a time: a retried request joins the one already running. */
@@ -169,7 +167,7 @@ function persistThenSend(params: { key: string; original: string; text: string; 
   try {
     return { text: recordDistillDecision({ key, text, outcome }).text, stored: true };
   } catch (err) {
-    console.error(`[llm-gate] distill decision not stored (${err instanceof Error ? err.message : String(err)}); sending the original`);
+    log.warn('llm-gate', 'distill decision not stored; sending the original', { error: err });
     return { text: original, stored: false };
   }
 }
@@ -190,7 +188,7 @@ async function decide(params: {
     stored = getDistillDecision(key);
   } catch (err) {
     // Unknown whether a decision exists: send the original, record nothing.
-    console.error(`[llm-gate] distill decision not readable (${err instanceof Error ? err.message : String(err)}); sending the original`);
+    log.warn('llm-gate', 'distill decision not readable; sending the original', { error: err });
     return { text: result.text, outcome: 'read_error' };
   }
   if (stored) return { text: stored.text, outcome: 'reused' };
@@ -212,7 +210,7 @@ async function decide(params: {
     text = expandHint ? distilled : rewriteElisionHint(distilled);
   } catch (err) {
     outcome = err instanceof DeadlineExceeded ? 'timeout' : 'error';
-    if (outcome === 'error') console.error(`[llm-gate] distillation failed, sending the original: ${err instanceof Error ? err.message : String(err)}`);
+    if (outcome === 'error') log.warn('llm-gate', 'distillation failed, sending the original', { error: err });
   }
   const sent = persistThenSend({ key, original: result.text, text, outcome });
   return { text: sent.text, outcome: sent.stored ? outcome : 'store_error' };
@@ -263,7 +261,7 @@ export async function distilRequest(params: {
 /** Loads the local model in the background so the first distillation does not pay the ~9 s cold start. */
 export function warmUpLocalModel(): void {
   slm ??= new SLM();
-  slm.generateText(CONFIG.SLM_GATE_MODEL, [{ role: 'user', content: 'ok' }], 0, 1).catch(() => {
+  slm.generateText({ model: CONFIG.SLM_GATE_MODEL, messages: [{ role: 'user', content: 'ok' }], temperature: 0, maxTokens: 1 }).catch(() => {
     // Ollama down or model missing: each distillation then falls back to the original on its own.
   });
 }

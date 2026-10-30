@@ -22,6 +22,7 @@
 import { CONFIG } from '../config.js';
 import crypto from 'node:crypto';
 import { markMemoryFoldFailed, readMemoryRow, writeEvent, writeMemoryRow, type MemoryRow } from '../ledger/index.js';
+import { log } from '../log.js';
 import { track, whenIdle } from '../models/busy.js';
 import { foldSummary, MEMORY_SCHEMA, type MemorySummary } from '../models/reasoning.js';
 import { SLM } from '../models/slm.js';
@@ -133,7 +134,7 @@ export function foldPrefix(fresh: HistoryEntry[], budgetTokens = CONFIG.MEMORY_F
 export function noteTurn(params: { key: string; root: string | null; discriminator: string | null; entries: HistoryEntry[] }): void {
   if (!CONFIG.CONVERSATION_MEMORY) return;
   if (!brainIsLocal()) {
-    if (!warnedNotLocal) { warnedNotLocal = true; console.error('[memory] off: the brain model is not on this machine (SLM_PROVIDER / OLLAMA_HOST), and conversation text never leaves it'); }
+    if (!warnedNotLocal) { warnedNotLocal = true; log.warn('memory', 'off: the brain model is not on this machine (SLM_PROVIDER / OLLAMA_HOST), and conversation text never leaves it'); }
     return;
   }
   const { key, root, discriminator, entries } = params;
@@ -157,7 +158,7 @@ export function noteTurn(params: { key: string; root: string | null; discriminat
 function enqueueFold(key: string): void {
   queue = queue
     .then(async () => { await foldConversation(key); })
-    .catch(err => { console.error(`[memory] fold failed: ${err instanceof Error ? err.message : String(err)}`); });
+    .catch(err => { log.error('memory', 'fold failed', { error: err }); });
 }
 
 /**
@@ -214,7 +215,7 @@ export async function foldConversation(key: string, options: { waitForIdle?: boo
     recordFold({ rowKey, inputText: prefix.text, outputText: '', startedMs: started, outcome: /timed out|timeout/i.test(String(err)) ? 'timeout' : 'error', turns: cursor });
     // Keep the entries so the next tick retries from the same cursor.
     noteTurn({ key, root: item.root, discriminator: item.discriminator, entries: item.entries });
-    console.error(`[memory] fold of ${key.slice(0, 12)} failed, previous summary kept: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('memory', 'fold failed, previous summary kept', { key: key.slice(0, 12), error: err });
     return previous;
   }
 }
@@ -243,7 +244,7 @@ function recordFold(params: { rowKey: string; inputText: string; outputText: str
       meta: JSON.stringify({ type: 'memory_fold', key: params.rowKey.slice(0, 12), outcome: params.outcome, turns: params.turns }),
     } as any);
   } catch (err) {
-    console.error(`[memory] fold not recorded: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('memory', 'fold not recorded', { error: err });
   }
 }
 

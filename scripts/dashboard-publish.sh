@@ -3,7 +3,7 @@
 #
 # HOW OFTEN IT RUNS
 #   Once a day at 21:00 local time, when scheduled by the macOS launchd agent described
-#   in docs/analytics-and-observability.md ("Keeping the published dashboard current").
+#   in docs/reference/analytics.md ("Keeping the published dashboard current").
 #   The schedule itself lives in that agent's plist (StartCalendarInterval), not here;
 #   change it there. If the Mac is asleep at 21:00, launchd runs the job once on wake;
 #   several missed days still produce one run, not a backlog.

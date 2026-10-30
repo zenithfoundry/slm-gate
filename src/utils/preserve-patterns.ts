@@ -1,14 +1,15 @@
 import fs from 'fs/promises';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 
 /**
  * A rigid set of baseline RegExp patterns used to identify lines that MUST NEVER be dropped
  * during local offline Small Language Model (SLM) contextual compression.
- * 
- * The system ensures that any line matching these patterns is explicitly preserved and shielded 
- * via placeholder substitution before handing the text to the SLM. This guarantees that 
- * critical structural integrity, hard requirements, and specific directives survive the 
- * lossy distillation process.
+ *
+ * A line matching one of these is never shown to the model at all: the distiller sends only the
+ * prose between protected lines and splices the protected lines back from its own copy (see the
+ * summarize-mode notes in src/utils/elision.ts). Placeholder substitution was tried first and
+ * abandoned, because a small model does not carry opaque tokens through a rewrite.
  */
 export const BUILTIN_PATTERNS: RegExp[] = [
   // requirement keywords
@@ -70,7 +71,7 @@ async function compilePattern(pattern: string): Promise<RegExp | null> {
   try {
     return new RegExp(pattern);
   } catch (e) {
-    console.error(`[distill] Warning: Skipping invalid regex pattern: ${pattern}`);
+    log.warn('distill', `Skipping invalid regex pattern: ${pattern}`);
     return null;
   }
 }
@@ -105,7 +106,7 @@ export async function buildPreserveList(): Promise<RegExp[]> {
         }
       }
     } catch (e) {
-      console.error(`[distill] Warning: Failed to read or parse user preserve patterns from ${CONFIG.DISTILL_PRESERVE_PATH}`);
+      log.warn('distill', 'Failed to read or parse user preserve patterns', { path: CONFIG.DISTILL_PRESERVE_PATH, error: e });
     }
   }
 
@@ -119,7 +120,7 @@ export async function buildPreserveList(): Promise<RegExp[]> {
         patterns.push(...adapter.tlsPreservePatterns);
       }
     } catch (e) {
-      console.error(`[distill] Warning: Failed to load TLS adapter patterns`, e);
+      log.warn('distill', 'Failed to load TLS adapter patterns', { error: e });
     }
   }
 

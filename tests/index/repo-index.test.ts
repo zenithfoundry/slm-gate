@@ -147,10 +147,10 @@ describe('the resolver with index evidence (REPO_INDEX on)', () => {
       .mockResolvedValueOnce({ decisions: [{ id: 'q', question: 'Where is the dashboard rendered?', kind: 'code' }] })
       .mockResolvedValueOnce({ answer: 'In renderDashboard, src/dashboard.ts', options: [] })
       .mockResolvedValueOnce({ risk: 'low' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(fsRead).not.toHaveBeenCalled();
     expect(out.autoApplied[0].answer).toContain('renderDashboard');
-    const evidencePrompt = String(slm.generateJSON.mock.calls[1][1]);
+    const evidencePrompt = String(slm.generateJSON.mock.calls[1][0].prompt);
     expect(evidencePrompt).toContain('src/dashboard.ts:1');
     expect(out.dependencies?.some(d => d.path === `index:${repo}` && d.mtime > 0)).toBe(true);
   });
@@ -162,7 +162,7 @@ describe('the resolver with index evidence (REPO_INDEX on)', () => {
       .mockResolvedValueOnce({ patterns: ['package.json'] })
       .mockResolvedValueOnce({ answer: 'x', options: [] })
       .mockResolvedValueOnce({ risk: 'low' });
-    await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(fsRead).toHaveBeenCalled();
   });
 });

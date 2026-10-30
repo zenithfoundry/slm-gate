@@ -1,11 +1,18 @@
+/**
+ * The resolver: lists the open decisions in a skill and answers each from the best source it has
+ * (conversation memory, decision files, repository evidence, convention, optionally a bounded cloud call),
+ * then gates every answer by risk so only safe, confident ones are applied without asking.
+ */
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { SLM } from '../models/slm.js';
 import { selfConsistency } from '../models/reasoning.js';
 import { getDb, writeEvent } from '../ledger/index.js';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { withSlmTimeout } from '../models/helpers.js';
-import { estimateTokens } from '../utils/elision.js';
+import { CHARS_PER_TOKEN, estimateTokens } from '../utils/elision.js';
 import { DecisionMemory, decisionAnswer, loadDecisionMemory } from './decisions.js';
 import { findExisting, linesAround, refreshRepoIndex } from '../index/repo-index.js';
 import { repoIndexRevision } from '../ledger/index.js';
@@ -23,6 +30,20 @@ export type FsReadFn = (pattern: string) => Promise<string[]>;
 
 const HEADING = /^#{1,6}\s/;
 const MIN_SECTION_TOKENS = 150;
+
+/** Confidence an answer needs before gateDecisions applies it without asking. */
+const AUTO_APPLY_CONFIDENCE = 0.8;
+/** An answer read from repository evidence (the symbol index or a file the brain named). */
+const EVIDENCE_CONFIDENCE = 0.95;
+/** The majority of several sampled answers (self-consistency, SELF_CONSISTENCY_K > 1). */
+const SELF_CONSISTENCY_CONFIDENCE = 0.75;
+/** One convention guess, or a line the conversation already decided: under the auto-apply bar on purpose. */
+const CONVENTION_CONFIDENCE = 0.6;
+
+/** Wall-clock ceiling for the cloud tier's one request. */
+const CLOUD_TIMEOUT_MS = 30_000;
+/** Output ceiling for the Anthropic Messages API, which requires one. */
+const CLOUD_MAX_TOKENS = 1024;
 
 /**
  * The skill text the resolver may put in one prompt. A whole skill plus the prompt can exceed the local
@@ -72,7 +93,11 @@ export interface ResolveInput {
   decided?: string[];
 }
 
-// Helper to determine if we can afford a cloud call
+/**
+ * Whether the cloud tier may spend: the budget is a lifetime ceiling over every cost row in the ledger, not an
+ * allowance per period, so the tier can never bill more than the one number the owner set, however long the
+ * gate runs.
+ */
 function checkCloudBudget(): boolean {
   if (!CONFIG.RESOLVER_CLOUD_TIER || !CONFIG.CLOUD_API_KEY || !CONFIG.CLOUD_MODEL) {
     return false;
@@ -118,94 +143,119 @@ Respond in JSON matching this schema:
   });
 
   const startTime = Date.now();
-  let inTok = prompt.length / 4; // rough estimate
-  let outTok = 0;
-  let cost = 0;
+  const inTok = prompt.length / CHARS_PER_TOKEN; // rough estimate
 
+  let content: string;
   try {
-    const url = CONFIG.CLOUD_BASE_URL || (CONFIG.CLOUD_API_STYLE === 'anthropic' ? 'https://api.anthropic.com/v1/messages' : 'https://api.openai.com/v1/chat/completions');
-    
-    // Using standard OpenAI compatible payload for routing purposes since it natively supports json_schema
-    const res = await fetch(url, {
+    const request = cloudRequest({ prompt, schema });
+    const res = await fetch(request.url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: CONFIG.CLOUD_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "resolver_output",
-            strict: true,
-            schema: zodToJsonSchema(schema)
-          }
-        },
-        temperature: 0
-      })
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: AbortSignal.timeout(CLOUD_TIMEOUT_MS),
     });
+    if (!res.ok) {
+      log.warn('resolver', 'cloud tier answered with an error; decisions stay unresolved', { status: res.status });
+      return;
+    }
+    content = request.replyText(await res.json());
+  } catch (err) {
+    // A failed call costs nothing, so it writes no cost row.
+    log.warn('resolver', 'cloud tier call failed', { error: err });
+    return;
+  }
 
-    if (res.ok) {
-      const data = await res.json();
-      const content = data.choices[0].message.content;
-      outTok = content.length / 4;
-      
-      try {
-        const parsed = schema.parse(JSON.parse(content));
-        for (const item of parsed.answers) {
-          const target = unresolved.find(u => u.id === item.id);
-          if (target && item.answer !== null) {
-            target.answer = item.answer;
-            target.confidence = item.confidence;
-            target.source = 'api';
-            if (item.options) target.options = item.options;
-          }
-        }
-      } catch (err) {
-        // failed to parse
+  const outTok = content.length / CHARS_PER_TOKEN;
+  try {
+    const parsed = schema.parse(JSON.parse(stripJsonFence(content)));
+    for (const item of parsed.answers) {
+      const target = unresolved.find(u => u.id === item.id);
+      if (target && item.answer !== null) {
+        target.answer = item.answer;
+        target.confidence = item.confidence;
+        target.source = 'api';
+        if (item.options) target.options = item.options;
       }
     }
   } catch (err) {
-    // network or other error
-  } finally {
-    const { calculateCostUsd } = await import('../pricing/index.js');
-    try {
-      cost = calculateCostUsd(CONFIG.CLOUD_MODEL || 'unknown', inTok, outTok);
-    } catch {
-      cost = 0;
-    }
-    writeEvent({
-      ts: new Date().toISOString(),
-      layer: 'mcp',
-      request_id: `resolver_cloud_${Date.now()}`,
-      route: 'escalate',
-      is_local_call: 0,
-      api_model: CONFIG.CLOUD_MODEL || 'unknown',
-      in_tok: 0,
-      out_tok: 0,
-      api_in_tok: Math.round(inTok),
-      api_out_tok: Math.round(outTok),
-      cost_usd: cost,
-      slm_latency_s: 0,
-      api_latency_s: (Date.now() - startTime) / 1000,
-      slm_gate: 'on'
-    });
+    log.warn('resolver', 'cloud tier reply could not be parsed', { error: err });
   }
+
+  // The reply was paid for whether or not it parsed: the cost row is what checkCloudBudget sums.
+  const { calculateCostUsd } = await import('../pricing/index.js');
+  let cost = 0;
+  try {
+    cost = calculateCostUsd({ model: CONFIG.CLOUD_MODEL || 'unknown', inTok, outTok });
+  } catch {
+    cost = 0;
+  }
+  writeEvent({
+    ts: new Date().toISOString(),
+    layer: 'mcp',
+    request_id: `resolver_cloud_${randomUUID()}`,
+    route: 'escalate',
+    is_local_call: 0,
+    api_model: CONFIG.CLOUD_MODEL || 'unknown',
+    in_tok: 0,
+    out_tok: 0,
+    api_in_tok: Math.round(inTok),
+    api_out_tok: Math.round(outTok),
+    cost_usd: cost,
+    slm_latency_s: 0,
+    api_latency_s: (Date.now() - startTime) / 1000,
+    slm_gate: 'on'
+  });
+}
+
+/**
+ * The one cloud request in the shape its API expects. OpenAI-style hosts take the JSON schema natively;
+ * the Anthropic Messages API takes its own headers and body and answers in `content[0].text`.
+ */
+function cloudRequest(params: { prompt: string; schema: z.ZodSchema<unknown> }): {
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+  replyText: (data: any) => string;
+} {
+  const { prompt, schema } = params;
+  if (CONFIG.CLOUD_API_STYLE === 'anthropic') {
+    return {
+      url: CONFIG.CLOUD_BASE_URL || 'https://api.anthropic.com/v1/messages',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CONFIG.CLOUD_API_KEY || '', 'anthropic-version': '2023-06-01' },
+      body: { model: CONFIG.CLOUD_MODEL, max_tokens: CLOUD_MAX_TOKENS, messages: [{ role: 'user', content: prompt }] },
+      replyText: data => String(data?.content?.[0]?.text ?? ''),
+    };
+  }
+  return {
+    url: CONFIG.CLOUD_BASE_URL || 'https://api.openai.com/v1/chat/completions',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.CLOUD_API_KEY}` },
+    body: {
+      model: CONFIG.CLOUD_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_schema', json_schema: { name: 'resolver_output', strict: true, schema: zodToJsonSchema(schema) } },
+      temperature: 0,
+    },
+    replyText: data => String(data?.choices?.[0]?.message?.content ?? ''),
+  };
+}
+
+/** A reply without a schema (Anthropic) may wrap its JSON in a markdown fence. Pure. */
+function stripJsonFence(text: string): string {
+  return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
 }
 
 /**
  * Lists the open decisions in a skill. With the conversation memory's summary (`conversation`) the brain is told
  * not to list a decision the conversation already made (docs/briefs/2026-10-22-conversation-memory.md).
  */
-export async function extractAmbiguities(
-  slm: SLM,
-  skillText: string,
-  task: string,
+export async function extractAmbiguities(params: {
+  slm: SLM;
+  skillText: string;
+  task: string;
   /** The conversation so far (conversation memory); when given, decisions it already made are not listed. */
-  conversation?: string | null
-): Promise<OpenDecision[]> {
+  conversation?: string | null;
+}): Promise<OpenDecision[]> {
+  const { slm, skillText, task, conversation } = params;
   const schema = z.object({
     decisions: z.array(z.object({
       id: z.string(),
@@ -221,20 +271,27 @@ Context: ${skillText}
 
 Output a list of decisions that need to be made before work can begin. If none, return an empty array. Limit to AT MOST 3 critical decisions. Be very concise.`;
 
-  const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+  const res = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: prompt, schema: schema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
   return res.decisions;
 }
 
-export async function resolveEach(
-  slm: SLM,
-  fsRead: FsReadFn,
-  decisions: OpenDecision[],
-  repoRoot?: string,
+/**
+ * Answers each open decision from the first source that has one, in order of how much it is trusted:
+ * conversation memory, decision files, the symbol index, a file the brain names, then convention
+ * (sampled when SELF_CONSISTENCY_K > 1). Cheaper, more reliable sources go first so the model guesses only
+ * when nothing recorded answers.
+ */
+export async function resolveEach(params: {
+  slm: SLM;
+  fsRead: FsReadFn;
+  decisions: OpenDecision[];
+  repoRoot?: string;
   /** The repo's decision files; null or absent keeps the evidence path only. */
-  memory?: DecisionMemory | null,
+  memory?: DecisionMemory | null;
   /** The conversation memory's "Decided" lines; a line that answers a question pre-fills it (never auto-applied). */
-  decided: string[] = []
-): Promise<ResolvedItem[]> {
+  decided?: string[];
+}): Promise<ResolvedItem[]> {
+  const { slm, fsRead, decisions, repoRoot, memory, decided = [] } = params;
   const results: ResolvedItem[] = [];
 
   for (const dec of decisions) {
@@ -245,13 +302,13 @@ export async function resolveEach(
       const schema = z.object({ answered: z.boolean(), answer: z.string().max(300) });
       try {
         const prompt = `These lines were decided earlier in the same conversation:\n${decided.map((d, i) => `${i + 1}. ${d}`).join('\n')}\n\nDoes any of them settle this question? Set answered to true only when one does, and give the answer in that line's own words.\nQuestion: ${dec.question}`;
-        const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+        const res = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: prompt, schema: schema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
         if (res.answered && res.answer.trim()) {
           results.push({
             id: dec.id,
             question: dec.question,
             answer: res.answer.trim(),
-            confidence: 0.6,
+            confidence: CONVENTION_CONFIDENCE,
             source: 'conversation',
             evidence: 'decided earlier in this conversation',
             provenance: 'conversation memory',
@@ -297,15 +354,15 @@ export async function resolveEach(
         refreshRepoIndex(repoRoot);
         const hits = findExisting({ root: repoRoot, query: dec.question, limit: 3 });
         if (hits.length > 0) {
-          const evidence = hits.map(h => `${h.path}:${h.line} (${h.kind} ${h.name})\n${linesAround(repoRoot, h)}`).join('\n\n');
+          const evidence = hits.map(h => `${h.path}:${h.line} (${h.kind} ${h.name})\n${linesAround({ root: repoRoot, symbol: h })}`).join('\n\n');
           const ansSchema = z.object({ answer: z.string(), options: z.array(z.string()) });
           const ansPrompt = `Given this evidence from the repository:\n${evidence.slice(0, 3000)}\nAnswer the question: ${dec.question}`;
-          const ansRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+          const ansRes = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: ansPrompt, schema: ansSchema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
           results.push({
             id: dec.id,
             question: dec.question,
             answer: ansRes.answer,
-            confidence: 0.95,
+            confidence: EVIDENCE_CONFIDENCE,
             source: 'evidence',
             evidence: `index: ${hits.map(h => `${h.path}:${h.line}`).join(', ')}`,
             options: ansRes.options,
@@ -324,7 +381,7 @@ export async function resolveEach(
       try {
         const patternPrompt = `What file paths or contents should we grep to answer this question: "${dec.question}"?
 Return 1 or 2 simple patterns like "package.json" or "yarn.lock" or "docker-compose.yml".`;
-        const patternRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, patternPrompt, patternSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+        const patternRes = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: patternPrompt, schema: patternSchema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
         
         let evidenceFound = '';
         for (const p of patternRes.patterns) {
@@ -340,13 +397,13 @@ Return 1 or 2 simple patterns like "package.json" or "yarn.lock" or "docker-comp
         if (evidenceFound) {
           const ansSchema = z.object({ answer: z.string(), options: z.array(z.string()) });
           const ansPrompt = `Given this evidence from the repository:\n${evidenceFound.slice(0, 1000)}\nAnswer the question: ${dec.question}`;
-          const ansRes = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, ansPrompt, ansSchema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+          const ansRes = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: ansPrompt, schema: ansSchema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
           
           resolved = {
             id: dec.id,
             question: dec.question,
             answer: ansRes.answer,
-            confidence: 0.95,
+            confidence: EVIDENCE_CONFIDENCE,
             source: 'evidence',
             evidence: `Found evidence matching pattern.`,
             options: ansRes.options
@@ -369,27 +426,27 @@ Question: ${dec.question}
 Provide the most standard choice as 'answer' and 2-3 alternatives as 'options'.`;
 
     try {
-      const scRes = await selfConsistency(
+      const scRes = await selfConsistency({
         slm,
-        CONFIG.SLM_BRAIN_MODEL,
-        scPrompt,
-        scSchema,
-        CONFIG.SELF_CONSISTENCY_K,
-        CONFIG.SELF_CONSISTENCY_TEMP
-      );
+        model: CONFIG.SLM_BRAIN_MODEL,
+        prompt: scPrompt,
+        schema: scSchema,
+        k: CONFIG.SELF_CONSISTENCY_K,
+        temperature: CONFIG.SELF_CONSISTENCY_TEMP
+      });
       
       resolved = {
         id: dec.id,
         question: dec.question,
         answer: scRes.answer,
-        confidence: 0.6,
+        confidence: CONVENTION_CONFIDENCE,
         source: 'convention',
         options: scRes.options
       };
-      
+
       if (CONFIG.SELF_CONSISTENCY_K > 1) {
         resolved.source = 'self_consistency';
-        resolved.confidence = 0.75;
+        resolved.confidence = SELF_CONSISTENCY_CONFIDENCE;
       }
     } catch (err) {
       // ignore
@@ -401,6 +458,11 @@ Provide the most standard choice as 'answer' and 2-3 alternatives as 'options'.`
   return results;
 }
 
+/**
+ * Sorts every answered decision into "applied" or "ask the user" by risk and confidence. A failed risk
+ * classification counts as `security`: when the gate cannot tell how dangerous a decision is, the safe
+ * reading is the one that asks.
+ */
 export async function gateDecisions(
   slm: SLM,
   items: ResolvedItem[]
@@ -427,7 +489,7 @@ Categories:
 - security: auth, tokens, crypto, permissions, network exposure
 - destructive: dropping databases, deleting files, overwriting critical data`;
 
-      const res = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_GATE_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+      const res = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_GATE_MODEL, prompt: prompt, schema: schema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
       risk = res.risk;
     } catch (err) {
       risk = 'security';
@@ -435,7 +497,7 @@ Categories:
 
     item.risk = risk;
 
-    if (item.confidence >= 0.8 && (risk === 'reversible' || risk === 'low')) {
+    if (item.confidence >= AUTO_APPLY_CONFIDENCE && (risk === 'reversible' || risk === 'low')) {
       output.autoApplied.push({
         id: item.id,
         question: item.question,
@@ -459,25 +521,22 @@ Categories:
   return output;
 }
 
-export async function resolveAmbiguities(
-  slm: SLM,
-  fsRead: FsReadFn,
-  input: ResolveInput
-): Promise<ResolverOutput> {
+export async function resolveAmbiguities(params: { slm: SLM; fsRead: FsReadFn } & ResolveInput): Promise<ResolverOutput> {
+  const { slm, fsRead, ...input } = params;
   // Decision memory is read once per run; a repo without the folder gets an empty memory.
   const memory = input.repoRoot ? loadDecisionMemory(input.repoRoot) : null;
   const dependencies = memory?.dirDependency ? [memory.dirDependency] : [];
   const staleDecisions = memory?.stale ?? [];
 
-  const decisions = await extractAmbiguities(slm, input.skillText, input.task, input.conversation);
+  const decisions = await extractAmbiguities({ slm, skillText: input.skillText, task: input.task, conversation: input.conversation });
   if (decisions.length === 0) {
     return { autoApplied: [], askUser: [], dependencies, staleDecisions };
   }
 
-  const resolved = await resolveEach(slm, fsRead, decisions, input.repoRoot, memory, input.decided ?? []);
+  const resolved = await resolveEach({ slm, fsRead, decisions, repoRoot: input.repoRoot, memory, decided: input.decided ?? [] });
 
   // Cloud API Tier
-  const unresolved = resolved.filter(r => r.confidence < 0.8);
+  const unresolved = resolved.filter(r => r.confidence < AUTO_APPLY_CONFIDENCE);
   if (unresolved.length > 0 && checkCloudBudget()) {
     await batchCloudResolve(unresolved, input.skillText, input.task);
   }

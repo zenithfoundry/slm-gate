@@ -1,9 +1,18 @@
+/**
+ * The prompts the gate puts to its local models, one function per job (shorten a run, check what survived,
+ * answer from a chunk, fold a conversation summary, vote on a decision). The prompt wording and the schema
+ * that bounds each answer live here, so a model call elsewhere is only a choice of job.
+ */
 import { z } from 'zod';
 import { SLM } from './slm.js';
 import { roles } from './roles.js';
 import { withSlmTimeout } from './helpers.js';
 import { CONFIG } from '../config.js';
 
+/**
+ * The majority answer among samples, or null when none has a strict majority: a 1-1-1 split is no agreement,
+ * and the caller then falls back to one deterministic run rather than trusting a coin toss.
+ */
 export function checkAgreement<T>(samples: T[]): T | null {
   if (samples.length === 0) return null;
 
@@ -34,20 +43,26 @@ export function checkAgreement<T>(samples: T[]): T | null {
   return maxCount >= threshold ? majorityValue : null;
 }
 
-export async function selfConsistency<T>(
-  slm: SLM,
-  model: string,
-  prompt: string,
-  schema: z.ZodSchema<T>,
-  k: number = 3,
-  temperature: number = 0.7
-): Promise<T> {
-  const promises = Array.from({ length: k }).map(() =>
-    withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, temperature), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS).catch(() => null)
-  );
-  
-  const results = await Promise.all(promises);
-  const validResults = results.filter((r) => r !== null) as T[];
+/**
+ * Asks the same question k times at a sampling temperature and keeps the majority answer: one sampled
+ * answer from a small model is a guess, agreement across samples is evidence. The samples run one after
+ * another because Ollama serves one request at a time; fired together, the later ones burned their whole
+ * timeout waiting in its queue.
+ */
+export async function selfConsistency<T>(params: {
+  slm: SLM;
+  model: string;
+  prompt: string;
+  schema: z.ZodSchema<T>;
+  k?: number;
+  temperature?: number;
+}): Promise<T> {
+  const { slm, model, prompt, schema, k = 3, temperature = 0.7 } = params;
+  const validResults: T[] = [];
+  for (let i = 0; i < k; i++) {
+    const result = await withSlmTimeout({ promise: slm.generateJSON<T>({ model: model, prompt: prompt, schema: schema, temperature: temperature }), stage: 'selfConsistency', timeoutMs: CONFIG.SLM_TIMEOUT_MS }).catch(() => null);
+    if (result !== null) validResults.push(result);
+  }
   
   const agreed = checkAgreement(validResults);
   if (agreed !== null) {
@@ -55,20 +70,9 @@ export async function selfConsistency<T>(
   }
   
   // Fallback to a temp=0 run if no agreement
-  return withSlmTimeout(slm.generateJSON<T>(model, prompt, schema, 0), 'selfConsistency', CONFIG.SLM_TIMEOUT_MS);
+  return withSlmTimeout({ promise: slm.generateJSON<T>({ model: model, prompt: prompt, schema: schema, temperature: 0 }), stage: 'selfConsistency', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
 }
 
-/**
- * Compresses ONE narrative run for `distillToolResult`, which never sends protected content here, so
- * this prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and reliably
- * loses opaque tokens. An explicit word budget is what actually drives the ratio: without it the model
- * rewords instead of condensing (measured 4-8% vs 44-60%). Shared by the MCP layer and the model gate.
- *
- * @param params.slm The local model client
- * @param params.text The narrative run to compress
- * @param params.task Optional task context for the model
- * @returns The compressed run
- */
 /**
  * The fidelity check for one shortened prose run, the heart of the skill fidelity guard: the brain model answers, for each requirement
  * sentence the CODE listed from the original, whether the shortened text still states it. The model never
@@ -85,7 +89,7 @@ ${inventory.map((sentence, i) => `${i + 1}. ${sentence}`).join('\n')}
 
 SHORTENED text:
 ${compressed}`;
-  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'fidelity', CONFIG.SLM_TIMEOUT_MS);
+  const result = await withSlmTimeout({ promise: slm.generateJSON({ model: roles.brain, prompt: prompt, schema: schema, temperature: 0 }), stage: 'fidelity', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
   return result.kept;
 }
 
@@ -110,7 +114,7 @@ QUESTION: ${question}
 
 TEXT:
 ${text}`;
-  const result = await withSlmTimeout(slm.generateJSON(roles.brain, prompt, schema, 0), 'ask_elision', CONFIG.SLM_TIMEOUT_MS);
+  const result = await withSlmTimeout({ promise: slm.generateJSON({ model: roles.brain, prompt: prompt, schema: schema, temperature: 0 }), stage: 'ask_elision', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
   return { found: result.found, answer: result.answer, lines: result.lines ? [result.lines[0], result.lines[1]] : null };
 }
 
@@ -137,9 +141,20 @@ ${previous ? JSON.stringify(previous) : '(none yet)'}
 
 NEW TURNS:
 ${fresh}`;
-  return withSlmTimeout(slm.generateJSON(roles.brain, prompt, MEMORY_SCHEMA, 0), 'memory', CONFIG.SLM_TIMEOUT_MS);
+  return withSlmTimeout({ promise: slm.generateJSON({ model: roles.brain, prompt: prompt, schema: MEMORY_SCHEMA, temperature: 0 }), stage: 'memory', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
 }
 
+/**
+ * Compresses ONE narrative run for `distillToolResult`, which never sends protected content here, so
+ * this prompt carries no placeholder-custody rules — a 3B model reliably summarises prose and reliably
+ * loses opaque tokens. An explicit word budget is what actually drives the ratio: without it the model
+ * rewords instead of condensing (measured 4-8% vs 44-60%). Shared by the MCP layer and the model gate.
+ *
+ * @param params.slm The local model client
+ * @param params.text The narrative run to compress
+ * @param params.task Optional task context for the model
+ * @returns The compressed run
+ */
 export function compressNarrativeRun(params: { slm: SLM; text: string; task?: string }): Promise<string> {
   const { slm, text, task } = params;
   const wordCount = text.trim().split(/\s+/).length;
@@ -151,14 +166,14 @@ export function compressNarrativeRun(params: { slm: SLM; text: string; task?: st
   // transport error, long after the MCP client had given up. SLM_TIMEOUT_MS now governs it.
   // The ceiling is per-run and generous against the target so a summary is never cut mid-
   // sentence; the run is discarded anyway if it comes back longer than the original.
-  return withSlmTimeout(
-    slm.generateText(
-      CONFIG.SLM_GATE_MODEL,
-      [{ role: 'user', content: prompt }],
-      CONFIG.TEMPERATURE,
-      Math.max(128, Math.ceil(wordCount * 0.6))
-    ),
-    'distill',
-    CONFIG.SLM_TIMEOUT_MS
-  );
+  return withSlmTimeout({
+    promise: slm.generateText({
+      model: CONFIG.SLM_GATE_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: CONFIG.TEMPERATURE,
+      maxTokens: Math.max(128, Math.ceil(wordCount * 0.6))
+    }),
+    stage: 'distill',
+    timeoutMs: CONFIG.SLM_TIMEOUT_MS
+  });
 }

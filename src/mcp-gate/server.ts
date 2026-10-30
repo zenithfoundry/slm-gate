@@ -1,3 +1,8 @@
+/**
+ * The MCP gate server: sits between a coding tool and its toolbox, passes every tools/call downstream
+ * unchanged and conditions the text that comes back (pipeline.ts). Owns the gate's own tools
+ * (expand_elision, ask_elision, find_existing), the stdio/HTTP transports and the workspace root capture.
+ */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -12,10 +17,37 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Server as HttpServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
+import { asRequest } from '../models/busy.js';
 import { isLocalRequest, listenOnThisComputer } from '../utils/local-only.js';
 import { conditionPrompt } from './pipeline.js';
 import { buildGateInstructions, rewriteToolReferences } from './tool-names.js';
+
+// The gate's own tools' arguments: one definition each, advertised as the tool's JSON schema and parsed at
+// the edge, so a bad call gets an MCP error result instead of failing somewhere inside. Passthrough: callers
+// may add fields the ledger reads (model, agent).
+const EXPAND_ELISION_ARGS = z.object({
+  elisionId: z.string().min(1),
+  range: z.object({ startLine: z.number(), endLine: z.number() }).optional(),
+}).passthrough();
+const ASK_ELISION_ARGS = z.object({ elisionId: z.string().min(1), question: z.string().trim().min(1) }).passthrough();
+const FIND_EXISTING_ARGS = z.object({ query: z.string().trim().min(1) }).passthrough();
+const CONDITION_PROMPT_ARGS = z.object({ text: z.string(), task: z.string() }).passthrough();
+
+/** The JSON schema a tool advertises, from its zod definition. */
+function inputSchemaOf(schema: z.ZodObject<z.ZodRawShape, 'passthrough'>): { type: 'object'; properties?: Record<string, unknown>; required?: string[] } {
+  const { $schema: _draft, ...json } = zodToJsonSchema(schema, { $refStrategy: 'none' });
+  return json as { type: 'object'; properties?: Record<string, unknown>; required?: string[] };
+}
+
+/** The MCP error result for arguments that do not fit a tool's schema. */
+function invalidArguments(tool: string, error: z.ZodError) {
+  const detail = error.issues.map(issue => `${issue.path.join('.') || 'arguments'}: ${issue.message}`).join('; ');
+  return { isError: true as const, content: [{ type: 'text' as const, text: `${tool}: invalid arguments (${detail})` }] };
+}
 
 // ask_elision: each part of the original must fit the local context with room for the answer;
 // at most this many parts are searched per question; an answer is a few sentences, never a page.
@@ -25,6 +57,9 @@ const ASK_MAX_ANSWER_CHARS = 1200;
 // When this MCP session started: a conversation memory can only belong to it if that conversation began
 // at or after this moment (conversation memory, the MCP gate's match rule).
 const MCP_SESSION_STARTED_AT = new Date().toISOString();
+// Every downstream request: the SDK's default 60 s timeout failed any toolbox tool that runs longer, and only
+// when called through the gate. A tool that reports progress keeps its timer alive.
+const DOWNSTREAM_REQUEST_OPTIONS = { timeout: CONFIG.SLM_TIMEOUT_MS, resetTimeoutOnProgress: true };
 
 /**
  * @param options.notices Set-up problems from the start-up checks, passed to the AI in the instructions
@@ -51,19 +86,20 @@ export async function createServer(options: { notices?: readonly { message: stri
     );
     
     let transport;
-    if (CONFIG.DOWNSTREAM_MCP.command) {
+    if ('command' in CONFIG.DOWNSTREAM_MCP) {
       transport = new StdioClientTransport({
         command: CONFIG.DOWNSTREAM_MCP.command,
         args: CONFIG.DOWNSTREAM_MCP.args || [],
-        env: { ...process.env, ...(CONFIG.DOWNSTREAM_MCP.env || {}) }
+        // process.env's values are typed `string | undefined`; what is set is a string.
+        env: { ...process.env, ...(CONFIG.DOWNSTREAM_MCP.env || {}) } as Record<string, string>,
       });
-    } else if (CONFIG.DOWNSTREAM_MCP.url) {
+    } else {
       transport = new StreamableHTTPClientTransport(new URL(CONFIG.DOWNSTREAM_MCP.url));
     }
 
     if (transport) {
       await downstreamClient.connect(transport);
-      const { tools } = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
+      const { tools } = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema, DOWNSTREAM_REQUEST_OPTIONS);
       downstreamToolNames = (tools || []).map(t => t.name);
       instructions = buildGateInstructions({
         toolNames: downstreamToolNames,
@@ -90,7 +126,7 @@ export async function createServer(options: { notices?: readonly { message: stri
     server.setRequestHandler(ListToolsRequestSchema, async () => {
       let tools: any[] = [];
       if (downstreamClient) {
-        const res = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema);
+        const res = await downstreamClient.request({ method: "tools/list" }, ListToolsResultSchema, DOWNSTREAM_REQUEST_OPTIONS);
         tools = res.tools || [];
         downstreamToolNames = tools.map(t => t.name);
       }
@@ -99,57 +135,35 @@ export async function createServer(options: { notices?: readonly { message: stri
       tools.push({
         name: "expand_elision",
         description: "Expand a previously elided block of text using its elisionId",
-        inputSchema: {
-          type: "object",
-          properties: {
-            elisionId: { type: "string" },
-            range: { 
-              type: "object", 
-              properties: {
-                startLine: { type: "number" },
-                endLine: { type: "number" }
-              }
-            }
-          },
-          required: ["elisionId"]
-        }
+        inputSchema: inputSchemaOf(EXPAND_ELISION_ARGS),
       });
       // Advertise find_existing (the repository index, REPO_INDEX=on): symbols the repository already defines, no model.
       if (CONFIG.REPO_INDEX) {
         tools.push({
           name: "find_existing",
           description: "Before writing something new: the functions, classes and types this repository already defines that match a few words (a symbol index, no model call). Returns path:line per hit.",
-          inputSchema: {
-            type: "object",
-            properties: { query: { type: "string" } },
-            required: ["query"]
-          }
+          inputSchema: inputSchemaOf(FIND_EXISTING_ARGS),
         });
       }
       // Advertise ask_elision: a local model answers from the stored original.
       tools.push({
         name: "ask_elision",
         description: "Ask a question about elided text; a local model answers from the full original in a few sentences instead of a 2,000-token page. If it is not found, use expand_elision.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            elisionId: { type: "string" },
-            question: { type: "string" }
-          },
-          required: ["elisionId", "question"]
-        }
+        inputSchema: inputSchemaOf(ASK_ELISION_ARGS),
       });
       return { tools };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    // Every call is counted as in flight (src/models/busy.ts), so a shutdown lets it finish first.
+    server.setRequestHandler(CallToolRequestSchema, request => asRequest(async () => {
       const name = request.params.name;
       const args = request.params.arguments;
       const task = typeof args?.task === 'string' ? args.task : 'Unknown task';
 
       if (name === "find_existing") {
-        const query = String(args?.query ?? '').trim();
-        if (!query) throw new Error("query is required");
+        const parsedArgs = FIND_EXISTING_ARGS.safeParse(args ?? {});
+        if (!parsedArgs.success) return invalidArguments('find_existing', parsedArgs.error);
+        const { query } = parsedArgs.data;
         if (!CONFIG.REPO_INDEX) throw new Error("find_existing is off (set REPO_INDEX=on)");
         if (!rootUri) throw new Error("find_existing needs a workspace root; the editor sent none");
         const { fileURLToPath } = await import('node:url');
@@ -164,9 +178,9 @@ export async function createServer(options: { notices?: readonly { message: stri
       }
 
       if (name === "ask_elision") {
-        const elisionId = String(args?.elisionId ?? '');
-        const question = String(args?.question ?? '').trim();
-        if (!elisionId || !question) throw new Error("elisionId and question are required");
+        const parsedArgs = ASK_ELISION_ARGS.safeParse(args ?? {});
+        if (!parsedArgs.success) return invalidArguments('ask_elision', parsedArgs.error);
+        const { elisionId, question } = parsedArgs.data;
 
         const { getElision, writeEvent, cacheGet, cacheSet, matchMemory } = await import('../ledger/index.js');
         const { estimateTokens, splitByHeadings } = await import('../utils/elision.js');
@@ -235,11 +249,10 @@ export async function createServer(options: { notices?: readonly { message: stri
       }
 
       if (name === "expand_elision") {
-        const elisionId = args?.elisionId as string;
-        const range = args?.range as any;
-        
-        if (!elisionId) throw new Error("elisionId is required");
-        
+        const parsedArgs = EXPAND_ELISION_ARGS.safeParse(args ?? {});
+        if (!parsedArgs.success) return invalidArguments('expand_elision', parsedArgs.error);
+        const { elisionId, range } = parsedArgs.data;
+
         // Dynamic imports to prevent circular dependencies at boot
         const { getElision, writeElision, writeEvent } = await import('../ledger/index.js');
         const { estimateTokens, formatElisionMarker, pageLines } = await import('../utils/elision.js');
@@ -252,16 +265,16 @@ export async function createServer(options: { notices?: readonly { message: stri
           // that this gate never requires. Removed: the adaptive feedback table keeps its readers and
           // gains no rows from expansions.
 
-          // If it's a file read, we should theoretically re-read if hash changed, but we can't easily read here without downstreamClient calling the exact same tool.
-          // Let's check if downstreamClient is available to re-run
+          // A file read is re-run through the toolbox so an edited file is expanded from its current text,
+          // not the copy stored at distillation time; the stored copy is used when that fails.
           let textToReturn = record.original_text;
-          
+
           if (downstreamClient && ['read_file', 'view_file'].some(t => record.tool_name.includes(t))) {
              try {
                 const result = await downstreamClient.request({
                   method: "tools/call",
                   params: { name: record.tool_name, arguments: JSON.parse(record.args) }
-                }, CallToolResultSchema);
+                }, CallToolResultSchema, DOWNSTREAM_REQUEST_OPTIONS);
                 
                 let newerText = '';
                 if (result.content && Array.isArray(result.content)) {
@@ -282,7 +295,7 @@ export async function createServer(options: { notices?: readonly { message: stri
           }
 
           const lines = textToReturn.split('\n');
-          const hasRange = range && typeof range.startLine === 'number' && typeof range.endLine === 'number';
+          const hasRange = range !== undefined;
           // No range means the whole original, from the top.
           const startLine = hasRange ? Math.max(0, range.startLine) : 0;
           const endLine = hasRange ? Math.min(lines.length - 1, range.endLine) : lines.length - 1;
@@ -293,7 +306,7 @@ export async function createServer(options: { notices?: readonly { message: stri
           const page = pageLines({ lines, startLine, endLine, maxTokens: CONFIG.DISTILL_MAX_TOKENS || 2000 });
           const expandedText = page.nextStart === undefined
             ? page.text
-            : page.text + formatElisionMarker(elisionId, endLine - page.nextStart + 1, page.nextStart, endLine);
+            : page.text + formatElisionMarker({ elisionId: elisionId, elidedLinesCount: endLine - page.nextStart + 1, startLine: page.nextStart, endLine: endLine });
           const returned = rewriteToolReferences(expandedText, downstreamToolNames);
 
           // The expansion row, written once the page is final: the cloud model re-reads `returned`
@@ -336,7 +349,7 @@ export async function createServer(options: { notices?: readonly { message: stri
       const result = await downstreamClient.request({
         method: "tools/call",
         params: request.params
-      }, CallToolResultSchema);
+      }, CallToolResultSchema, DOWNSTREAM_REQUEST_OPTIONS);
       
       // Only the text is conditioned, and once per call: conditionPrompt also grounds, resolves and records.
       // Everything else — pictures and other blocks, the error flag, structured data — goes back as the
@@ -345,14 +358,14 @@ export async function createServer(options: { notices?: readonly { message: stri
       const textBlocks = result.content.filter((block): block is Extract<Block, { type: 'text' }> => block.type === 'text');
       if (textBlocks.length === 0) return result;
 
-      const conditioned = await conditionPrompt(textBlocks.map(block => block.text).join('\n\n'), task, rootUri, name, args);
+      const conditioned = await conditionPrompt({ text: textBlocks.map(block => block.text).join('\n\n'), task, rootUri, toolName: name, args });
       // The conditioned text takes the first text block's place; later text blocks are part of it.
       const content = result.content.flatMap((block): Block[] => {
         if (block === textBlocks[0]) return [{ ...block, text: rewriteToolReferences(conditioned, downstreamToolNames) }];
         return block.type === 'text' ? [] : [block];
       });
       return { ...result, content };
-    });
+    }));
 
   } else {
     // Standalone mode
@@ -362,30 +375,24 @@ export async function createServer(options: { notices?: readonly { message: stri
           {
             name: "condition_prompt",
             description: "Condense and condition a prompt using a local SLM",
-            inputSchema: {
-              type: "object",
-              properties: {
-                text: { type: "string" },
-                task: { type: "string" }
-              },
-              required: ["text", "task"]
-            }
+            inputSchema: inputSchemaOf(CONDITION_PROMPT_ARGS),
           }
         ]
       };
     });
 
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, request => asRequest(async () => {
       if (request.params.name === "condition_prompt") {
-        const text = String(request.params.arguments?.text || '');
-        const task = String(request.params.arguments?.task || '');
-        const conditioned = await conditionPrompt(text, task, rootUri);
+        const parsedArgs = CONDITION_PROMPT_ARGS.safeParse(request.params.arguments ?? {});
+        if (!parsedArgs.success) return invalidArguments('condition_prompt', parsedArgs.error);
+        const { text, task } = parsedArgs.data;
+        const conditioned = await conditionPrompt({ text, task, rootUri });
         return {
           content: [{ type: "text", text: conditioned }]
         };
       }
       throw new Error(`Tool not found: ${request.params.name}`);
-    });
+    }));
   }
 
   /** Resolves once serving; in HTTP mode with the listening servers (tests close them), else with none. */
@@ -400,7 +407,7 @@ export async function createServer(options: { notices?: readonly { message: stri
       const originalStdoutWrite = process.stdout.write.bind(process.stdout);
       process.stdout.write = process.stderr.write.bind(process.stderr) as any;
       
-      console.error(`[mcp-gate] Stdio server starting. ${sinksStr}`);
+      log.info('mcp-gate', `Stdio server starting. ${sinksStr}`);
       
       const transport = new StdioServerTransport();
       
@@ -418,7 +425,7 @@ export async function createServer(options: { notices?: readonly { message: stri
                 // Fallback for non-compliant clients passing top-level rootUri
                 rootUri = message.params.rootUri;
               }
-              console.error(`[mcp-gate] rootUri: ${rootUri || 'none'}`);
+              log.info('mcp-gate', 'workspace root received', { rootUri: rootUri || 'none' });
             }
             origOnmessage(message);
           };
@@ -448,7 +455,7 @@ export async function createServer(options: { notices?: readonly { message: stri
           transport.handleRequest(req, res);
         },
         port: CONFIG.MCP_GATE_PORT,
-        onListening: () => console.error(`[mcp-gate] HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}, for programs on this computer only. ${sinksStr}`),
+        onListening: () => log.info('mcp-gate', `HTTP Streamable server running on port ${CONFIG.MCP_GATE_PORT}, for programs on this computer only. ${sinksStr}`),
       });
     }
   };

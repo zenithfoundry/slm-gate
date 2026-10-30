@@ -1,16 +1,28 @@
+/**
+ * The semantic cache (SEMCACHE=on): a conditioning is served again for a tool result that means the same
+ * thing, judged by embedding similarity, as long as the workspace files it mentioned are unchanged. Owns the
+ * `semcache` table, its scan cap and its retention.
+ */
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { getDb } from '../ledger/index.js';
 import { cosineSimilarity, embedText } from '../utils/embedding.js';
 
 let dbInitialized = false;
 
 /**
- * Initializes the semantic cache table in the local SQLite ledger.
- * This is called lazily before cache operations to ensure the `semcache` 
- * table exists without blocking the main application boot.
+ * Rows a check compares against, newest first. Every candidate costs a cosine in JS, so the scan is capped
+ * instead of growing with the table; rows past the retention window are deleted when the cache is opened.
+ */
+const SEMCACHE_SCAN_ROWS = 2000;
+
+/**
+ * Initializes the semantic cache table in the local SQLite ledger and prunes rows older than
+ * ELISION_RETENTION_DAYS. Called lazily before cache operations so the `semcache` table exists
+ * without blocking the main application boot.
  */
 export function initCacheDb() {
   if (dbInitialized) return;
@@ -24,27 +36,23 @@ export function initCacheDb() {
       ts TEXT
     );
   `);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (CONFIG.ELISION_RETENTION_DAYS ?? 180));
+  db.prepare('DELETE FROM semcache WHERE ts < ?').run(cutoff.toISOString());
   dbInitialized = true;
 }
 
 /**
- * Calculates the cosine similarity between two high-dimensional vectors.
- * A score of 1.0 means perfectly identical directions (identical meaning), 
- * while 0 means orthogonal (no semantic overlap).
- * 
- * @param a The first vector (e.g., the current prompt's embedding)
- * @param b The second vector (e.g., a stored prompt's embedding)
- * @returns A similarity score between -1.0 and 1.0
- */
-/**
- * Scans a prompt text for potential file paths, reads those files from disk, 
+ * Scans a prompt text for potential file paths, reads those files from disk,
  * and returns a map of their SHA-256 hashes. This acts as a stale-context guard:
  * if a referenced file is edited, its hash changes, invalidating previous cache hits.
- * 
+ *
  * @param text The raw prompt or task text containing potential file paths.
+ * @param rootPath The workspace a relative path is resolved against; without one only absolute paths are
+ *   hashed (the install directory of slm-gate is never the right root).
  * @returns A dictionary mapping absolute file paths to their SHA-256 hashes.
  */
-export async function getReferencedFilesHashes(text: string): Promise<Record<string, string>> {
+export async function getReferencedFilesHashes(text: string, rootPath?: string): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {};
   
   // Regex to extract standard file paths or file:// URIs
@@ -68,10 +76,11 @@ export async function getReferencedFilesHashes(text: string): Promise<Record<str
     // Strip URI protocol if present
     if (p.startsWith('file://')) p = p.substring(7);
     
-    // Resolve relative paths against the project root
+    // Resolve relative paths against the workspace the tool result came from
     let fullPath = p;
     if (!path.isAbsolute(fullPath)) {
-      fullPath = path.join(CONFIG.ROOT_DIR, fullPath);
+      if (!rootPath) continue;
+      fullPath = path.join(rootPath, fullPath);
     }
     
     try {
@@ -100,9 +109,10 @@ export async function getReferencedFilesHashes(text: string): Promise<Record<str
  *    c. Accepts and returns the stored response if similarity >= threshold.
  * 
  * @param text The current task or prompt text to evaluate.
+ * @param rootPath The workspace the text's relative file paths belong to.
  * @returns The cached response object/string if a match is found, otherwise null.
  */
-export async function checkSemanticCache(text: string): Promise<any | null> {
+export async function checkSemanticCache(text: string, rootPath?: string): Promise<any | null> {
   if (!CONFIG.SEMCACHE) return null;
   initCacheDb();
   
@@ -111,14 +121,14 @@ export async function checkSemanticCache(text: string): Promise<any | null> {
     currentEmbedding = await embedText(text);
     if (!currentEmbedding) return null;
   } catch (e) {
-    console.error(`[cache] Failed to generate embedding: ${e}`);
+    log.error('cache', 'Failed to generate embedding', { error: e });
     return null;
   }
   
-  const currentHashes = await getReferencedFilesHashes(text);
-  
+  const currentHashes = await getReferencedFilesHashes(text, rootPath);
+
   const db = getDb();
-  const rows = db.prepare('SELECT id, embedding_blob, response, file_hashes FROM semcache').all() as any[];
+  const rows = db.prepare('SELECT id, embedding_blob, response, file_hashes FROM semcache ORDER BY ts DESC LIMIT ?').all(SEMCACHE_SCAN_ROWS) as any[];
   
   for (const row of rows) {
     const storedHashes = JSON.parse(row.file_hashes);
@@ -145,7 +155,7 @@ export async function checkSemanticCache(text: string): Promise<any | null> {
     
     const sim = cosineSimilarity(currentEmbedding, Array.from(storedEmbedding));
     if (sim >= CONFIG.SEMCACHE_THRESHOLD) {
-      console.error(`[cache] HIT! Similarity: ${sim.toFixed(4)}`);
+      log.info('cache', 'semantic hit', { similarity: sim.toFixed(4) });
       return JSON.parse(row.response);
     }
   }
@@ -158,10 +168,12 @@ export async function checkSemanticCache(text: string): Promise<any | null> {
  * Generates the vector embedding for the prompt, hashes its referenced files, 
  * and stores the original response payload in the SQLite ledger.
  * 
- * @param text The original prompt or task text.
- * @param responseObj The response payload or string to store.
+ * @param params.text The original prompt or task text.
+ * @param params.response The response payload or string to store.
+ * @param params.rootPath The workspace the text's relative file paths belong to.
  */
-export async function setSemanticCache(text: string, responseObj: any) {
+export async function setSemanticCache(params: { text: string; response: any; rootPath?: string }) {
+  const { text, response: responseObj, rootPath } = params;
   if (!CONFIG.SEMCACHE) return;
   initCacheDb();
   
@@ -170,13 +182,13 @@ export async function setSemanticCache(text: string, responseObj: any) {
     embedding = await embedText(text);
     if (!embedding) return;
   } catch (e) {
-    console.error(`[cache] Failed to generate embedding for storage: ${e}`);
+    log.error('cache', 'Failed to generate embedding for storage', { error: e });
     return;
   }
   
   // Convert the array of floats into a binary buffer for SQLite BLOB storage
   const blob = Buffer.from(new Float64Array(embedding).buffer);
-  const currentHashes = await getReferencedFilesHashes(text);
+  const currentHashes = await getReferencedFilesHashes(text, rootPath);
   
   const db = getDb();
   const stmt = db.prepare('INSERT INTO semcache (id, embedding_blob, response, file_hashes, ts) VALUES (?, ?, ?, ?, ?)');

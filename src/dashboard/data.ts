@@ -319,7 +319,12 @@ export function computeDashboardData(events: LedgerEvent[], extras: DashboardExt
 export function loadDashboardData(): DashboardData {
   const db = new Database(CONFIG.LEDGER_PATH, { readonly: true, fileMustExist: true });
   try {
-    const events = db.prepare('SELECT * FROM events').all() as LedgerEvent[];
+    // Every row (the page has an "All" range and all-time cards) but only the columns the aggregation reads
+    // (perEvent*, resolveProvider, routingOutcome and the sections above): the ids, latencies and cost are not.
+    const events = db.prepare(`
+      SELECT ts, route, verifier_flags, provider, api_model, agent, in_tok, out_tok, api_in_tok, api_out_tok, meta, environment, skill
+      FROM events ORDER BY ts ASC
+    `).all() as LedgerEvent[];
     // Older ledgers have no distill_protect table; the card then shows the count as not measured.
     let learnedProtections: number | undefined;
     try { learnedProtections = db.prepare('SELECT count(*) FROM distill_protect').pluck().get() as number; } catch { learnedProtections = undefined; }

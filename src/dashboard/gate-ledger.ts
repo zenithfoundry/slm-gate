@@ -35,5 +35,5 @@ export async function otherGateLedger(): Promise<string | null> {
 
 export function otherLedgerMessage(gateLedger: string): string {
   return `The model gate on port ${CONFIG.MODEL_GATE_PORT} writes your requests to ${gateLedger}, but this dashboard reads ${CONFIG.LEDGER_PATH}, so its numbers miss them. ` +
-    `Put LEDGER_PATH=${gateLedger} in front of the command. For the daily publish job, add LEDGER_PATH to its launchd agent: see "Keeping the published dashboard current" in docs/analytics-and-observability.md.`;
+    `Put LEDGER_PATH=${gateLedger} in front of the command. For the daily publish job, add LEDGER_PATH to its launchd agent: see "Keeping the published dashboard current" in docs/reference/analytics.md.`;
 }

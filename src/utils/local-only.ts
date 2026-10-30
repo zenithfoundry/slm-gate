@@ -11,6 +11,7 @@
  */
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
+import { log } from '../log.js';
 
 /** Names for this computer. Other spellings (`localhost.`, `127.1`, …) are refused: fail closed. */
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
@@ -81,7 +82,7 @@ export async function listenOnThisComputer(params: {
       await new Promise(resolve => ipv4.close(resolve));
       throw err;
     }
-    console.error(`[slm-gate] IPv6 is not available on this computer; listening on 127.0.0.1:${port} only.`);
+    log.warn('slm-gate', `IPv6 is not available on this computer; listening on 127.0.0.1:${port} only.`);
     params.onListening?.();
     return [ipv4];
   }

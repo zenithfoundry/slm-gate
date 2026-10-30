@@ -1,4 +1,9 @@
+/**
+ * Text embeddings from the local model and the cosine similarity that ranks them, used by the adaptive
+ * distillation sampler and the elision lookups.
+ */
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { SLM } from '../models/slm.js';
 
 const slm = new SLM();
@@ -21,7 +26,7 @@ export async function embedText(text: string): Promise<number[] | null> {
     const res = await slm.embed(CONFIG.EMBED_MODEL, text);
     return res;
   } catch (e) {
-    console.error('[embed] Error computing embedding:', e);
+    log.error('embed', 'Error computing embedding', { error: e });
     return null;
   }
 }

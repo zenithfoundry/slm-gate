@@ -23,7 +23,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 }));
 
 jest.unstable_mockModule('../../src/mcp-gate/pipeline.js', () => ({
-  conditionPrompt: jest.fn(async (text: string) => text),
+  conditionPrompt: jest.fn(async ({ text }: { text: string }) => text),
 }));
 
 // No Ollama in tests: the brain finds the answer only in the part that holds the marker word.
@@ -122,15 +122,33 @@ describe('ask_elision', () => {
     expect(text).toContain('range {"startLine": 0, "endLine": 399}');
   });
 
-  it('rejects an unknown id and a missing question', async () => {
+  it('rejects an unknown id, and answers a missing question with an MCP error result naming the argument', async () => {
     await expect(call('ask_elision', { elisionId: 'nope', question: 'x?' })).rejects.toThrow(/not found/);
-    await expect(call('ask_elision', { elisionId: ID })).rejects.toThrow(/required/);
+    const { server } = await createServer();
+    const handler = (server as any)._requestHandlers.get(CallToolRequestSchema.shape.method.value);
+    const result = await handler({ method: 'tools/call', params: { name: 'ask_elision', arguments: { elisionId: ID } } }, {});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/ask_elision: invalid arguments \(question: Required\)/);
+    expect(answerFromText).not.toHaveBeenCalled();
+  });
+
+  it('advertises each gate tool with the schema it parses arguments against', async () => {
+    const { server } = await createServer();
+    const list = (server as any)._requestHandlers.get(ListToolsRequestSchema.shape.method.value);
+    const tools = (await list({ method: 'tools/list' }, {})).tools as { name: string; inputSchema: { type: string; required?: string[]; properties: Record<string, unknown> } }[];
+    const ask = tools.find(t => t.name === 'ask_elision')!;
+    expect(ask.inputSchema.type).toBe('object');
+    expect(ask.inputSchema.required).toEqual(['elisionId', 'question']);
+    expect(Object.keys(ask.inputSchema.properties)).toEqual(['elisionId', 'question']);
+    const expand = tools.find(t => t.name === 'expand_elision')!;
+    expect(expand.inputSchema.required).toEqual(['elisionId']);
+    expect(expand.inputSchema.properties.range).toMatchObject({ type: 'object', required: ['startLine', 'endLine'] });
   });
 });
 
 describe('the elision marker names both ways back to the original', () => {
   it('mentions ask_elision next to expand_elision, and the no-MCP rewrite removes the whole clause', () => {
-    const marker = formatElisionMarker('id1', 12, 3, 14);
+    const marker = formatElisionMarker({ elisionId: 'id1', elidedLinesCount: 12, startLine: 3, endLine: 14 });
     expect(marker).toContain('call expand_elision with this id and range {"startLine": 3, "endLine": 14} to retrieve, or ask_elision with this id and a question');
     const rewritten = rewriteElisionHint(marker);
     expect(rewritten).not.toContain('expand_elision');

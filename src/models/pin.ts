@@ -16,6 +16,7 @@
  */
 import { Ollama } from 'ollama';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { requiredModels } from '../setup/local-models.js';
 
 /** How often the running model gate checks. A reload costs seconds, so a minute's lag is acceptable. */
@@ -103,7 +104,7 @@ export function describePin(result: PinResult): string | null {
   const parts: string[] = [];
   if (result.unloaded.length) parts.push(`unloaded ${result.unloaded.join(', ')} (not one of slm-gate's models; it had displaced one)`);
   if (result.warmed.length) parts.push(`warmed ${result.warmed.join(', ')} back in`);
-  return `[models] ${parts.join('; ')}`;
+  return parts.join('; ');
 }
 
 /**
@@ -113,7 +114,7 @@ export function describePin(result: PinResult): string | null {
 export function startPinningModels(): () => void {
   const run = async () => {
     const line = describePin(await pinModels());
-    if (line) console.error(line);
+    if (line) log.info('models', line);
   };
   void run();
   const timer = setInterval(() => { void run(); }, PIN_INTERVAL_MS);

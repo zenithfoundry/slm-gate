@@ -1,3 +1,7 @@
+/**
+ * Adapter for the tech-lead-stack toolbox: the skill lines that must survive distillation verbatim, and
+ * the shape of a ledger event for its analytics.
+ */
 import { LedgerEvent } from '../ledger/index.js';
 
 export const tlsPreservePatterns: RegExp[] = [

@@ -28,6 +28,16 @@ export function beginRequest(): () => void {
   };
 }
 
+/** Runs `work` counted as a request in flight: a model gate request or an MCP tool call. */
+export async function asRequest<T>(work: () => Promise<T>): Promise<T> {
+  const done = beginRequest();
+  try {
+    return await work();
+  } finally {
+    done();
+  }
+}
+
 /** Counts a local-model call for as long as its promise is pending. */
 export function track<T>(call: Promise<T>): Promise<T> {
   modelCallsRunning++;

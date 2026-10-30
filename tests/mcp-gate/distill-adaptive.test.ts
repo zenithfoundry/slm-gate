@@ -57,7 +57,7 @@ describe('distill adaptive sampling', () => {
   it('embeds only the sampled fraction of lines: a draw above the explore rate is skipped', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0.5);
 
-    await distillToolResult(slm as any, text, undefined, undefined, undefined, []);
+    await distillToolResult({ slm: slm as any, text: text, task: undefined, toolName: undefined, args: undefined, preservePatterns: [] });
 
     expect(embedText).not.toHaveBeenCalled();
     expect(slm).toHaveBeenCalled();
@@ -66,7 +66,7 @@ describe('distill adaptive sampling', () => {
   it('a draw below the explore rate is embedded, and a match protects the line from the model', async () => {
     jest.spyOn(Math, 'random').mockReturnValue(0.1);
 
-    const result = await distillToolResult(slm as any, text, undefined, undefined, undefined, []);
+    const result = await distillToolResult({ slm: slm as any, text: text, task: undefined, toolName: undefined, args: undefined, preservePatterns: [] });
 
     expect(embedText).toHaveBeenCalledTimes(lines.length);
     expect(slm).not.toHaveBeenCalled();

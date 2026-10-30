@@ -1,5 +1,10 @@
+/**
+ * What the configured local models cost this machine: warms them into Ollama, reads their sizes, and reports
+ * them against the detected RAM so `models:check` can say whether the pair fits before the gates run.
+ */
 import ollama from 'ollama';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { detectHardware, MIN_RAM_GB, modelsForRam, recommendPreset } from '../hardware.js';
 
 /**
@@ -36,7 +41,7 @@ export async function warmup(client = ollama): Promise<void> {
       }
     }
   } catch (err) {
-    console.error('Failed to connect to Ollama for warmup:', err);
+    log.warn('models', 'Failed to connect to Ollama for warmup', { error: err });
   }
 }
 
