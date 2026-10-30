@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.0](https://github.com/zenithfoundry/slm-gate/compare/v1.4.0...v1.5.0) (2026-10-30)
+
+
+### Features
+
+* **cli:** metrics ships in the package; ledger:reset needs --yes; drop dead scripts; add archify dev dependency ([d4b82b9](https://github.com/zenithfoundry/slm-gate/commit/d4b82b990818561909e2015edc68a1c698622208))
+* **config:** init profiles replace the 21 presets; plans supply window budgets ([117ef99](https://github.com/zenithfoundry/slm-gate/commit/117ef990ea0404c27c7a96d02b5a76fb9678c48b))
+* **config:** init profiles replace the 21 presets; plans supply window budgets ([492c3bd](https://github.com/zenithfoundry/slm-gate/commit/492c3bd27c127625fff57c6d4325ee733199a706))
+* **dashboard:** enhance ledger handling and error reporting for model gate integration ([8962b53](https://github.com/zenithfoundry/slm-gate/commit/8962b5337da65b95f6b8903f58bc351bf5f5bcab))
+
+
+### Bug Fixes
+
+* **deps:** bump @grpc/grpc-js from 1.14.4 to 1.14.6 ([714c0c5](https://github.com/zenithfoundry/slm-gate/commit/714c0c55becf757f9e0812bb91ef6dfd4a333689))
+* **deps:** bump @grpc/grpc-js from 1.14.4 to 1.14.6 ([da20b86](https://github.com/zenithfoundry/slm-gate/commit/da20b8631217c32d746205c55c791c069288e919))
+* **deps:** bump actions/configure-pages from 5.0.0 to 6.0.0 ([e3f0284](https://github.com/zenithfoundry/slm-gate/commit/e3f0284ef59778d29a28c9c44fc40742458e3189))
+* **deps:** bump actions/setup-node from 7.0.0 to 7.1.0 ([3f0ec41](https://github.com/zenithfoundry/slm-gate/commit/3f0ec41fb273305adb4cfcb920a56480341a8bb7))
+* **deps:** bump brace-expansion from 1.1.18 to 1.1.21 ([0b8c09e](https://github.com/zenithfoundry/slm-gate/commit/0b8c09eee18de4c457181a67065773840d7cd0c8))
+* **deps:** bump hono from 4.13.9 to 4.13.13 ([a3f95ee](https://github.com/zenithfoundry/slm-gate/commit/a3f95ee0c6c0f973314107d2c114a121a11bf3ce))
+* **deps:** bump ip-address from 10.5.0 to 10.7.4 ([09c9722](https://github.com/zenithfoundry/slm-gate/commit/09c97223e049ea3546b77bd2027c4f2023f797c2))
+* **deps:** bump ip-address from 10.5.0 to 10.7.4 ([7f57b5a](https://github.com/zenithfoundry/slm-gate/commit/7f57b5aeac83ef3f3a625f710e084d7518ac14c0))
+* **deps:** bump ossf/scorecard-action from 2.4.4 to 2.5.0 ([0e5c6e4](https://github.com/zenithfoundry/slm-gate/commit/0e5c6e45cde658ebbacb2ff70f52a90a02d59bf4))
+* **deps:** bump proxy-addr from 2.0.7 to 2.0.8 ([42b0de1](https://github.com/zenithfoundry/slm-gate/commit/42b0de19a1a55849e2483643a55aa1633396965c))
+* **deps:** bump the minor-and-patch group across 1 directory with 7 updates ([a38d591](https://github.com/zenithfoundry/slm-gate/commit/a38d59199f175051005feb1679dd1a2574737d95))
+* **deps:** bump the minor-and-patch group across 1 directory with 7 updates ([8d3fa6b](https://github.com/zenithfoundry/slm-gate/commit/8d3fa6bbc97f622db4a4eb9595a7f8faaeacdcda))
+* **deps:** bump undici from 8.10.0 to 8.11.2 ([a911669](https://github.com/zenithfoundry/slm-gate/commit/a911669eb9413f27aaf586a5c74df1f5d8111078))
+* **deps:** bump undici from 8.11.2 to 8.12.3 ([#66](https://github.com/zenithfoundry/slm-gate/issues/66)) ([565b9ce](https://github.com/zenithfoundry/slm-gate/commit/565b9ced4637ba1c24e4da0548c036fd03cbdad1))
+* **gates:** bug batch, timeouts on every outbound call, zod at the boundaries, one logger, graceful shutdown ([c8036c9](https://github.com/zenithfoundry/slm-gate/commit/c8036c94bbb0ce932baf2db746de5000d95c29c9))
+
 ## [1.4.0](https://github.com/zenithfoundry/slm-gate/compare/v1.3.0...v1.4.0) (2026-10-23)
 
 
