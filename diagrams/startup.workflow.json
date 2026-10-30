@@ -1,0 +1,171 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "How slm-gate starts, and what the CLI does",
+    "output": "docs/diagrams/startup.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/zenithfoundry/slm-gate",
+      "provider": "github",
+      "revision": "c2645099b14f210c226ab121175991be55640212"
+    }
+  },
+  "lanes": [
+    { "id": "tool", "label": "Coding tool" },
+    { "id": "mcp", "label": "MCP gate" },
+    { "id": "checks", "label": "Start-up checks" },
+    { "id": "ollama", "label": "Ollama" },
+    { "id": "gate", "label": "Model gate" },
+    { "id": "problems", "label": "Problems", "variant": "exception" },
+    { "id": "you", "label": "You and the CLI" }
+  ],
+  "mainPath": ["tool", "mcp", "checks", "gate"],
+  "nodes": [
+    {
+      "id": "tool",
+      "lane": "tool",
+      "col": 0,
+      "type": "external",
+      "label": "Coding tool",
+      "sublabel": "runs slm-gate mcp",
+      "icon": "person",
+      "sources": [
+        { "path": "src/cli.ts", "line": 172, "end_line": 177, "label": "the mcp command" }
+      ]
+    },
+    {
+      "id": "assistant",
+      "lane": "tool",
+      "col": 4,
+      "type": "frontend",
+      "label": "Your AI assistant",
+      "sublabel": "told at start-up, word for word",
+      "sources": [
+        { "path": "src/mcp-gate/tool-names.ts", "line": 43, "end_line": 56, "label": "notices in the instructions" }
+      ]
+    },
+    {
+      "id": "mcp",
+      "lane": "mcp",
+      "col": 1,
+      "type": "backend",
+      "label": "MCP gate",
+      "sublabel": "answers within 1.5 s",
+      "sources": [
+        { "path": "src/mcp-gate/index.ts", "line": 44, "end_line": 55, "label": "checks, then serve, then watch" },
+        { "path": "src/setup/startup.ts", "line": 112, "end_line": 128, "label": "capped at 1.5 s" }
+      ]
+    },
+    {
+      "id": "checks",
+      "lane": "checks",
+      "col": 2,
+      "type": "backend",
+      "label": "Start-up checks",
+      "sublabel": "at start, after 15 s, then every minute",
+      "tag": "LLM_GATE_AUTOSTART",
+      "sources": [
+        { "path": "src/setup/startup.ts", "line": 24, "end_line": 27, "label": "1.5 s, 15 s, 60 s" },
+        { "path": "src/setup/startup.ts", "line": 138, "end_line": 168, "label": "the watch" }
+      ]
+    },
+    {
+      "id": "ollama",
+      "lane": "ollama",
+      "col": 2,
+      "type": "external",
+      "label": "Ollama",
+      "sublabel": "running? models downloaded?",
+      "sources": [
+        { "path": "src/setup/local-models.ts", "line": 66, "end_line": 72, "label": "asks Ollama for its models" },
+        { "path": "src/setup/local-models.ts", "line": 138, "end_line": 154, "label": "every model the settings name" }
+      ]
+    },
+    {
+      "id": "gate",
+      "lane": "gate",
+      "col": 3,
+      "type": "backend",
+      "label": "Model gate",
+      "sublabel": "started if nothing is on its port",
+      "sources": [
+        { "path": "src/setup/startup.ts", "line": 88, "end_line": 99, "label": "probe, then launch" },
+        { "path": "src/setup/model-gate.ts", "line": 165, "end_line": 189, "label": "a detached background process" },
+        { "path": "src/setup/startup.ts", "line": 143, "end_line": 153, "label": "relaunched if it stopped" }
+      ]
+    },
+    {
+      "id": "problems",
+      "lane": "problems",
+      "col": 4,
+      "type": "security",
+      "label": "Problem found",
+      "sublabel": "desktop notification",
+      "sources": [
+        { "path": "src/setup/startup.ts", "line": 77, "end_line": 80, "label": "log + notify" },
+        { "path": "src/setup/notify.ts", "line": 28, "end_line": 36, "label": "macOS and Linux" }
+      ]
+    },
+    {
+      "id": "you",
+      "lane": "you",
+      "col": 0,
+      "type": "external",
+      "label": "You",
+      "icon": "person"
+    },
+    {
+      "id": "cli",
+      "lane": "you",
+      "col": 1,
+      "type": "backend",
+      "label": "slm-gate CLI",
+      "sublabel": "start, stop, restart, serve",
+      "sources": [
+        { "path": "src/cli.ts", "line": 179, "end_line": 207, "label": "serve" },
+        { "path": "src/cli.ts", "line": 246, "end_line": 248, "label": "start, stop, restart" },
+        { "path": "src/setup/gate-command.ts", "line": 7, "end_line": 35, "label": "what they do" }
+      ]
+    }
+  ],
+  "edges": [
+    { "id": "starts", "from": "tool", "to": "mcp", "label": "1. starts", "variant": "emphasis" },
+    { "id": "runs-checks", "from": "mcp", "to": "checks", "label": "2. at start, then on a timer", "variant": "emphasis" },
+    { "id": "ollama-check", "from": "checks", "to": "ollama", "label": "3. running? models downloaded?" },
+    { "id": "start-gate", "from": "checks", "to": "gate", "label": "4. start it if not running", "variant": "emphasis" },
+    { "id": "problem", "from": "checks", "to": "problems", "label": "problem", "variant": "security", "role": "error" },
+    { "id": "notify-you", "from": "problems", "to": "you", "label": "desktop notification", "variant": "dashed", "role": "return", "route": "bottom-channel" },
+    { "id": "tell-assistant", "from": "problems", "to": "assistant", "label": "at start-up only", "variant": "dashed", "role": "branch" },
+    { "id": "you-cli", "from": "you", "to": "cli", "label": "by hand" },
+    { "id": "cli-gate", "from": "cli", "to": "gate", "label": "start, stop, restart, serve", "role": "branch" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What it never does",
+      "items": [
+        "Never starts Ollama and never downloads a model: it only says what is missing",
+        "With LLM_GATE_AUTOSTART=off it never starts the model gate and checks once only"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Several MCP gates at once",
+      "items": [
+        "One per editor window or CLI session; they agree through marker files in output/",
+        "One launch per minute, one notification per problem per ten minutes",
+        "slm-gate stop holds until start, restart or a reboot"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "The model gate's settings",
+      "items": [
+        "Launched with every setting removed from its environment, so it reads only the settings file",
+        "A running older build is reported, not replaced; run slm-gate restart"
+      ]
+    }
+  ]
+}

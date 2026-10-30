@@ -1,0 +1,619 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "The ledger folder: what each module keeps, and who reads it",
+    "output": "docs/diagrams/ledger-modules.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/zenithfoundry/slm-gate",
+      "provider": "github",
+      "revision": "c2645099b14f210c226ab121175991be55640212"
+    }
+  },
+  "components": [
+    {
+      "id": "mcpgate",
+      "type": "backend",
+      "label": "MCP gate",
+      "sublabel": "a row per tool result; its own stores",
+      "pos": [
+        40,
+        200
+      ],
+      "size": [
+        210,
+        130
+      ],
+      "sources": [
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 326,
+          "end_line": 343,
+          "label": "the row after each shrink"
+        },
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 7,
+          "end_line": 15,
+          "label": "what it reads and writes"
+        },
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 171,
+          "end_line": 177,
+          "label": "ask_elision reads the original"
+        }
+      ]
+    },
+    {
+      "id": "llmgate",
+      "type": "backend",
+      "label": "Model gate",
+      "sublabel": "a row per request; folds memory",
+      "pos": [
+        40,
+        616
+      ],
+      "size": [
+        210,
+        100
+      ],
+      "sources": [
+        {
+          "path": "src/llm-gate/server.ts",
+          "line": 113,
+          "end_line": 121,
+          "label": "the row per request"
+        },
+        {
+          "path": "src/llm-gate/distill.ts",
+          "line": 160,
+          "end_line": 190,
+          "label": "shrink decisions"
+        },
+        {
+          "path": "src/llm-gate/memory.ts",
+          "line": 167,
+          "end_line": 207,
+          "label": "the memory fold"
+        }
+      ]
+    },
+    {
+      "id": "elisions",
+      "type": "database",
+      "label": "elisions.ts",
+      "sublabel": "the original of every cut result",
+      "pos": [
+        360,
+        40
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 308,
+          "end_line": 360,
+          "label": "writeElision, getElision"
+        }
+      ]
+    },
+    {
+      "id": "cachedeps",
+      "type": "database",
+      "label": "cache-deps.ts",
+      "sublabel": "saved results + what they relied on",
+      "pos": [
+        360,
+        136
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 615,
+          "end_line": 630,
+          "label": "cacheGet, cacheSet"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 703,
+          "end_line": 740,
+          "label": "writeCacheDeps, cacheDepsFresh"
+        }
+      ]
+    },
+    {
+      "id": "protections",
+      "type": "database",
+      "label": "protections.ts",
+      "sublabel": "sentences the guard once lost",
+      "pos": [
+        360,
+        232
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 655,
+          "end_line": 690,
+          "label": "recordLostSentences, learnedProtections"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 176,
+          "end_line": 186,
+          "label": "the distill_protect table"
+        }
+      ]
+    },
+    {
+      "id": "decisions",
+      "type": "database",
+      "label": "decisions.ts",
+      "sublabel": "index over .slm-gate/decisions",
+      "pos": [
+        360,
+        328
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 754,
+          "end_line": 790,
+          "label": "replaceDecisionIndex, searchDecisions"
+        }
+      ]
+    },
+    {
+      "id": "repoindex",
+      "type": "database",
+      "label": "repo-index.ts",
+      "sublabel": "symbol index (REPO_INDEX=on)",
+      "pos": [
+        360,
+        424
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 876,
+          "end_line": 925,
+          "label": "replaceRepoFileSymbols, searchRepoSymbols"
+        }
+      ]
+    },
+    {
+      "id": "events",
+      "type": "database",
+      "label": "events.ts",
+      "sublabel": "one row per request; savings maths",
+      "pos": [
+        360,
+        520
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 560,
+          "end_line": 613,
+          "label": "writeEvent"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 440,
+          "end_line": 470,
+          "label": "minutes and tokens per row"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 101,
+          "end_line": 126,
+          "label": "the events table"
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "memory.ts",
+      "sublabel": "one summary per conversation",
+      "pos": [
+        360,
+        616
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 804,
+          "end_line": 860,
+          "label": "readMemoryRow, writeMemoryRow, matchMemory"
+        }
+      ]
+    },
+    {
+      "id": "distill",
+      "type": "database",
+      "label": "distill.ts",
+      "sublabel": "shrink decisions, feedback, policy",
+      "pos": [
+        360,
+        712
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 926,
+          "end_line": 950,
+          "label": "getDistillDecision, recordDistillDecision"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 1489,
+          "end_line": 1501,
+          "label": "getDistillPolicy"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "db.ts",
+      "sublabel": "opens the file; schema, retention",
+      "pos": [
+        360,
+        808
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 67,
+          "end_line": 80,
+          "label": "getDb"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 236,
+          "end_line": 243,
+          "label": "additive migrations"
+        }
+      ]
+    },
+    {
+      "id": "format",
+      "type": "backend",
+      "label": "format.ts",
+      "sublabel": "row → trace, generations, scores",
+      "pos": [
+        660,
+        520
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 1021,
+          "end_line": 1040,
+          "label": "formatEventForLangfuse"
+        }
+      ]
+    },
+    {
+      "id": "sink",
+      "type": "messagebus",
+      "label": "sink.ts",
+      "sublabel": "queued in SQLite; sent every 15 s",
+      "pos": [
+        960,
+        520
+      ],
+      "size": [
+        200,
+        80
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/index.ts",
+          "line": 1252,
+          "end_line": 1272,
+          "label": "mirrorEvent queues a copy"
+        },
+        {
+          "path": "src/ledger/index.ts",
+          "line": 1297,
+          "end_line": 1316,
+          "label": "flushQueue"
+        },
+        {
+          "path": "src/ledger/flush-lifecycle.ts",
+          "line": 28,
+          "end_line": 38,
+          "label": "every 15 s, and at shutdown"
+        }
+      ]
+    },
+    {
+      "id": "langfuse",
+      "type": "external",
+      "label": "Langfuse",
+      "sublabel": "optional",
+      "pos": [
+        960,
+        680
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "metrics",
+      "type": "backend",
+      "label": "slm-gate metrics",
+      "sublabel": "rows, tokens, cost (src/metrics.ts)",
+      "pos": [
+        660,
+        640
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "harness/metrics.ts",
+          "line": 6,
+          "end_line": 19,
+          "label": "now src/metrics.ts"
+        }
+      ]
+    },
+    {
+      "id": "dashboard",
+      "type": "backend",
+      "label": "Dashboard",
+      "sublabel": "minutes per cycle, tokens, fidelity",
+      "pos": [
+        660,
+        736
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/dashboard/data.ts",
+          "line": 319,
+          "end_line": 326,
+          "label": "reads rows and the protections count"
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "type": "backend",
+      "label": "slm-gate ledger:sync",
+      "sublabel": "history to Langfuse, by hand",
+      "pos": [
+        660,
+        832
+      ],
+      "size": [
+        200,
+        64
+      ],
+      "sources": [
+        {
+          "path": "src/ledger/sync.ts",
+          "line": 46,
+          "end_line": 61,
+          "label": "reads every row"
+        },
+        {
+          "path": "src/ledger/sync.ts",
+          "line": 180,
+          "label": "same format as the mirror"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "src/ledger/: one SQLite file, opened once per process",
+      "wraps": [
+        "elisions",
+        "cachedeps",
+        "protections",
+        "decisions",
+        "repoindex",
+        "events",
+        "memory",
+        "distill",
+        "db"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "src/langfuse/",
+      "wraps": [
+        "format",
+        "sink"
+      ],
+      "pad": 18
+    }
+  ],
+  "connections": [
+    {
+      "id": "mcp-elisions",
+      "from": "mcpgate",
+      "to": "elisions",
+      "label": "the cut lines"
+    },
+    {
+      "id": "mcp-cache",
+      "from": "mcpgate",
+      "to": "cachedeps",
+      "label": "saved results"
+    },
+    {
+      "id": "mcp-protections",
+      "from": "mcpgate",
+      "to": "protections",
+      "label": "learns",
+      "variant": "security"
+    },
+    {
+      "id": "mcp-decisions",
+      "from": "mcpgate",
+      "to": "decisions",
+      "label": "reads"
+    },
+    {
+      "id": "mcp-repoindex",
+      "from": "mcpgate",
+      "to": "repoindex",
+      "label": "reads"
+    },
+    {
+      "id": "mcp-events",
+      "from": "mcpgate",
+      "to": "events",
+      "label": "a row per tool result",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llm-events",
+      "from": "llmgate",
+      "to": "events",
+      "label": "a row per request",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llm-memory",
+      "from": "llmgate",
+      "to": "memory",
+      "label": "folds the summary"
+    },
+    {
+      "id": "llm-distill",
+      "from": "llmgate",
+      "to": "distill",
+      "label": "shrink decisions"
+    },
+    {
+      "id": "events-format",
+      "from": "events",
+      "to": "format",
+      "label": "each new row",
+      "variant": "dashed"
+    },
+    {
+      "id": "format-sink",
+      "from": "format",
+      "to": "sink",
+      "label": "queued payload",
+      "variant": "dashed"
+    },
+    {
+      "id": "sink-langfuse",
+      "from": "sink",
+      "to": "langfuse",
+      "label": "every 15 s",
+      "variant": "dashed"
+    },
+    {
+      "id": "metrics-events",
+      "from": "metrics",
+      "to": "events",
+      "label": "reads"
+    },
+    {
+      "id": "dashboard-events",
+      "from": "dashboard",
+      "to": "events",
+      "label": "reads"
+    },
+    {
+      "id": "sync-events",
+      "from": "sync",
+      "to": "events",
+      "label": "reads the history"
+    },
+    {
+      "id": "sync-langfuse",
+      "from": "sync",
+      "to": "langfuse",
+      "label": "by hand",
+      "variant": "dashed",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "One file, one connection",
+      "items": [
+        "db.ts opens the SQLite file named by LEDGER_PATH once per process; every other module reaches it through getDb()",
+        "index.ts is a barrel: it re-exports every module here and the two Langfuse ones, so callers import from src/ledger/index.js"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Who reads what",
+      "items": [
+        "MCP gate: elisions (expand_elision, ask_elision), cache-deps, protections, decisions and repo-index (the open-decisions step), memory (read only)",
+        "Model gate: distill (one decision per result, resent every turn), memory (write), events",
+        "Dashboard and metrics read events; the dashboard also counts the learned protections"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "The Langfuse copy",
+      "items": [
+        "writeEvent formats the row (format.ts) and queues it (sink.ts) in the same file; nothing leaves until the flush",
+        "Rows rejected repeatedly are parked in langfuse_dead_letter so one bad row never blocks the queue"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "What happens to a model request (model gate)",
+    "output": "docs/diagrams/model-request.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/zenithfoundry/slm-gate",
+      "provider": "github",
+      "revision": "c2645099b14f210c226ab121175991be55640212"
+    }
+  },
+  "participants": [
+    { "id": "tool", "type": "external", "label": "Coding tool", "sublabel": "points at localhost:8787", "icon": "person" },
+    {
+      "id": "gate",
+      "type": "backend",
+      "label": "Model gate",
+      "sublabel": "src/llm-gate/server.ts",
+      "sources": [
+        { "path": "src/llm-gate/server.ts", "line": 169, "end_line": 211, "label": "one request, start to finish" },
+        { "path": "src/llm-gate/server.ts", "line": 245, "end_line": 249, "label": "this computer only" },
+        { "path": "src/llm-gate/forward.ts", "line": 76, "end_line": 110, "label": "four formats, one provider each" }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "cloud",
+      "label": "Your AI provider",
+      "sublabel": "your login or API key",
+      "sources": [
+        { "path": "src/llm-gate/forward.ts", "line": 112, "end_line": 152, "label": "headers forwarded, reply piped" }
+      ]
+    },
+    {
+      "id": "shrink",
+      "type": "backend",
+      "label": "Shrink new output",
+      "sublabel": "src/llm-gate/distill.ts",
+      "sources": [
+        { "path": "src/llm-gate/distill.ts", "line": 230, "end_line": 260, "label": "which results, within the budget" },
+        { "path": "src/llm-gate/distill.ts", "line": 91, "end_line": 112, "label": "file reads never shrink" }
+      ]
+    },
+    {
+      "id": "models",
+      "type": "backend",
+      "label": "Local models",
+      "sublabel": "gate model, brain model",
+      "sources": [
+        { "path": "src/llm-gate/distill.ts", "line": 160, "end_line": 190, "label": "the gate model shortens" },
+        { "path": "src/llm-gate/memory.ts", "line": 193, "label": "the brain model folds" }
+      ]
+    },
+    {
+      "id": "ledger",
+      "type": "database",
+      "label": "Ledger",
+      "sublabel": "SQLite",
+      "sources": [
+        { "path": "src/ledger/index.ts", "line": 926, "end_line": 950, "label": "shrink decisions (now distill.ts)" },
+        { "path": "src/ledger/index.ts", "line": 804, "end_line": 830, "label": "memory rows (now memory.ts)" },
+        { "path": "src/ledger/index.ts", "line": 560, "end_line": 613, "label": "the row (now events.ts)" }
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "backend",
+      "label": "Conversation memory",
+      "sublabel": "src/llm-gate/memory.ts",
+      "sources": [
+        { "path": "src/llm-gate/memory.ts", "line": 133, "end_line": 152, "label": "note the turn" },
+        { "path": "src/llm-gate/memory.ts", "line": 167, "end_line": 207, "label": "fold while idle" }
+      ]
+    }
+  ],
+  "segments": [
+    { "from": 150, "to": 224, "label": "Request" },
+    { "from": 230, "to": 545, "label": "Shrink, once per result" },
+    { "from": 551, "to": 748, "label": "Forward and reply" },
+    { "from": 754, "to": 912, "label": "Later, while no request is in flight" }
+  ],
+  "messages": [
+    { "id": "request", "from": "tool", "to": "gate", "y": 160, "label": "1. request, in one of four formats", "variant": "emphasis", "note": "Token counts, model lists and hello pings skip all of this." },
+    { "id": "every", "from": "gate", "to": "shrink", "y": 240, "label": "2. every request" },
+    { "id": "decision", "from": "shrink", "to": "ledger", "y": 270, "label": "decision saved for this result?", "note": "Shrunk once; the saved text is resent on every later turn (prompt cache)." },
+    { "id": "decision-answer", "from": "ledger", "to": "shrink", "y": 350, "label": "yes: the same bytes as before", "variant": "return" },
+    { "id": "shorten", "from": "shrink", "to": "models", "y": 382, "label": "3. new output: shorten it (gate model)", "variant": "emphasis", "note": "Command, search and listing results only, from the newest turn; at most 3 s." },
+    { "id": "shorter", "from": "models", "to": "shrink", "y": 475, "label": "shorter text", "variant": "return" },
+    { "id": "save", "from": "shrink", "to": "ledger", "y": 503, "label": "save the decision", "variant": "dashed" },
+    { "id": "smaller", "from": "shrink", "to": "gate", "y": 531, "label": "4. smaller request", "variant": "return" },
+    { "id": "forward", "from": "gate", "to": "provider", "y": 575, "label": "5. forwarded with every header the tool sent", "variant": "emphasis", "note": "Your own login or API key; nothing is added or swapped." },
+    { "id": "reply", "from": "provider", "to": "gate", "y": 644, "label": "6. reply, streamed", "variant": "return" },
+    { "id": "reply-back", "from": "gate", "to": "tool", "y": 672, "label": "7. reply, unchanged", "variant": "return" },
+    { "id": "log", "from": "gate", "to": "ledger", "y": 700, "label": "8. log it: route, tokens, tool schemas counted", "variant": "dashed" },
+    { "id": "note", "from": "gate", "to": "memory", "y": 728, "label": "9. note the turn", "variant": "dashed" },
+    { "id": "fold", "from": "memory", "to": "models", "y": 782, "label": "fold the turn into the summary (brain model)", "variant": "dashed", "note": "Goal, decisions, files in play; never leaves the machine." },
+    { "id": "folded", "from": "models", "to": "memory", "y": 857, "label": "new summary", "variant": "return" },
+    { "id": "summary-row", "from": "memory", "to": "ledger", "y": 885, "label": "summary row + one memory_fold row", "variant": "dashed" }
+  ],
+  "activations": [
+    { "participant": "gate", "from": 160, "to": 734, "type": "backend" },
+    { "participant": "shrink", "from": 240, "to": 537, "type": "backend" },
+    { "participant": "models", "from": 382, "to": 481, "type": "backend" },
+    { "participant": "provider", "from": 575, "to": 650, "type": "cloud" },
+    { "participant": "memory", "from": 782, "to": 891, "type": "backend" },
+    { "participant": "models", "from": 782, "to": 863, "type": "backend" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What the ledger row says",
+      "items": [
+        "forward_compressed: sent with some tool output shrunk; api_in_tok is roughly how many tokens went out",
+        "forward_raw: sent unchanged; nothing was large enough, or Ollama was not running",
+        "memory_fold: the brain model folded a turn; nothing was sent to your provider"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What is never changed",
+      "items": [
+        "File reads (cat and the like too), web fetches and MCP tool results; only results of at least DISTILL_MIN_TOKENS are shrunk",
+        "The system prompt, the tool list, anything you typed, ids, thinking, signatures, images and cache_control",
+        "The reply streams back byte for byte; past DISTILL_BUDGET_MS (3 s) the original goes"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Only this computer",
+      "items": [
+        "Listens on 127.0.0.1 and ::1, accepts only localhost host names, refuses requests from web pages",
+        "Refused requests get 403 and are neither forwarded nor recorded; a failed fold keeps the previous summary"
+      ]
+    }
+  ]
+}

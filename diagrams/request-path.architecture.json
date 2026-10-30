@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "What slm-gate does to a tool call and to a model request",
+    "output": "docs/diagrams/request-path.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/zenithfoundry/slm-gate",
+      "provider": "github",
+      "revision": "c2645099b14f210c226ab121175991be55640212"
+    }
+  },
+  "components": [
+    {
+      "id": "tool",
+      "type": "external",
+      "label": "Coding tool",
+      "sublabel": "Claude Code, Codex, Gemini CLI…",
+      "icon": "person",
+      "pos": [40, 260],
+      "size": [180, 90]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP gate",
+      "sublabel": "one per editor session",
+      "pos": [300, 40],
+      "size": [170, 64],
+      "sources": [
+        { "path": "src/mcp-gate/server.ts", "line": 32, "end_line": 95, "label": "createServer" },
+        { "path": "src/mcp-gate/server.ts", "line": 335, "end_line": 354, "label": "pass on, then condition the text" }
+      ]
+    },
+    {
+      "id": "toolbox",
+      "type": "external",
+      "label": "Toolbox (optional)",
+      "sublabel": "DOWNSTREAM_MCP",
+      "pos": [560, 40],
+      "size": [170, 64],
+      "sources": [
+        { "path": "src/mcp-gate/server.ts", "line": 45, "end_line": 73, "label": "connect to the toolbox" }
+      ]
+    },
+    {
+      "id": "shrink1",
+      "type": "backend",
+      "label": "Shrink long text",
+      "sublabel": "rules by tool name, then the gate model",
+      "pos": [300, 170],
+      "size": [220, 64],
+      "sources": [
+        { "path": "src/mcp-gate/pipeline.ts", "line": 231, "end_line": 241, "label": "the shrink step" },
+        { "path": "src/utils/elision.ts", "line": 391, "end_line": 425, "label": "rules, then the model" }
+      ]
+    },
+    {
+      "id": "guard",
+      "type": "security",
+      "label": "Fidelity guard",
+      "sublabel": "skills: the brain model checks each cut",
+      "pos": [620, 170],
+      "size": [220, 64],
+      "sources": [
+        { "path": "src/mcp-gate/pipeline.ts", "line": 231, "end_line": 234, "label": "checkKept" },
+        { "path": "src/utils/elision.ts", "line": 522, "end_line": 526, "label": "DISTILL_SKILLS" },
+        { "path": "src/utils/elision.ts", "line": 773, "label": "a lost sentence is learned" }
+      ]
+    },
+    {
+      "id": "shrink2",
+      "type": "backend",
+      "label": "Shrink new tool output",
+      "sublabel": "command, search and listing results",
+      "pos": [300, 340],
+      "size": [210, 64],
+      "sources": [
+        { "path": "src/llm-gate/distill.ts", "line": 230, "end_line": 260, "label": "distilRequest" },
+        { "path": "src/llm-gate/distill.ts", "line": 112, "label": "file reads are never shrunk" }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "backend",
+      "label": "Model gate",
+      "sublabel": "localhost:8787, four request formats",
+      "pos": [300, 470],
+      "size": [210, 64],
+      "sources": [
+        { "path": "src/llm-gate/server.ts", "line": 169, "end_line": 211, "label": "one request, start to finish" },
+        { "path": "src/llm-gate/forward.ts", "line": 76, "end_line": 110, "label": "which provider a request belongs to" }
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "backend",
+      "label": "Conversation memory",
+      "sublabel": "the brain model folds each turn, while idle",
+      "pos": [300, 600],
+      "size": [240, 64],
+      "sources": [
+        { "path": "src/llm-gate/memory.ts", "line": 133, "end_line": 152, "label": "note the turn" },
+        { "path": "src/llm-gate/memory.ts", "line": 167, "end_line": 207, "label": "fold it when idle" }
+      ]
+    },
+    {
+      "id": "cloud",
+      "type": "cloud",
+      "label": "Your AI provider",
+      "sublabel": "your own login or API key",
+      "pos": [820, 470],
+      "size": [180, 64],
+      "sources": [
+        { "path": "src/llm-gate/forward.ts", "line": 112, "end_line": 152, "label": "every header is passed on" }
+      ]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Tool calls: the MCP gate", "wraps": ["mcp", "toolbox", "shrink1", "guard"] },
+    { "kind": "region", "label": "Model requests: the model gate", "wraps": ["shrink2", "llm", "memory"] }
+  ],
+  "connections": [
+    { "id": "tool-call", "from": "tool", "to": "mcp", "label": "tool call", "variant": "emphasis" },
+    { "id": "smaller-result", "from": "mcp", "to": "tool", "label": "smaller result" },
+    { "id": "pass-on", "from": "mcp", "to": "toolbox", "label": "passed on unchanged" },
+    { "id": "raw-result", "from": "toolbox", "to": "mcp", "label": "raw result" },
+    { "id": "text-only", "from": "mcp", "to": "shrink1", "label": "the text only" },
+    { "id": "shorter-text", "from": "shrink1", "to": "mcp", "label": "shorter text" },
+    { "id": "skills-guard", "from": "shrink1", "to": "guard", "label": "skills only", "variant": "security" },
+    { "id": "model-request", "from": "tool", "to": "llm", "label": "model request", "variant": "emphasis" },
+    { "id": "reply-back", "from": "llm", "to": "tool", "label": "reply, unchanged" },
+    { "id": "every-request", "from": "llm", "to": "shrink2", "label": "every request" },
+    { "id": "smaller-request", "from": "shrink2", "to": "llm", "label": "smaller request" },
+    { "id": "forward", "from": "llm", "to": "cloud", "label": "forwarded with the tool's own login", "variant": "emphasis" },
+    { "id": "reply", "from": "cloud", "to": "llm", "label": "reply, streamed" },
+    { "id": "note-turn", "from": "llm", "to": "memory", "label": "after each reply", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What it never does",
+      "items": [
+        "Never answers a request itself: every request reaches your provider, only smaller",
+        "Never adds or swaps credentials: the tool's own headers go out as sent",
+        "Never changes code blocks, tables, paths, file reads or anything you typed"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "When a local model is slow or down",
+      "items": [
+        "The text it was working on goes on as it was",
+        "The model gate waits at most DISTILL_BUDGET_MS (3 s) per request",
+        "Memory folds run only while no request is in flight"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Only this computer",
+      "items": [
+        "Both gates listen on 127.0.0.1 and ::1 only and refuse requests from web pages",
+        "The conversation memory never leaves the machine"
+      ]
+    }
+  ]
+}
