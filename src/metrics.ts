@@ -3,7 +3,7 @@
  * `slm_gate`. Everything slm-gate writes today is `on`; `off` rows come only from the router benchmark that
  * versions before 1.4 shipped, and are shown so an older ledger still adds up.
  */
-import { getDb } from '../src/ledger/index.js';
+import { getDb } from './ledger/index.js';
 
 async function main() {
   console.log('--- Local SQLite Ledger Metrics ---');
