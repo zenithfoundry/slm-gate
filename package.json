@@ -106,7 +106,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/jest": "^30.0.0",
     "@types/markdown-it": "^14.2.0",
-    "@types/node": "^20.14.9",
+    "@types/node": "^26.6.5",
     "archify": "github:tt-a1i/archify#v3.2.0&path:archify",
     "fast-check": "^4.10.2",
     "jest": "^30.5.2",
