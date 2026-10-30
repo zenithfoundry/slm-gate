@@ -1,33 +1,33 @@
 {
-  "generatedAt": "2026-10-29T00:00:08.024Z",
+  "generatedAt": "2026-10-30T00:11:36.955Z",
   "firstEventTs": "2026-10-21T15:59:59.881Z",
-  "lastEventTs": "2026-10-28T23:58:41.941Z",
-  "realEvents": 6879,
+  "lastEventTs": "2026-10-29T23:30:27.599Z",
+  "realEvents": 7830,
   "benchEvents": 0,
   "routing": {
     "resolvedLocal": 0,
-    "distilledForwarded": 1786,
-    "escalatedCloud": 3670
+    "distilledForwarded": 2036,
+    "escalatedCloud": 4145
   },
   "toolDefs": {
-    "requests": 4810,
-    "avgCount": 22.4,
-    "avgDeferred": 8.7,
-    "avgTokEst": 19265.2,
+    "requests": 5480,
+    "avgCount": 22.2,
+    "avgDeferred": 8.3,
+    "avgTokEst": 19504.3,
     "last": {
-      "count": 41,
-      "deferred": 26,
-      "tokEst": 21199
+      "count": 17,
+      "deferred": 1,
+      "tokEst": 21810
     },
     "warn": false
   },
   "fidelity": {
-    "conditionings": 14,
+    "conditionings": 18,
     "measured": 0,
     "avgRecall": null,
     "deterministicPassPct": null,
     "notShrunk": 0,
-    "expansionRate": 0.78,
+    "expansionRate": 0.89,
     "worst": [],
     "learned": 0
   },
@@ -85,6 +85,15 @@
       "resolvedLocal": 0,
       "distilledForwarded": 341,
       "escalatedCloud": 803
+    },
+    {
+      "day": "2026-10-29",
+      "events": 951,
+      "tokensSaved": 216577,
+      "baselineTokens": 269343172,
+      "resolvedLocal": 0,
+      "distilledForwarded": 250,
+      "escalatedCloud": 475
     }
   ],
   "providers": [
@@ -94,11 +103,11 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 6721,
-      "tokensSaved": 2263142,
-      "minutesTotal": 299.021,
-      "avgMinutesPerCycle": 18.689,
-      "medianMinutesPerCycle": 2.807,
+      "events": 7652,
+      "tokensSaved": 2479719,
+      "minutesTotal": 328.699,
+      "avgMinutesPerCycle": 16.435,
+      "medianMinutesPerCycle": 4.186,
       "cycles": [
         {
           "start": "2026-10-21T15:59:59.881Z",
@@ -192,9 +201,33 @@
         },
         {
           "start": "2026-10-28T20:02:46.765Z",
-          "events": 874,
-          "tokensSaved": 212025,
-          "minutes": 27.655
+          "events": 1015,
+          "tokensSaved": 241221,
+          "minutes": 31.464
+        },
+        {
+          "start": "2026-10-29T01:35:56.187Z",
+          "events": 2,
+          "tokensSaved": 0,
+          "minutes": 0
+        },
+        {
+          "start": "2026-10-29T09:36:46.192Z",
+          "events": 293,
+          "tokensSaved": 89221,
+          "minutes": 12.545
+        },
+        {
+          "start": "2026-10-29T15:23:11.837Z",
+          "events": 298,
+          "tokensSaved": 66071,
+          "minutes": 9.138
+        },
+        {
+          "start": "2026-10-29T21:25:38.484Z",
+          "events": 197,
+          "tokensSaved": 32089,
+          "minutes": 4.186
         }
       ],
       "weeks": [
@@ -206,9 +239,9 @@
         },
         {
           "weekStart": "2026-10-26",
-          "events": 6422,
-          "tokensSaved": 2199746,
-          "minutes": 290.709
+          "events": 7353,
+          "tokensSaved": 2416323,
+          "minutes": 320.371
         }
       ]
     },
@@ -218,7 +251,7 @@
       "plan": "chatgpt-go",
       "windowMinutes": 300,
       "windowBudgetTokens": 160,
-      "events": 158,
+      "events": 178,
       "tokensSaved": 0,
       "minutesTotal": 0,
       "avgMinutesPerCycle": 0,
@@ -253,12 +286,18 @@
           "events": 7,
           "tokensSaved": 0,
           "minutes": 0
+        },
+        {
+          "start": "2026-10-29T00:16:04.288Z",
+          "events": 20,
+          "tokensSaved": 0,
+          "minutes": 0
         }
       ],
       "weeks": [
         {
           "weekStart": "2026-10-26",
-          "events": 158,
+          "events": 178,
           "tokensSaved": 0,
           "minutes": 0
         }
