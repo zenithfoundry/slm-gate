@@ -81,7 +81,6 @@ describe('the gate\'s traces are told apart from other writers to the same proje
 
 describe('provider attribution is carried, not re-derived', () => {
   afterEach(() => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
     __resetProviderRegistry();
   });
 
@@ -89,16 +88,14 @@ describe('provider attribution is carried, not re-derived', () => {
     // writeEvent now enriches a single event object and mirrors THAT, so SQLite and
     // Langfuse cannot disagree. Previously the un-enriched event was mirrored and
     // Langfuse re-derived provider through a chain ending in CONFIG.PROVIDER.
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 250 });
     const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: undefined, agent: undefined }));
     const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_'));
     expect(cycle?.name).toBe('cycle_extended_minutes_claude');
   });
 
   it('prefers an explicit provider over what the model string would imply', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 250 });
     const payload = formatEventForLangfuse(ev({ provider: 'claude', route: 'defer_local', api_model: 'gemini-2.5-flash' }));
     const cycle = payload.scores?.find(s => s.name.startsWith('cycle_extended_'));
     expect(cycle?.name).toBe('cycle_extended_minutes_claude');

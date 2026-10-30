@@ -220,7 +220,7 @@ async function run() {
   if (CONFIG.DOWNSTREAM_MCP) {
     report(true, 'DOWNSTREAM_MCP is configured');
 
-    if (CONFIG.DOWNSTREAM_MCP.command) {
+    if ('command' in CONFIG.DOWNSTREAM_MCP) {
       // Only a toolbox started from a file has one to check; `npx -y tech-lead-stack@1` names none.
       const cmdArgs = CONFIG.DOWNSTREAM_MCP.args || [];
       const targetFile = downstreamScript(cmdArgs);
@@ -241,7 +241,8 @@ async function run() {
       }
     }
   } else {
-    report(!CONFIG.TLS_ADAPTER, 'DOWNSTREAM_MCP is blank (standalone mode)', 'TLS_ADAPTER=on requires DOWNSTREAM_MCP to be set');
+    report(!CONFIG.TLS_ADAPTER, 'DOWNSTREAM_MCP is blank (standalone mode)',
+      'TLS_ADAPTER=on needs a tech-lead-stack server in DOWNSTREAM_MCP. Not using tech-lead-stack? Set TLS_ADAPTER=off.');
   }
 
   // 8. SQLite Ledger path & permissions
@@ -270,7 +271,7 @@ async function run() {
   const registry = getProviderRegistry();
   for (const [id, label] of Object.entries(cycleCards)) {
     if (!registry[id]?.windowBudget) {
-      console.log(`  Note: ${id.toUpperCase()}_WINDOW_BUDGET is not set, so both "${label} Cycle" cards (Est. Seconds Saved / Est. Minutes Saved) will stay empty.`);
+      console.log(`  Note: no usage-window budget for ${label} (set SUBSCRIPTION_PLAN, or ${id.toUpperCase()}_WINDOW_BUDGET for a measured figure), so both "${label} Cycle" cards stay empty.`);
     }
   }
 

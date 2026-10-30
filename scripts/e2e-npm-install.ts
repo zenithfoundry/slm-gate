@@ -163,12 +163,15 @@ async function main(): Promise<void> {
 
     // 1. Settings live in ~/.slm-gate; the code stays in node_modules.
     const settingsDir = path.join(home, '.slm-gate');
-    const initOutput = run({ command: bin, args: ['init', '--ram', '64'], env: userEnv, cwd: home });
+    const shown = run({ command: bin, args: ['init', '--ram', '64', '--profile', 'proven', '--show'], env: userEnv, cwd: home });
+    check(!fs.existsSync(path.join(settingsDir, '.env')) && shown.includes('DISTILL_SKILLS=on'), 'init --show prints the profile lines and writes nothing');
+    const initOutput = run({ command: bin, args: ['init', '--ram', '64', '--profile', 'proven', '--provider', 'claude'], env: userEnv, cwd: home });
     check(fs.existsSync(path.join(settingsDir, '.env')) && initOutput.includes('RAM_PRESET=ram-64'), 'init wrote ~/.slm-gate/.env, set up for 64 GB');
     const configOutput = run({ command: bin, args: ['config'], env: userEnv, cwd: home });
     // The settings as JSON, between the heading and the summary that follows.
     const config = JSON.parse(configOutput.match(/^\{$[\s\S]*?^\}$/m)?.[0] ?? '{}');
     check(config.HOME_DIR === settingsDir && config.RAM_PRESET === 'ram-64', 'config reads the settings from ~/.slm-gate');
+    check(config.DISTILL_SKILLS === true && config.REPO_INDEX === true && config.PROVIDER === 'claude', 'the proven profile and the chosen provider are in force');
     // slm-gate reports real paths; the temp folder can be behind a link (macOS: /var → /private/var).
     check(config.ROOT_DIR === fs.realpathSync(packageDir), 'the code stays in the npm install folder');
     check(config.LEDGER_PATH === path.join(settingsDir, 'output', 'ledger.sqlite'), 'the ledger lives in ~/.slm-gate/output');

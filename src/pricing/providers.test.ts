@@ -83,18 +83,18 @@ describe('pricing resolves for every current model', () => {
   it('resolves host-decorated and dated ids to their family rate', () => {
     expect(normalizeModelId('claude-opus-5[1m]')).toBe('claude-opus-5');
     // Dated snapshot resolves by longest-prefix match.
-    expect(calculateCostUsd('claude-haiku-4-5-20251001', 1_000_000, 0)).toBeCloseTo(1, 6);
+    expect(calculateCostUsd({ model: 'claude-haiku-4-5-20251001', inTok: 1_000_000, outTok: 0 })).toBeCloseTo(1, 6);
   });
 
   it('prefers the more specific entry when one id prefixes another', () => {
     // gemini-3.5-flash-lite must not be priced as gemini-3.5-flash.
-    expect(calculateCostUsd('gemini-3.5-flash-lite', 1_000_000, 0)).toBeCloseTo(0.30, 6);
-    expect(calculateCostUsd('gemini-3.5-flash', 1_000_000, 0)).toBeCloseTo(1.50, 6);
+    expect(calculateCostUsd({ model: 'gemini-3.5-flash-lite', inTok: 1_000_000, outTok: 0 })).toBeCloseTo(0.30, 6);
+    expect(calculateCostUsd({ model: 'gemini-3.5-flash', inTok: 1_000_000, outTok: 0 })).toBeCloseTo(1.50, 6);
   });
 
   it('prices Claude Opus 5 at its documented rate', () => {
     // Guard against a transcription error: Opus 5 is $5/$25, not Fable's $10/$50.
-    expect(calculateCostUsd('claude-opus-5', 1_000_000, 1_000_000)).toBeCloseTo(30, 6);
+    expect(calculateCostUsd({ model: 'claude-opus-5', inTok: 1_000_000, outTok: 1_000_000 })).toBeCloseTo(30, 6);
   });
 
   it('does not treat a cloud Gemma model as a free local model', () => {
@@ -104,7 +104,6 @@ describe('pricing resolves for every current model', () => {
 
 describe('window budgets come from configuration', () => {
   afterEach(() => {
-    delete process.env.CLAUDE_WINDOW_BUDGET;
     __resetProviderRegistry();
   });
 
@@ -115,11 +114,9 @@ describe('window budgets come from configuration', () => {
   });
 
   it('reads a budget from env without mutating the module defaults', () => {
-    process.env.CLAUDE_WINDOW_BUDGET = '250';
-    __resetProviderRegistry();
+    __resetProviderRegistry({ claude: 250 });
     expect(getProviderRegistry().claude.windowBudget).toBe(250);
 
-    delete process.env.CLAUDE_WINDOW_BUDGET;
     __resetProviderRegistry();
     // A shallow registry copy would leave 250 stuck here forever.
     expect(getProviderRegistry().claude.windowBudget).toBeNull();

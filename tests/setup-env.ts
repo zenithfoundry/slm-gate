@@ -16,6 +16,10 @@ import path from 'node:path';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slm-gate-test-'));
 
+// Never read the developer's own settings file: tests see the built-in defaults, as a fresh checkout in CI
+// does, so a plan or budget in the maintainer's .env cannot make a test pass or fail.
+process.env.SLM_GATE_HOME = dir;
+
 // JEST_WORKER_ID keeps parallel workers off each other's database.
 process.env.LEDGER_PATH = path.join(dir, `ledger-${process.env.JEST_WORKER_ID ?? '0'}.sqlite`);
 

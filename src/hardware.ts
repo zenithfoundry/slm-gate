@@ -1,3 +1,8 @@
+/**
+ * What this computer can run: its RAM and accelerator, the RAM preset and context size doctor and init
+ * recommend for it, and the one table of local-model pairs per preset that config, doctor, init and
+ * models:check all read.
+ */
 import { execSync } from 'node:child_process';
 import os from 'node:os';
 
@@ -47,9 +52,9 @@ export function detectHardware(mockOs?: { totalmem: () => number; arch: () => st
   if (isAppleSilicon) {
     accelerator = 'metal';
   } else {
-    // Attempt to detect NVIDIA GPUs by running nvidia-smi
+    // Attempt to detect NVIDIA GPUs by running nvidia-smi. Bounded: a wedged driver must not hang doctor.
     try {
-      execSync('nvidia-smi', { stdio: 'ignore' });
+      execSync('nvidia-smi', { stdio: 'ignore', timeout: 5000 });
       accelerator = 'cuda';
     } catch {
       // Ignore errors (e.g., command not found or no GPU), fallback to 'cpu' remains
@@ -89,18 +94,17 @@ export function recommendPreset(totalRamGB: number): string {
 }
 
 /**
- * Recommends a safe context window size (NUM_CTX) based on available RAM.
- * Ensures that there is enough memory to hold KV caches for both SLM models if running in dual-model mode.
- * 
+ * Recommends a context window size (NUM_CTX) for this much RAM: enough memory for both local models' KV
+ * caches next to the operating system and the user's apps.
+ *
  * @param totalRamGB - The total physical RAM in gigabytes.
- * @param dualModel - Whether the system is running both a brain and a gate model concurrently (defaults to true).
  * @returns {number} The recommended NUM_CTX context length.
- * 
+ *
  * @example
  * const numCtx = recommendNumCtx(16);
  * // returns 4096
  */
-export function recommendNumCtx(totalRamGB: number, dualModel: boolean = true): number {
+export function recommendNumCtx(totalRamGB: number): number {
   return totalRamGB >= 24 ? 8192 : 4096;
 }
 

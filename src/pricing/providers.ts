@@ -28,6 +28,10 @@
  */
 
 import fs from 'node:fs';
+import { z } from 'zod';
+import { CONFIG } from '../config.js';
+import { log } from '../log.js';
+import type { ProviderId } from './plans.js';
 
 export type MeteringModel = 'message' | 'compute';
 
@@ -52,6 +56,16 @@ export interface ProviderProfile {
   /** Lowercased substrings that identify this provider from a host/agent name. */
   agentPatterns: string[];
 }
+
+// What an override file may say about a provider: each field fills in over the built-in profile (or the
+// Claude profile for a new id). Checked before anything is merged, so a wrong file leaves the defaults whole.
+const registryOverrideSchema = z.record(z.object({
+  windowMinutes: z.number().positive().optional(),
+  metering: z.enum(['message', 'compute']).optional(),
+  windowBudget: z.number().positive().nullable().optional(),
+  modelPatterns: z.array(z.string()).optional(),
+  agentPatterns: z.array(z.string()).optional(),
+}));
 
 export const DEFAULT_PROVIDER_REGISTRY: Record<string, ProviderProfile> = {
   claude: {
@@ -111,6 +125,20 @@ export function minutesFreed(profile: ProviderProfile, unitsSaved: number): numb
 }
 
 let cachedRegistry: Record<string, ProviderProfile> | null = null;
+// Budgets a test asked for in place of the configured ones (see __resetProviderRegistry).
+let testBudgets: Partial<Record<ProviderId, number | null>> | null = null;
+
+/**
+ * The budget of each provider's window: the measured `*_WINDOW_BUDGET` from the settings file, else the
+ * estimate for the plan the settings name, else null (no savings card).
+ */
+function configuredBudgets(): Record<ProviderId, number | null> {
+  return {
+    claude: CONFIG.CLAUDE_WINDOW_BUDGET ?? CONFIG.RESOLVED_PLAN_CLAUDE.windowBudget,
+    chatgpt: CONFIG.CHATGPT_WINDOW_BUDGET ?? CONFIG.RESOLVED_PLAN_CHATGPT.windowBudget,
+    gemini: CONFIG.GEMINI_WINDOW_BUDGET ?? CONFIG.RESOLVED_PLAN_GEMINI.windowBudget,
+  };
+}
 
 /**
  * Returns the active provider registry, loading a JSON override once if configured.
@@ -118,7 +146,7 @@ let cachedRegistry: Record<string, ProviderProfile> | null = null;
  * @param overridePath Optional path to a JSON registry; defaults to PROVIDER_REGISTRY_PATH.
  * @returns Provider id -> profile.
  */
-export function getProviderRegistry(overridePath = process.env.PROVIDER_REGISTRY_PATH): Record<string, ProviderProfile> {
+export function getProviderRegistry(overridePath = CONFIG.PROVIDER_REGISTRY_PATH): Record<string, ProviderProfile> {
   if (cachedRegistry) return cachedRegistry;
 
   // Clone each profile: a shallow spread would share the profile objects with
@@ -129,16 +157,20 @@ export function getProviderRegistry(overridePath = process.env.PROVIDER_REGISTRY
   );
   if (overridePath) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(overridePath, 'utf-8')) as Record<string, Partial<ProviderProfile>>;
-      for (const [id, profile] of Object.entries(parsed)) {
-        registry[id] = { ...(registry[id] ?? DEFAULT_PROVIDER_REGISTRY.claude), ...profile } as ProviderProfile;
+      const parsed = registryOverrideSchema.safeParse(JSON.parse(fs.readFileSync(overridePath, 'utf-8')));
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        throw new Error(`${issue.path.join('.') || 'the file'}: ${issue.message}`);
+      }
+      for (const [id, profile] of Object.entries(parsed.data)) {
+        registry[id] = { ...(registry[id] ?? DEFAULT_PROVIDER_REGISTRY.claude), ...profile };
       }
       // Matching is substring-based, so a very short needle silently mis-attributes
       // unrelated models. This is how the retired 'o1'/'o3'/'o4' patterns became a hazard.
       for (const [id, profile] of Object.entries(registry)) {
         for (const pattern of [...profile.modelPatterns, ...profile.agentPatterns]) {
           if (pattern.length < MIN_PATTERN_LENGTH) {
-            console.error(`[providers] Ignoring pattern '${pattern}' for '${id}': patterns must be at least ${MIN_PATTERN_LENGTH} characters to avoid false matches.`);
+            log.warn('providers', `Ignoring pattern '${pattern}' for '${id}': patterns must be at least ${MIN_PATTERN_LENGTH} characters to avoid false matches.`);
           }
         }
         profile.modelPatterns = profile.modelPatterns.filter(p => p.length >= MIN_PATTERN_LENGTH);
@@ -146,28 +178,26 @@ export function getProviderRegistry(overridePath = process.env.PROVIDER_REGISTRY
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[providers] Could not read PROVIDER_REGISTRY_PATH (${overridePath}): ${message}. Using defaults.`);
+      log.warn('providers', `Could not use PROVIDER_REGISTRY_PATH (${overridePath}): ${message}. Using defaults.`);
     }
   }
 
-  // Window budgets are operator-supplied, per provider, via env.
-  // e.g. CLAUDE_WINDOW_BUDGET=2000000  (tokens per 5h window)
-  //      CHATGPT_WINDOW_BUDGET=80        (messages per 3h window)
-  for (const id of Object.keys(registry)) {
-    const raw = process.env[`${id.toUpperCase()}_WINDOW_BUDGET`];
-    if (raw) {
-      const parsed = Number(raw);
-      if (Number.isFinite(parsed) && parsed > 0) registry[id].windowBudget = parsed;
-    }
+  const budgets: Partial<Record<string, number | null>> = { ...configuredBudgets(), ...testBudgets };
+  for (const [id, budget] of Object.entries(budgets)) {
+    if (registry[id] && budget && budget > 0) registry[id].windowBudget = budget;
   }
 
   cachedRegistry = registry;
   return registry;
 }
 
-/** Test hook: forces the registry to be re-read on next access. */
-export function __resetProviderRegistry(): void {
+/**
+ * Test hook: forces the registry to be re-read on next access, with `budgets` standing in for the configured
+ * window budgets (a provider left out keeps the configured one; none = exactly the configuration).
+ */
+export function __resetProviderRegistry(budgets?: Partial<Record<ProviderId, number | null>>): void {
   cachedRegistry = null;
+  testBudgets = budgets ?? null;
 }
 
 /**
