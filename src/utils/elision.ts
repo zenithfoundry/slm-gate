@@ -1,7 +1,13 @@
+/**
+ * Elision and distillation of tool results: which lines to keep, which to cut behind an expand_elision
+ * marker, the elision id those markers carry, and the fidelity guard that keeps a shortened skill honest.
+ * Both gates run tool results through here.
+ */
 import MarkdownIt from 'markdown-it';
 import crypto from 'node:crypto';
 import { CONFIG } from '../config.js';
 import { getDb, getDistillFeedback, getDistillPolicy, learnedProtections, normaliseProtection, recordLostSentences, writeElision } from '../ledger/index.js';
+import { log } from '../log.js';
 import { bufferToFloat64Array, cosineSimilarity, embedText } from '../utils/embedding.js';
 import { TOOL_RESULT_PREFIXES } from './constants.js';
 
@@ -32,12 +38,13 @@ const MAX_CONCURRENT_SEGMENT_CALLS = Math.max(1, CONFIG.MAX_CONCURRENT_SEGMENT_C
  * identical tool outputs always produce the exact same elision ID,
  * enabling safe and highly-cacheable reconstruction logic.
  *
- * @param toolName - The name of the tool (e.g., 'read_file')
- * @param args - The structured arguments provided to the tool
- * @param originalText - The complete, uncompressed raw text returned by the tool
+ * @param params.toolName - The name of the tool (e.g., 'read_file')
+ * @param params.args - The structured arguments provided to the tool
+ * @param params.originalText - The complete, uncompressed raw text returned by the tool
  * @returns A unique hexadecimal SHA-256 hash identifying this exact output state
  */
-export function computeElisionId(toolName: string, args: any, originalText: string): string {
+export function computeElisionId(params: { toolName: string; args: any; originalText: string }): string {
+  const { toolName, args, originalText } = params;
   const hashText = crypto.createHash('sha256').update(originalText).digest('hex');
   const payload = `${toolName}:${JSON.stringify(args || {})}:${hashText}`;
   return crypto.createHash('sha256').update(payload).digest('hex');
@@ -48,13 +55,14 @@ export function computeElisionId(toolName: string, args: any, originalText: stri
  * This marker informs downstream LLMs that content is missing and provides the `expand_elision`
  * ID they can use if they determine they actually need the omitted lines.
  *
- * @param elisionId - The unique SHA-256 hash for the original content
- * @param elidedLinesCount - Number of lines that were removed
- * @param startLine - Optional starting line index of the removed chunk
- * @param endLine - Optional ending line index of the removed chunk
+ * @param params.elisionId - The unique SHA-256 hash for the original content
+ * @param params.elidedLinesCount - Number of lines that were removed
+ * @param params.startLine - Optional starting line index of the removed chunk
+ * @param params.endLine - Optional ending line index of the removed chunk
  * @returns A formatted string marker designed for robust parsing
  */
-export function formatElisionMarker(elisionId: string, elidedLinesCount: number, startLine?: number, endLine?: number): string {
+export function formatElisionMarker(params: { elisionId: string; elidedLinesCount: number; startLine?: number; endLine?: number }): string {
+  const { elisionId, elidedLinesCount, startLine, endLine } = params;
   const hasRange = startLine !== undefined && endLine !== undefined;
   const rangeStr = hasRange ? `, lines ${startLine}-${endLine}` : '';
   // Spell out the range argument: without it, expand_elision starts from the top of the
@@ -137,14 +145,20 @@ export function pageLines(params: {
 }
 
 /**
+ * The one character-to-token ratio every estimate in the gate uses (ledger rows, budgets, tool-definition
+ * sizes). A rough figure for mixed prose and code; one value so two estimates of the same text never disagree.
+ */
+export const CHARS_PER_TOKEN = 4;
+
+/**
  * Estimates the number of tokens in a string based on a rough character-to-token heuristic.
  * Used for fast, zero-dependency short-circuiting before invoking the actual SLM.
  *
  * @param text - The text to evaluate
- * @returns Estimated token count (roughly 1 token per 3.5 characters)
+ * @returns Estimated token count (roughly 1 token per CHARS_PER_TOKEN characters)
  */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
 /**
@@ -217,12 +231,13 @@ export function extractToolSignature(content: string): ExtractResult {
  * Used during deterministic distillation of `read_file` operations to safely truncate
  * unneeded implementation details while preserving the file's "skeleton".
  *
- * @param lines - Array of lines comprising the file
- * @param task - The active user task string, used to derive search terms
- * @param searchTerms - Explicit additional search terms to match
+ * @param params.lines - Array of lines comprising the file
+ * @param params.task - The active user task string, used to derive search terms
+ * @param params.searchTerms - Explicit additional search terms to match
  * @returns A sorted array of 0-indexed line numbers that should be preserved
  */
-export function findRelevantRegions(lines: string[], task: string, searchTerms: string[] = []): number[] {
+export function findRelevantRegions(params: { lines: string[]; task: string; searchTerms?: string[] }): number[] {
+  const { lines, task, searchTerms = [] } = params;
   const keepLines = new Set<number>();
   
   // Create lowercase search terms from task
@@ -294,24 +309,6 @@ export function mergeRegions(lines: string[], keepLines: number[]): { lines: str
   return segments;
 }
 
-/**
- * The core engine of Reasoned Redundancy.
- * Dynamically distills excessively large tool results into compressed representations using 
- * tool-specific deterministic policies (e.g. keeping stack traces, top-K search results, 
- * or code skeletons).
- * 
- * If the resulting output remains stubbornly above token limits, it engages a strict local 
- * SLM fallback to further distill the text, utilizing protective placeholders to guarantee 
- * invariant lines (like file paths or function identifiers) are never dropped.
- *
- * @param slm - The local offline Small Language Model integration client
- * @param text - The raw, verbose tool result text
- * @param task - The overall user directive/task string
- * @param toolName - The categorized tool name (e.g., 'read_file', 'get_logs')
- * @param args - The arguments originally passed to the tool
- * @param preservePatterns - A rigid list of RegExp patterns whose matched lines MUST survive SLM compression
- * @returns The final compressed text representation, optionally featuring elision markers
- */
 /** What the fidelity guard measured for one distillation (ledger meta.fidelity, the dashboard card, the bench). */
 export interface FidelityStats {
   /** small: under DISTILL_MIN_TOKENS; not_shrunk: a skill still over budget after shrinking, sent as the original. */
@@ -377,15 +374,15 @@ export function fidelityTokens(text: string): string[] {
 }
 
 /** `distillToolResultWithStats` for callers that only want the text. */
-export async function distillToolResult(
-  slm: (text: string, task?: string) => Promise<string>,
-  text: string,
-  task: string | undefined,
-  toolName: string | undefined,
-  args: any,
-  preservePatterns: RegExp[]
-): Promise<string> {
-  return (await distillToolResultWithStats({ slm, text, task, toolName, args, preservePatterns })).text;
+export async function distillToolResult(params: {
+  slm: (text: string, task?: string) => Promise<string>;
+  text: string;
+  task: string | undefined;
+  toolName: string | undefined;
+  args: any;
+  preservePatterns: RegExp[];
+}): Promise<string> {
+  return (await distillToolResultWithStats(params)).text;
 }
 
 /**
@@ -415,7 +412,7 @@ export async function distillToolResultWithStats(params: {
   // Was a hardcoded 'v1', so a distilled result could never be invalidated at all.
   // CONFIG.PROMPT_VERSION is the documented lever for exactly this, so it belongs in the key.
   const policyVersion = CONFIG.PROMPT_VERSION;
-  const elisionId = computeElisionId(toolName || 'unknown', args, text);
+  const elisionId = computeElisionId({ toolName: toolName || 'unknown', args, originalText: text });
   const cacheKey = crypto.createHash('sha256').update(text + (task||'') + (toolName||'') + policyVersion).digest('hex');
 
   const db = getDb();
@@ -440,9 +437,10 @@ export async function distillToolResultWithStats(params: {
   let processedText = text;
 
   // Domain-Specific Deterministic Heuristics
-  if (toolName && ['read_file', 'view_file', 'File_Read'].some(t => toolName.toLowerCase().includes(t))) {
+  // Lower-case entries only: they are matched against the lower-cased tool name.
+  if (toolName && ['read_file', 'view_file', 'file_read'].some(t => toolName.toLowerCase().includes(t))) {
     const lines = text.split('\n');
-    const keepLines = findRelevantRegions(lines, task || '');
+    const keepLines = findRelevantRegions({ lines, task: task || '' });
     if (keepLines.length > 0 && keepLines.length < lines.length * 0.8) {
       const segments = mergeRegions(lines, keepLines);
       let newText = '';
@@ -451,14 +449,14 @@ export async function distillToolResultWithStats(params: {
       for (const seg of segments) {
         if (seg.start > lastEnd + 1) {
           const elidedCount = seg.start - (lastEnd + 1);
-          newText += formatElisionMarker(elisionId, elidedCount, lastEnd + 1, seg.start - 1);
+          newText += formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount, startLine: lastEnd + 1, endLine: seg.start - 1 });
         }
         newText += seg.lines.join('\n') + '\n';
         lastEnd = seg.end;
       }
       if (lastEnd < lines.length - 1) {
         const elidedCount = lines.length - 1 - lastEnd;
-        newText += formatElisionMarker(elisionId, elidedCount, lastEnd + 1, lines.length - 1);
+        newText += formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount, startLine: lastEnd + 1, endLine: lines.length - 1 });
       }
       processedText = newText.trim();
     }
@@ -486,7 +484,7 @@ export async function distillToolResultWithStats(params: {
        for (const seg of segments) {
          if (seg.start > lastEnd + 1) {
            const elidedCount = seg.start - (lastEnd + 1);
-           newText += formatElisionMarker(elisionId, elidedCount, lastEnd + 1, seg.start - 1);
+           newText += formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount, startLine: lastEnd + 1, endLine: seg.start - 1 });
          }
          newText += seg.lines.join('\n') + '\n';
          lastEnd = seg.end;
@@ -499,7 +497,7 @@ export async function distillToolResultWithStats(params: {
     const topK = 50; 
     if (lines.length > topK) {
        const elidedCount = lines.length - topK;
-       processedText = lines.slice(0, topK).join('\n') + formatElisionMarker(elisionId, elidedCount, topK, lines.length - 1);
+       processedText = lines.slice(0, topK).join('\n') + formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount, startLine: topK, endLine: lines.length - 1 });
     }
   }
 
@@ -534,7 +532,7 @@ export async function distillToolResultWithStats(params: {
 
   if (fidelity === 'verbatim') {
     skillBypassFired = true;
-    console.error(`[distill] bypass: verbatim mode enforced for ${resolvedToolName}`);
+    log.info('distill', 'bypass: verbatim mode enforced', { tool: resolvedToolName });
   } else if (fidelity === 'structural' && estimateTokens(finalText) > maxTokens) {
     // Structural mode relies purely on the Hard Truncation check at the bottom of this file.
     // We skip the SLM Semantic loop because structural integrity is more important than size.
@@ -598,7 +596,7 @@ export async function distillToolResultWithStats(params: {
         }
       }
     } catch (e) {
-      console.error('[distill] Structural parsing failed', e);
+      log.warn('distill', 'Structural parsing failed', { error: e });
     }
 
     // Phase 1b: the whole YAML frontmatter block. markdown-it emits a `front_matter` token only with a
@@ -660,7 +658,7 @@ export async function distillToolResultWithStats(params: {
     }
 
     if (adaptivePreservedCount > 0) {
-      console.info(`[distill] Adaptive loop preemptively preserved ${adaptivePreservedCount} regions based on semantic memory.`);
+      log.info('distill', 'Adaptive loop preemptively preserved regions based on semantic memory', { regions: adaptivePreservedCount });
     }
 
     // Phase 4: collapse the line map into contiguous protected / narrative runs.
@@ -734,7 +732,7 @@ export async function distillToolResultWithStats(params: {
         // Fail open for THIS run only — every other run still compresses.
         failedRuns++;
         stats.errors.push(`compress_failed: ${err instanceof Error ? err.message : String(err)}`);
-        console.error(`[distill] segment kept verbatim after compression failure: ${err instanceof Error ? err.message : String(err)}`);
+        log.warn('distill', 'segment kept verbatim after compression failure', { error: err });
       }
     };
 
@@ -752,11 +750,10 @@ export async function distillToolResultWithStats(params: {
     // then be hard-truncated below with no trace of WHY compression was never attempted.
     if (estimateTokens(rebuilt) > maxTokens) {
       const sentRuns = narrativeRuns.length - skippedUnderFloor;
-      console.warn(
-        `[distill] summarize left ~${estimateTokens(rebuilt)} tokens against a budget of ${maxTokens}: ` +
-        `${narrativeRuns.length} narrative run(s), ${skippedUnderFloor} under the ${MIN_COMPRESSIBLE_SEGMENT_CHARS}-char floor, ` +
-        `${sentRuns} sent, ${failedRuns} failed; hard truncation follows`
-      );
+      log.warn('distill', 'summarize left the text over budget; hard truncation follows', {
+        tokens: estimateTokens(rebuilt), budget: maxTokens, runs: narrativeRuns.length,
+        under_floor: skippedUnderFloor, floor_chars: MIN_COMPRESSIBLE_SEGMENT_CHARS, sent: sentRuns, failed: failedRuns,
+      });
     }
 
     // Invariant, not a discard path. Protected runs are spliced back from our own copy, so this
@@ -770,7 +767,7 @@ export async function distillToolResultWithStats(params: {
     } else {
       stats.deterministic = 0;
       stats.lost.push(...lost.map(block => `protected_block: ${block.slice(0, 60)}`), ...lostTokens);
-      console.warn(`distill_fallback: ${lost.length} protected block(s) and ${lostTokens.length} tracked token(s) missing after reassembly; keeping the original text`);
+      log.warn('distill', `distill_fallback: ${lost.length} protected block(s) and ${lostTokens.length} tracked token(s) missing after reassembly; keeping the original text`);
     }
     stats.recall = stats.runsChecked > 0 ? Number((recallSum / stats.runsChecked).toFixed(3)) : null;
     if (lostSentences.length > 0) stats.learnedNew = recordLostSentences({ sentences: lostSentences, toolName: resolvedToolName });
@@ -787,7 +784,7 @@ export async function distillToolResultWithStats(params: {
   // Hard Truncation Check: If everything fails (including SLM), slice the block to protect context windows 
   if (maxTokens > 0 && estimateTokens(finalText) > maxTokens) {
     const lines = finalText.split('\n');
-    const keepHead = Math.floor((maxTokens * 3.5) / 100);
+    const keepHead = Math.floor((maxTokens * CHARS_PER_TOKEN) / 100);
     
     if (lines.length > keepHead * 2) {
       const headLines = lines.slice(0, keepHead);
@@ -799,14 +796,18 @@ export async function distillToolResultWithStats(params: {
       const linesMatchOriginal = finalText === text;
       finalText = headLines.join('\n') +
                   (linesMatchOriginal
-                    ? formatElisionMarker(elisionId, elidedCount, keepHead, lines.length - keepHead - 1)
-                    : formatElisionMarker(elisionId, elidedCount)) +
+                    ? formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount, startLine: keepHead, endLine: lines.length - keepHead - 1 })
+                    : formatElisionMarker({ elisionId: elisionId, elidedLinesCount: elidedCount })) +
                   tailLines.join('\n');
     }
   }
 
-  // Memorize the computed result (for 'not_shrunk' that is the original's deterministic cut, never model output)
-  db.prepare('INSERT OR REPLACE INTO cache (key, value, ts) VALUES (?, ?, ?)').run(cacheKey, finalText, new Date().toISOString());
+  // Memorize the computed result (for 'not_shrunk' that is the original's deterministic cut, never model output).
+  // Not when a run failed: a model outage would otherwise freeze the verbatim text in the cache until
+  // PROMPT_VERSION changes; skipping the write makes the next call try again.
+  if (stats.errors.length === 0) {
+    db.prepare('INSERT OR REPLACE INTO cache (key, value, ts) VALUES (?, ?, ?)').run(cacheKey, finalText, new Date().toISOString());
+  }
 
   stats.elapsedMs = Date.now() - started;
   return { text: finalText, fidelity: stats };

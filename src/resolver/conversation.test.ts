@@ -21,16 +21,16 @@ beforeEach(() => {
 describe('extraction with the conversation so far', () => {
   it('puts the summary in the prompt with the instruction not to repeat settled decisions', async () => {
     slm.generateJSON.mockResolvedValueOnce({ decisions: [] });
-    await extractAmbiguities(slm, 'skill', 'task', summary);
-    const prompt = String(slm.generateJSON.mock.calls[0][1]);
+    await extractAmbiguities({ slm: slm, skillText: 'skill', task: 'task', conversation: summary });
+    const prompt = String(slm.generateJSON.mock.calls[0][0].prompt);
     expect(prompt.startsWith('Conversation so far (do NOT list a decision it has already made):\n' + summary)).toBe(true);
   });
 
   it('is byte-for-byte the old prompt when there is no memory', async () => {
     slm.generateJSON.mockResolvedValueOnce({ decisions: [] }).mockResolvedValueOnce({ decisions: [] });
-    await extractAmbiguities(slm, 'skill', 'task');
-    await extractAmbiguities(slm, 'skill', 'task', null);
-    const [a, b] = slm.generateJSON.mock.calls.map(c => String(c[1]));
+    await extractAmbiguities({ slm: slm, skillText: 'skill', task: 'task' });
+    await extractAmbiguities({ slm: slm, skillText: 'skill', task: 'task', conversation: null });
+    const [a, b] = slm.generateJSON.mock.calls.map(c => String(c[0].prompt));
     expect(a).toBe(b);
     expect(a.startsWith('Extract concrete open decisions')).toBe(true);
   });
@@ -42,7 +42,7 @@ describe('Decided lines pre-fill, never auto-apply', () => {
       .mockResolvedValueOnce({ decisions: [question] })                     // extract
       .mockResolvedValueOnce({ answered: true, answer: 'Jest' })            // Decided line settles it
       .mockResolvedValueOnce({ risk: 'reversible' });                       // risk gate: even the lowest risk
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', conversation: summary, decided: ['Tests use Jest, never Vitest'] });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', conversation: summary, decided: ['Tests use Jest, never Vitest'] });
     expect(out.autoApplied).toHaveLength(0);
     expect(out.askUser).toHaveLength(1);
     expect(out.askUser[0].recommendedAnswer).toBe('Jest');
@@ -56,7 +56,7 @@ describe('Decided lines pre-fill, never auto-apply', () => {
       .mockResolvedValueOnce({ answered: false, answer: '' })
       .mockResolvedValueOnce({ answer: 'Jest', options: ['Vitest'] })       // convention path
       .mockResolvedValueOnce({ risk: 'low' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', conversation: summary, decided: ['Unrelated decision'] });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', conversation: summary, decided: ['Unrelated decision'] });
     expect(out.askUser[0].provenance).toBeUndefined();
   });
 });

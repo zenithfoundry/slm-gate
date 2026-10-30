@@ -5,13 +5,14 @@ import { CallToolRequestSchema, CallToolResultSchema } from '@modelcontextprotoc
 jest.unstable_mockModule('../../src/config.js', () => ({
   CONFIG: {
     DOWNSTREAM_MCP: { command: 'echo' },
-    MCP_GATE_TRANSPORT: 'stdio'
+    MCP_GATE_TRANSPORT: 'stdio',
+    SLM_TIMEOUT_MS: 90_000,
   }
 }));
 
 // Mock pipeline
 jest.unstable_mockModule('../../src/mcp-gate/pipeline.js', () => ({
-  conditionPrompt: jest.fn(async (text: string, task: string, rootUri?: string, toolName?: string, args?: any) => {
+  conditionPrompt: jest.fn(async ({ text }: { text: string }) => {
     // Mock conditioning that adds Open questions and preserves MUST
     return text.replace('Long boring text', '') + '\n\n## Open questions\n- Question 1';
   })
@@ -71,12 +72,14 @@ describe('mcp-gate server (proxy mode)', () => {
 
     const result = await handler(req as any, {} as any);
 
+    // Every downstream request carries the gate's own timeout: the SDK default of 60 s failed any toolbox tool
+    // that runs longer, and only when called through the gate.
     expect(mockRequest).toHaveBeenCalledWith({
       method: "tools/call",
       params: req.params
-    }, CallToolResultSchema);
+    }, CallToolResultSchema, { timeout: 90_000, resetTimeoutOnProgress: true });
 
-    expect(conditionPrompt).toHaveBeenCalledWith(originalText, 'test task', undefined, 'get_skill', { task: 'test task' });
+    expect(conditionPrompt).toHaveBeenCalledWith({ text: originalText, task: 'test task', rootUri: undefined, toolName: 'get_skill', args: { task: 'test task' } });
 
     const conditionedText = result.content[0].text;
     expect(conditionedText.length).toBeLessThan(originalText.length + 30); // account for Open questions
@@ -117,7 +120,7 @@ describe('mcp-gate server (proxy mode)', () => {
       mockRequest.mockResolvedValueOnce({ content: [{ type: 'text', text: 'first' }, image, { type: 'text', text: 'second' }] });
       const result = await call(server);
       expect(conditionPrompt).toHaveBeenCalledTimes(1);
-      expect(conditionPrompt).toHaveBeenCalledWith('first\n\nsecond', 't', undefined, 'get_skill', { task: 't' });
+      expect(conditionPrompt).toHaveBeenCalledWith({ text: 'first\n\nsecond', task: 't', rootUri: undefined, toolName: 'get_skill', args: { task: 't' } });
       expect(result.content).toHaveLength(2);
       expect(result.content[0].text).toContain('first\n\nsecond');
       expect(result.content[1]).toEqual(image);

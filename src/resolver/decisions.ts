@@ -197,7 +197,7 @@ DECISION "${decision.title}":
 ${decision.body}`;
   let result: { applies: boolean; answer: string };
   try {
-    result = await withSlmTimeout(slm.generateJSON(CONFIG.SLM_BRAIN_MODEL, prompt, schema, 0), 'resolver', CONFIG.SLM_TIMEOUT_MS);
+    result = await withSlmTimeout({ promise: slm.generateJSON({ model: CONFIG.SLM_BRAIN_MODEL, prompt: prompt, schema: schema, temperature: 0 }), stage: 'resolver', timeoutMs: CONFIG.SLM_TIMEOUT_MS });
   } catch {
     return null;
   }

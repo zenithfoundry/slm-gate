@@ -1,3 +1,7 @@
+/**
+ * The two local model roles, read live from CONFIG: `brain` (reasoning, the resolver) and `gate`
+ * (distillation).
+ */
 import { CONFIG } from '../config.js';
 
 export const roles = {

@@ -1,14 +1,18 @@
+/**
+ * Smoke test for the pricing the ledger relies on (`pnpm run ledger:smoke`): a cloud model costs money,
+ * a local model costs nothing and an unknown model throws instead of being priced at zero.
+ */
 import { calculateCostUsd } from '../pricing/index.js';
 
 async function main() {
   console.log('--- SLM Gate Ledger Smoke Test ---');
 
   const apiModel = 'gpt-5.6-luna';
-  const apiCost = calculateCostUsd(apiModel, 250, 60);
+  const apiCost = calculateCostUsd({ model: apiModel, inTok: 250, outTok: 60 });
   console.log(`Cost for ${apiModel} (250 in, 60 out): $${apiCost.toFixed(8)}`);
 
   const localModel = 'qwen3.5:1.5b';
-  const localCost = calculateCostUsd(localModel, 250, 60);
+  const localCost = calculateCostUsd({ model: localModel, inTok: 250, outTok: 60 });
   console.log(`Cost for ${localModel} (250 in, 60 out): $${localCost.toFixed(8)}`);
 
   if (localCost !== 0) {
@@ -20,7 +24,7 @@ async function main() {
 
   const missingModel = 'not-a-real-model-123';
   try {
-    calculateCostUsd(missingModel, 250, 60);
+    calculateCostUsd({ model: missingModel, inTok: 250, outTok: 60 });
     console.error(`❌ Missing model did not throw error!`);
     process.exit(1);
   } catch (err: any) {

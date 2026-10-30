@@ -231,7 +231,7 @@ describe('failures never change what was sent', () => {
 });
 
 describe('elision markers', () => {
-  const withMarker = () => `head\n${formatElisionMarker('abc', 40, 50, 89).trim()}\ntail`;
+  const withMarker = () => `head\n${formatElisionMarker({ elisionId: 'abc', elidedLinesCount: 40, startLine: 50, endLine: 89 }).trim()}\ntail`;
 
   it('points the model at re-running its tool when it has no expand_elision tool', async () => {
     const { sent } = await run(conversation({ first: fresh(), turns: [{ name: 'Bash', input: { command: 'npm test' }, output: big('m1') }] }), engineReturning(withMarker));
@@ -246,7 +246,7 @@ describe('elision markers', () => {
   });
 
   it('rewrites every form formatElisionMarker produces (fails if the wording drifts apart)', () => {
-    for (const marker of [formatElisionMarker('abc', 10, 5, 14), formatElisionMarker('abc', 10)]) {
+    for (const marker of [formatElisionMarker({ elisionId: 'abc', elidedLinesCount: 10, startLine: 5, endLine: 14 }), formatElisionMarker({ elisionId: 'abc', elidedLinesCount: 10 })]) {
       const rewritten = rewriteElisionHint(marker);
       expect(rewritten).not.toBe(marker);
       expect(rewritten).not.toContain('expand_elision');

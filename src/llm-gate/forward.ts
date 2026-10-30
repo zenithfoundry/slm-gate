@@ -5,11 +5,18 @@
  * hop-by-hop ones goes upstream, so the tool keeps its own login (API key, claude.ai login, ChatGPT
  * login). Bytes pass through raw in both directions. That rules out `fetch`, which decompresses a
  * response but keeps its `content-encoding` header — Claude Code's streams arrive gzip-encoded.
- * There is no timeout and no retry: streams can run for many minutes, and every tool retries itself.
+ * The only timeout is on the provider starting to answer (UPSTREAM_HEADERS_TIMEOUT_MS); a stream then runs
+ * to its end, however long, and there is no retry: every tool retries itself.
  */
 import http from 'node:http';
 import https from 'node:https';
 import { CONFIG } from '../config.js';
+
+/**
+ * How long the provider may take to start answering: connecting plus the wait for the response headers.
+ * Generous, because a non-streaming reply's headers arrive only once the whole answer is ready.
+ */
+export const UPSTREAM_HEADERS_TIMEOUT_MS = 10 * 60_000;
 
 export type WireFormat = 'anthropic' | 'chat-completions' | 'responses' | 'gemini';
 
@@ -120,6 +127,7 @@ function withoutHopByHop(headers: http.IncomingHttpHeaders, keep?: string): http
  * @param params.res The client response; upstream status, headers and body are written to it
  * @param params.body The request body exactly as received
  * @param params.route Where to send it
+ * @param params.headersTimeoutMs Give up (502) when no response headers arrive within this (default UPSTREAM_HEADERS_TIMEOUT_MS)
  * @returns Resolves once the response has ended, failed, or the client has gone away
  */
 export function forwardRequest(params: {
@@ -127,8 +135,9 @@ export function forwardRequest(params: {
   res: http.ServerResponse;
   body: Buffer;
   route: UpstreamRoute;
+  headersTimeoutMs?: number;
 }): Promise<ForwardOutcome> {
-  const { req, res, body, route } = params;
+  const { req, res, body, route, headersTimeoutMs = UPSTREAM_HEADERS_TIMEOUT_MS } = params;
   const started = Date.now();
   const headers = withoutHopByHop(req.headers);
   if (body.length > 0) headers['content-length'] = body.length;
@@ -158,6 +167,14 @@ export function forwardRequest(params: {
         res.destroy(err);
       });
     });
+
+    // Only the headers are timed: once they are in, the body streams for as long as the reply takes.
+    const headersTimer = setTimeout(() => {
+      upstreamReq.destroy(new Error(`no response within ${headersTimeoutMs} ms`));
+    }, headersTimeoutMs);
+    headersTimer.unref();
+    upstreamReq.once('response', () => clearTimeout(headersTimer));
+    upstreamReq.once('close', () => clearTimeout(headersTimer));
 
     upstreamReq.on('error', err => {
       // A dual-stack host refusing every address raises an AggregateError with an empty message.

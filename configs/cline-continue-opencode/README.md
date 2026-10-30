@@ -1,6 +1,8 @@
 # Cline / Continue / Opencode MCP Configuration
 
-Each tool adds `slm-gate` as an MCP server that runs the command `slm-gate` with the argument `mcp`; only the file
+First: `npm install -g @zenithfoundry/slm-gate`, then `slm-gate init --profile starter` (or `proven` or `toolbox`,
+see [Profiles](../../docs/npm/profiles.md)), the `ollama pull` line it prints, and `slm-gate doctor`
+([Install](../../docs/npm/install.md)). Then each tool adds `slm-gate` as an MCP server that runs the command `slm-gate` with the argument `mcp`; only the file
 and its format differ.
 
 **Cline:** in the extension, click the MCP Servers icon → Configure → **Configure MCP Servers**. It opens Cline's
@@ -52,13 +54,13 @@ For all three:
 - **From a git checkout:** the command `node` with the argument
   `/full/path/to/small-language-model-gate/dist/mcp-gate/index.js`.
 - **A toolbox behind `slm-gate` (optional):** add its settings to the entry (`env`; for OpenCode, `environment`), as
-  in [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional).
+  in [Connect a toolbox](../../docs/npm/install.md#connect-a-toolbox).
 
 Then restart the tool and check with `slm-gate doctor`.
 
 The `env` values above apply to this MCP server only. The model gate below is shared by all your coding tools and reads its settings only from `slm-gate`'s own `.env`.
 
-## Model gate (Layer 2): send model requests through slm-gate
+## Model gate: send AI requests through slm-gate
 
 Works with your own API key. Models bundled in the tool's own subscription can't be redirected. The model gate starts by itself when the tool starts the MCP server above.
 

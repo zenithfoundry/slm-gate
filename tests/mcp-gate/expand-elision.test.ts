@@ -19,7 +19,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
 }));
 
 jest.unstable_mockModule('../../src/mcp-gate/pipeline.js', () => ({
-  conditionPrompt: jest.fn(async (text: string) => text),
+  conditionPrompt: jest.fn(async ({ text }: { text: string }) => text),
 }));
 
 // Expanding a region teaches the distiller via embeddings; no Ollama in tests.
@@ -108,6 +108,17 @@ describe('expand_elision', () => {
     expect(row.out_tok).toBeGreaterThan(0);
     expect(row.in_tok).toBe(0);
     expect(JSON.parse(row.meta).page).toEqual({ start: 10, end: 80, next: nextRange(text)!.startLine });
+  });
+
+  it('answers a range that is not two numbers with an MCP error result instead of guessing', async () => {
+    const { server } = await createServer();
+    const handler = (server as any)._requestHandlers.get(CallToolRequestSchema.shape.method.value);
+    const result = await handler(
+      { method: 'tools/call', params: { name: 'expand_elision', arguments: { elisionId: ID, range: { startLine: '3', endLine: 4 } } } },
+      {}
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/expand_elision: invalid arguments \(range\.startLine: /);
   });
 
   it('never asks for an embedding model on expansion, whatever the adaptive setting', async () => {

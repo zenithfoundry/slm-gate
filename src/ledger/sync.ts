@@ -9,21 +9,25 @@
  *
  * Usage:
  *   pnpm run ledger:sync [--all] [--limit <n>] [--after <rowid>] [--dry-run]
+ *
+ * --all sends every event in the ledger from the first row: it wins over --limit and --after, which narrow
+ * a run (the oldest n rows, or the rows after a rowid a stopped run printed).
  */
 
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { CONFIG, requireKeys } from '../config.js';
-import { waitWithBackoff } from '../utils/backoff.js';
+import { ingestionResponse, readJson } from '../langfuse/api.js';
+import { log } from '../log.js';
+import type { ProviderId } from '../pricing/plans.js';
+import { LANGFUSE_REQUEST_SPACING_MS, LANGFUSE_REQUEST_TIMEOUT_MS, waitWithBackoff } from '../utils/backoff.js';
 import { formatDuration } from '../utils/duration.js';
 import { computeCycleRateAvg, computeCycleRates, formatEventForLangfuse, getDb, LangfuseSink, LedgerEvent, logLedgerInfo } from './index.js';
 import { initLangfuseConfigs } from './sync-config.js';
 
 export { computeCycleRateAvg };
 
-/** Hobby projects allow 30 requests a minute; one batch every 2.1 s stays under it. */
-const REQUEST_SPACING_MS = 2100;
 const MAX_ATTEMPTS = 5;
 
 interface SyncStats {
@@ -43,8 +47,11 @@ interface SyncStats {
   resumeAfter?: number;
 }
 
-export async function syncLedgerToLangfuse(options: { limit?: number; after?: number; dryRun?: boolean } = {}): Promise<SyncStats> {
-  const { limit, after = 0, dryRun = false } = options;
+export async function syncLedgerToLangfuse(options: { limit?: number; after?: number; dryRun?: boolean; all?: boolean } = {}): Promise<SyncStats> {
+  const { dryRun = false, all = false } = options;
+  // --all: every historical event, whatever else narrows the run.
+  const limit = all ? undefined : options.limit;
+  const after = all ? 0 : (options.after ?? 0);
 
   console.log('=== SLM Gate: SQLite to Langfuse Ledger Sync ===\n');
   console.log(`Database Source : ${path.resolve(CONFIG.LEDGER_PATH)}`);
@@ -115,7 +122,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
     if (batch.length === 0) return true;
     const auth = Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64');
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      await setTimeout(REQUEST_SPACING_MS);
+      await setTimeout(LANGFUSE_REQUEST_SPACING_MS);
       let res: Response;
       try {
         res = await fetch(`${CONFIG.LANGFUSE_HOST}/api/public/ingestion`, {
@@ -124,7 +131,8 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
             'Authorization': `Basic ${auth}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ batch })
+          body: JSON.stringify({ batch }),
+          signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS),
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -132,21 +140,18 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
           console.error('\nNetwork error during sync:', message);
           break;
         }
-        await waitWithBackoff(attempt, MAX_ATTEMPTS, `Langfuse network error (${message})`, null, 'sync');
+        await waitWithBackoff({ attempt, maxRetries: MAX_ATTEMPTS, reason: `Langfuse network error (${message})`, retryAfter: null, layer: 'sync' });
         continue;
       }
 
-      let body: { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> } | null = null;
-      try {
-        body = await res.json() as { errors?: Array<{ id?: string; status?: number; message?: string; error?: string }> };
-      } catch { /* not JSON */ }
+      const body = await readJson({ res, schema: ingestionResponse, scope: 'sync', what: 'ingestion' });
 
       if (res.ok) {
         // A 207 accepts the batch but may reject single items; they are counted, and
         // ledger:verify shows which score names came up short.
-        if (body && Array.isArray(body.errors) && body.errors.length > 0) {
+        if (body?.errors && body.errors.length > 0) {
           for (const e of body.errors) {
-            console.error(`[sync] Langfuse per-item error: id=${e.id ?? 'unknown'} status=${e.status ?? 'unknown'} ${e.message ?? e.error ?? ''}`);
+            log.warn('sync', 'Langfuse per-item error', { id: e.id ?? 'unknown', status: e.status ?? 'unknown', detail: e.message ?? (typeof e.error === 'string' ? e.error : '') });
           }
           stats.errors += body.errors.length;
         }
@@ -163,7 +168,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
         console.warn(`\nLangfuse sync failed (${res.status}): ${body ? JSON.stringify(body) : '(no body)'}`);
         break;
       }
-      await waitWithBackoff(attempt, MAX_ATTEMPTS, `Langfuse ingestion ${res.status}`, res.headers.get('retry-after'), 'sync');
+      await waitWithBackoff({ attempt, maxRetries: MAX_ATTEMPTS, reason: `Langfuse ingestion ${res.status}`, retryAfter: res.headers.get('retry-after'), layer: 'sync' });
     }
     stats.errors += batchCount;
     return false;
@@ -278,12 +283,12 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
    * convert a decimal fraction of a minute in their head.
    *
    * @param id Provider id as used by computeCycleRateAvg / computeCycleRates
-   * @param budgetVar Name of the env var that supplies the denominator
+   * @param budgetVar Name of the env var that overrides the plan's budget estimate
    */
-  const cycleRow = (id: 'claude' | 'chatgpt' | 'gemini', budgetVar: string) => {
+  const cycleRow = (id: ProviderId, budgetVar: string) => {
     const avgMinutes = avgRates[id];
     if (avgMinutes === null) {
-      return `n/a (no traffic, or ${budgetVar} unset)`;
+      return `n/a (no traffic, or no window budget: name your plan in SUBSCRIPTION_PLAN, or set ${budgetVar})`;
     }
     return `~${formatDuration(avgMinutes * 60)} per prompt · ~${formatDuration(totalRates[id] * 60)} total`;
   };
@@ -315,7 +320,7 @@ export async function syncLedgerToLangfuse(options: { limit?: number; after?: nu
     { Metric: `Window Time Saved (Claude ${claudePlan.windowMinutes}m window)`, Value: cycleRow('claude', 'CLAUDE_WINDOW_BUDGET') },
     { Metric: `Window Time Saved (Gemini ${geminiPlan.windowMinutes}m window)`, Value: cycleRow('gemini', 'GEMINI_WINDOW_BUDGET') },
   ]);
-  console.log('Window time saved is an estimate within a margin of error: providers do not publish their window limits, so the *_WINDOW_BUDGET values are best guesses.');
+  console.log('Window time saved is an estimate within a margin of error: providers do not publish their window limits, so the budget is the estimate for your plan (SUBSCRIPTION_PLAN), or your own measured *_WINDOW_BUDGET when set.');
 
   return stats;
 }
@@ -329,6 +334,7 @@ const isDirectCall = process.argv[1] && (
 if (isDirectCall) {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const all = args.includes('--all');
   const limitIdx = args.indexOf('--limit');
   let limit: number | undefined;
   if (limitIdx >= 0 && args[limitIdx + 1]) {
@@ -341,7 +347,7 @@ if (isDirectCall) {
     process.exit(1);
   }
 
-  syncLedgerToLangfuse({ limit, after, dryRun })
+  syncLedgerToLangfuse({ limit, after, dryRun, all })
     .then((stats) => {
       if (stats.resumeAfter !== undefined) process.exit(1);
       console.log('Sync process complete.');

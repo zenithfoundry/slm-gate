@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Where the numbers go: from the two gates to the dashboard",
+    "output": "docs/diagrams/where-the-data-goes.html",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/zenithfoundry/slm-gate",
+      "provider": "github",
+      "revision": "c8036c94bbb0ce932baf2db746de5000d95c29c9"
+    }
+  },
+  "stages": [
+    {
+      "label": "Written by"
+    },
+    {
+      "label": "Kept in"
+    },
+    {
+      "label": "Read by"
+    },
+    {
+      "label": "Shown in"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "mcpgate",
+      "type": "backend",
+      "label": "MCP gate",
+      "sublabel": "a row per tool result",
+      "stage": 0,
+      "row": 0,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 171,
+          "end_line": 194,
+          "label": "the condition row"
+        },
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 369,
+          "end_line": 386,
+          "label": "written after each shrink"
+        }
+      ]
+    },
+    {
+      "id": "llmgate",
+      "type": "backend",
+      "label": "Model gate",
+      "sublabel": "a row per request",
+      "stage": 0,
+      "row": 2,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/llm-gate/server.ts",
+          "line": 124,
+          "end_line": 132,
+          "label": "forward_compressed or forward_raw"
+        },
+        {
+          "path": "src/llm-gate/memory.ts",
+          "line": 227,
+          "end_line": 233,
+          "label": "one memory_fold row per fold"
+        }
+      ]
+    },
+    {
+      "id": "ledger",
+      "type": "database",
+      "label": "Ledger",
+      "sublabel": "SQLite, src/ledger/",
+      "stage": 1,
+      "row": 1,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/ledger/db.ts",
+          "line": 48,
+          "end_line": 73,
+          "label": "the events table"
+        },
+        {
+          "path": "src/ledger/events.ts",
+          "line": 247,
+          "end_line": 300,
+          "label": "writeEvent"
+        },
+        {
+          "path": "src/langfuse/sink.ts",
+          "line": 41,
+          "end_line": 50,
+          "label": "mirrorEvent queues a copy"
+        }
+      ]
+    },
+    {
+      "id": "metrics",
+      "type": "backend",
+      "label": "slm-gate metrics",
+      "sublabel": "rows, tokens, cost",
+      "stage": 2,
+      "row": 0,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/metrics.ts",
+          "line": 6,
+          "end_line": 19,
+          "label": "rows, tokens, cost from the events table"
+        }
+      ]
+    },
+    {
+      "id": "dashboard",
+      "type": "backend",
+      "label": "Dashboard",
+      "sublabel": "minutes, tokens, fidelity",
+      "stage": 2,
+      "row": 2,
+      "width": 150,
+      "sources": [
+        {
+          "path": "src/dashboard/data.ts",
+          "line": 319,
+          "end_line": 326,
+          "label": "reads the ledger read-only"
+        },
+        {
+          "path": "src/dashboard/data.ts",
+          "line": 227,
+          "end_line": 228,
+          "label": "cycles need a window budget"
+        },
+        {
+          "path": "src/dashboard/serve.ts",
+          "line": 32,
+          "label": "served on this computer only"
+        }
+      ]
+    },
+    {
+      "id": "pricing",
+      "type": "backend",
+      "label": "Plans and windows",
+      "sublabel": "src/pricing/",
+      "stage": 2,
+      "row": 3,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/pricing/plans.ts",
+          "line": 19,
+          "end_line": 33,
+          "label": "window length per plan"
+        },
+        {
+          "path": "src/pricing/providers.ts",
+          "line": 121,
+          "end_line": 133,
+          "label": "minutesFreed"
+        }
+      ]
+    },
+    {
+      "id": "site",
+      "type": "cloud",
+      "label": "Published copy",
+      "sublabel": "GitHub Pages, daily",
+      "stage": 3,
+      "row": 2,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/dashboard/export.ts",
+          "line": 34,
+          "end_line": 37,
+          "label": "index.html + data.json"
+        },
+        {
+          "path": "scripts/dashboard-publish.sh",
+          "line": 5,
+          "end_line": 15,
+          "label": "once a day at 21:00"
+        },
+        {
+          "path": "scripts/dashboard-publish.sh",
+          "line": 96,
+          "end_line": 115,
+          "label": "one commit, data.json only"
+        }
+      ]
+    },
+    {
+      "id": "langfuse",
+      "type": "external",
+      "label": "Langfuse",
+      "sublabel": "optional mirror",
+      "stage": 3,
+      "row": 4,
+      "width": 130,
+      "sources": [
+        {
+          "path": "src/langfuse/format.ts",
+          "line": 91,
+          "end_line": 110,
+          "label": "formatEventForLangfuse"
+        },
+        {
+          "path": "src/ledger/flush-lifecycle.ts",
+          "line": 30,
+          "end_line": 40,
+          "label": "flushed every 15 s"
+        },
+        {
+          "path": "src/ledger/sync.ts",
+          "line": 50,
+          "end_line": 68,
+          "label": "ledger:sync for history"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "mcp-rows",
+      "from": "mcpgate",
+      "to": "ledger",
+      "label": "route, tokens, fidelity",
+      "variant": "emphasis"
+    },
+    {
+      "id": "llm-rows",
+      "from": "llmgate",
+      "to": "ledger",
+      "label": "route, tokens, schemas",
+      "variant": "emphasis"
+    },
+    {
+      "id": "to-metrics",
+      "from": "ledger",
+      "to": "metrics",
+      "label": "all rows"
+    },
+    {
+      "id": "to-dashboard",
+      "from": "ledger",
+      "to": "dashboard",
+      "label": "all rows",
+      "variant": "emphasis"
+    },
+    {
+      "id": "to-langfuse",
+      "from": "ledger",
+      "to": "langfuse",
+      "label": "new rows, every 15 s",
+      "variant": "dashed",
+      "route": "bottom-channel"
+    },
+    {
+      "id": "minutes",
+      "from": "pricing",
+      "to": "dashboard",
+      "label": "minutes, estimated",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "route": "straight"
+    },
+    {
+      "id": "cost-minutes",
+      "from": "pricing",
+      "to": "langfuse",
+      "label": "cost and minutes"
+    },
+    {
+      "id": "publish",
+      "from": "dashboard",
+      "to": "site",
+      "label": "aggregates only",
+      "variant": "dashed",
+      "route": "straight",
+      "labelDx": 1,
+      "labelDy": -28
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "What a row holds",
+      "items": [
+        "Token counts before and after, the route taken, timings, which tool, how many tool schemas",
+        "Never the text of a prompt, a result or a reply",
+        "Rows for your coding tool's traffic carry no price; only the optional cloud step of open decisions does"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Minutes freed are an estimate",
+      "items": [
+        "Each plan's window length and budget live in src/pricing; the budget is a measured or published figure",
+        "No budget for a provider means no minutes figure, never a made-up one",
+        "The Langfuse copy carries the same cost and minutes, worked out when the row is written"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Langfuse and the published copy",
+      "items": [
+        "New rows reach Langfuse within 15 s; `slm-gate ledger:sync` sends the history by hand",
+        "scripts/dashboard-publish.sh pushes one commit a day that changes only site/data.json",
+        "Counts, sums, minutes and dates only; nothing about prompts, tools or skills"
+      ]
+    }
+  ]
+}

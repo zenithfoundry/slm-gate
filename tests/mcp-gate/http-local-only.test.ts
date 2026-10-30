@@ -7,7 +7,7 @@ jest.unstable_mockModule('../../src/config.js', () => ({
   CONFIG: { DOWNSTREAM_MCP: null, MCP_GATE_TRANSPORT: 'http', MCP_GATE_PORT: 0 },
 }));
 jest.unstable_mockModule('../../src/mcp-gate/pipeline.js', () => ({
-  conditionPrompt: jest.fn(async (text: string) => text),
+  conditionPrompt: jest.fn(async ({ text }: { text: string }) => text),
 }));
 
 const { createServer } = await import('../../src/mcp-gate/server.js');

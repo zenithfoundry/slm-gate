@@ -8,13 +8,12 @@ import { getValidPlanKeys } from '../../src/pricing/plans.js';
 
 // The AI setup prompt tells assistants that anything it does not list does not exist, so it must list exactly
 // what slm-gate reads and runs: an assistant trusts it over its own guesses.
-const page = fs.readFileSync('docs/agent-setup.md', 'utf8');
+const page = fs.readFileSync('docs/npm/ai-assisted-setup.md', 'utf8');
 const prompt = page.split('```text\n')[1].split('\n```')[0];
 const section = (params: { from: string; to: string }) => prompt.slice(prompt.indexOf(params.from), prompt.indexOf(params.to));
 
-// Read outside the settings schema: where the settings file lives (src/home-dir.ts), the savings cards'
-// window budgets (src/ledger), and the price list override (src/pricing/providers.ts).
-const OTHER_SETTINGS = ['SLM_GATE_HOME', 'CLAUDE_WINDOW_BUDGET', 'CHATGPT_WINDOW_BUDGET', 'GEMINI_WINDOW_BUDGET', 'PROVIDER_REGISTRY_PATH'];
+// Read outside the settings schema: where the settings file lives (src/home-dir.ts).
+const OTHER_SETTINGS = ['SLM_GATE_HOME'];
 const realSettings = [...CONFIG_ENV_KEYS, ...OTHER_SETTINGS];
 const settingsNamedIn = (text: string) => [...text.matchAll(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g)].map(m => m[0]);
 
@@ -54,7 +53,7 @@ function repoLinksIn(file: string): { target: string; anchor?: string }[] {
   return [...relative, ...github];
 }
 
-describe('the AI setup prompt (docs/agent-setup.md)', () => {
+describe('the AI setup prompt (docs/npm/ai-assisted-setup.md)', () => {
   it('lists every setting slm-gate reads, once each, and nothing else', () => {
     const listed = [...section({ from: 'Every setting that exists:', to: 'Valid values:' }).matchAll(/`([A-Z][A-Z0-9_]*)`/g)].map(m => m[1]);
     expect(listed.length).toBe(new Set(listed).size);
@@ -79,8 +78,8 @@ describe('the AI setup prompt (docs/agent-setup.md)', () => {
   });
 });
 
-describe('the switching page (docs/switch-to-npm.md)', () => {
-  const switchPage = fs.readFileSync('docs/switch-to-npm.md', 'utf8');
+describe('the switching page (docs/source/switch-to-npm.md)', () => {
+  const switchPage = fs.readFileSync('docs/source/switch-to-npm.md', 'utf8');
 
   it('names no setting that does not exist', () => {
     expect(settingsNamedIn(switchPage).filter(name => !realSettings.includes(name))).toEqual([]);
@@ -94,7 +93,7 @@ describe('the switching page (docs/switch-to-npm.md)', () => {
 });
 
 describe('links on the setup pages', () => {
-  it.each(['docs/agent-setup.md', 'docs/switch-to-npm.md', 'docs/agent-setup-validation.md', 'docs/install-from-npm.md'])(
+  it.each(['docs/npm/ai-assisted-setup.md', 'docs/source/switch-to-npm.md', 'docs/npm/ai-assisted-setup-validation.md', 'docs/npm/install.md'])(
     'every link in %s to this repo points at a file and heading that exist', file => {
       const links = repoLinksIn(file);
       expect(links.length).toBeGreaterThan(0);

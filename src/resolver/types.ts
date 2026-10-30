@@ -1,3 +1,7 @@
+/**
+ * Types shared by the resolver: an open decision in a skill, where its answer came from, and the resolved
+ * item with its evidence.
+ */
 export type RiskLevel = 'reversible' | 'low' | 'security' | 'destructive';
 
 /** Where an answer came from; 'decision' is a file in the repo's .slm-gate/decisions folder. */

@@ -41,3 +41,6 @@ harness/.venv/
 # Backups of settings files must never be committed
 .env.backup*
 *.backup-*
+
+# archify build evidence (pnpm run diagrams); the renders live in docs/diagrams/
+.archify/

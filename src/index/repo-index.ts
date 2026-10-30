@@ -104,7 +104,8 @@ export function listRepoFiles(root: string): string[] {
   let files: string[] | null = null;
   if (fs.existsSync(path.join(root, '.git'))) {
     try {
-      files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+      // A git that hangs (a lock, a slow network mount) falls through to the walk instead of holding the tool call.
+      files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 10_000 })
         .split('\0').filter(Boolean);
     } catch {
       files = null;
@@ -173,7 +174,8 @@ export function findExisting(params: { root: string; query: string; limit?: numb
 }
 
 /** The 30 lines around a symbol, numbered, for the resolver's evidence. Empty when the file cannot be read. */
-export function linesAround(root: string, symbol: RepoSymbol, radius = 15): string {
+export function linesAround(params: { root: string; symbol: RepoSymbol; radius?: number }): string {
+  const { root, symbol, radius = 15 } = params;
   let text: string;
   try { text = fs.readFileSync(path.join(root, symbol.path), 'utf8'); } catch { return ''; }
   const lines = text.split('\n');

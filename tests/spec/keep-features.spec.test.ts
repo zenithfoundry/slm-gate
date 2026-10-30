@@ -423,7 +423,7 @@ describe('MCP gate: own tools and the toolbox behind it', () => {
     expect(page).toContain('## Part 0');
     expect(page).toContain('line 1:');
     expect(page).not.toContain('ANSWER-HERE');
-    expect(formatElisionMarker(ID, 10, 0, 9)).toContain(ID);
+    expect(formatElisionMarker({ elisionId: ID, elidedLinesCount: 10, startLine: 0, endLine: 9 })).toContain(ID);
   });
 
   it('ask_elision answers from the stored original with the brain, a few sentences instead of a page', async () => {
@@ -534,12 +534,12 @@ describe('resolver with the conversation so far', () => {
   it('puts the summary in the extraction prompt and offers a settled answer as a recommendation', async () => {
     const slm: any = { generateJSON: jest.fn(), generateText: jest.fn(), streamText: jest.fn() };
     slm.generateJSON.mockResolvedValueOnce({ decisions: [] });
-    await extractAmbiguities(slm, 'skill', 'task', summary);
-    expect(String(slm.generateJSON.mock.calls[0][1])).toContain(summary);
+    await extractAmbiguities({ slm, skillText: 'skill', task: 'task', conversation: summary });
+    expect(String(slm.generateJSON.mock.calls[0][0].prompt)).toContain(summary);
 
     slm.generateJSON.mockResolvedValueOnce({ decisions: [question] }).mockResolvedValueOnce({ answered: true, answer: 'Jest' }).mockResolvedValueOnce({ risk: 'reversible' });
     const fsRead = jest.fn<(pattern: string) => Promise<string[]>>().mockResolvedValue([]);
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', conversation: summary, decided: ['Tests use Jest, never Vitest'] });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', conversation: summary, decided: ['Tests use Jest, never Vitest'] });
     expect(out.autoApplied).toHaveLength(0);
     expect(out.askUser[0].recommendedAnswer).toBe('Jest');
     expect(out.askUser[0].provenance).toBe('conversation memory');
@@ -582,8 +582,8 @@ describe('package surface that must stay', () => {
     expect(pkg.scripts.fidelity).toBe('tsx scripts/fidelity.ts');
     expect(pkg.scripts.protections).toBe('tsx scripts/protections.ts');
     expect(pkg.scripts['bench:gate']).toBe('tsx scripts/bench-gate.ts');
-    expect(pkg.scripts.metrics).toBe('tsx harness/metrics.ts');
-    for (const s of ['scripts/fidelity.ts', 'scripts/protections.ts', 'scripts/bench-gate.ts', 'harness/metrics.ts', 'scripts/smoke-e2e.ts', 'scripts/e2e-standalone-mcp.ts', 'scripts/e2e-distill-fallback.ts', 'scripts/e2e-resolver-ambiguities.ts']) {
+    expect(pkg.scripts.metrics).toBe('tsx src/metrics.ts');
+    for (const s of ['scripts/fidelity.ts', 'scripts/protections.ts', 'scripts/bench-gate.ts', 'src/metrics.ts', 'scripts/smoke-e2e.ts', 'scripts/e2e-standalone-mcp.ts', 'scripts/e2e-distill-fallback.ts', 'scripts/e2e-resolver-ambiguities.ts']) {
       expect(fs.existsSync(path.join(repoRoot, s))).toBe(true);
     }
     expect(pkg.scripts['test:e2e']).toContain('e2e:standalone-mcp');
@@ -592,7 +592,7 @@ describe('package surface that must stay', () => {
 
   it('keeps every setting the kept features read, in the shipped example and the owner-facing docs', () => {
     const example = read('.env.example');
-    const agentSetup = read('docs/agent-setup.md');
+    const agentSetup = read('docs/npm/ai-assisted-setup.md');
     for (const key of ['CONVERSATION_MEMORY', 'MEMORY_MAX_TOKENS', 'MEMORY_FOLD_INPUT_TOKENS', 'MEMORY_FOLD_INTERVAL_MS', 'MEMORY_MATCH_WINDOW_MS',
       'DISTILL_SKILLS', 'DISTILL_FIDELITY_MIN', 'DISTILL_FIDELITY_MAX_RUNS', 'DISTILL_FIDELITY_BUDGET_MS', 'MAX_CONCURRENT_SEGMENT_CALLS',
       'RESOLVER_PROMPT_TOKENS', 'REPO_INDEX', 'SLM_PIN_MODELS', 'LLM_GATE_DISTILL', 'PROMPT_VERSION', 'SELF_CONSISTENCY_K', 'SEMCACHE']) {

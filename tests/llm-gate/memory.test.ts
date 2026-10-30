@@ -32,7 +32,7 @@ function scriptedBrain(answer: () => Promise<unknown>) {
   const calls: string[] = [];
   return {
     calls,
-    client: { generateJSON: async (_m: string, prompt: string) => { calls.push(prompt); return answer(); } } as any,
+    client: { generateJSON: async ({ prompt }: { prompt: string }) => { calls.push(prompt); return answer(); } } as any,
   };
 }
 const summaryA = { goal: 'Ship the memory feature', decided: ['Fold on the brain model'], inPlay: ['src/llm-gate/memory.ts'] };

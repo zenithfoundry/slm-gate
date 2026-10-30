@@ -3,8 +3,8 @@
  * summary for the workspace and its Decided lines; the condition row says which memory matched; the cached
  * conditioning depends on the memory's fold time (a newer fold makes the next call a miss); an entry cached
  * without memory misses once memory exists; the semantic cache is skipped while a usable memory exists.
- * Real in-memory ledger; the distiller never runs (minimum tokens above the text); resolver, grounding and
- * semantic cache are fakes that record their calls.
+ * Real in-memory ledger; the distiller runs but a skill is verbatim (DISTILL_SKILLS off), so no model is
+ * called; resolver, grounding and semantic cache are fakes that record their calls.
  */
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 
@@ -13,7 +13,8 @@ jest.unstable_mockModule('../../src/config.js', () => ({
     LEDGER_PATH: ':memory:',
     OLLAMA_HOST: 'http://fake',
     PROMPT_VERSION: 'pipe-mem',
-    DISTILL_MIN_TOKENS: 100000, DISTILL_MAX_TOKENS: 2000, DISTILL_SKILLS: false,
+    DISTILL_MIN_TOKENS: 0, DISTILL_MAX_TOKENS: 2000, DISTILL_SKILLS: false,
+    ELISION_RETENTION_DAYS: 180, ELISION_MAX_MB: 10,
     DISTILL_PRESERVE_MODE: 'extend', DISTILL_PRESERVE_PATH: null, TLS_ADAPTER: false,
     RESOLVER_PROMPT_TOKENS: 3000, REPO_INDEX: false, SEMCACHE: false,
     CONVERSATION_MEMORY: true, MEMORY_MATCH_WINDOW_MS: 600000,
@@ -56,8 +57,8 @@ beforeEach(() => {
 describe('conditioning with conversation memory', () => {
   it('hands the resolver the summary and its Decided lines, records the match, and depends on the fold time', async () => {
     row();
-    await conditionPrompt(skill(), 'task', `file://${ROOT}`, 'get_skill');
-    const input = (resolveAmbiguities.mock.calls[0] as any[])[2];
+    await conditionPrompt({ text: skill(), task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
+    const input = (resolveAmbiguities.mock.calls[0] as any[])[0];
     expect(input.conversation).toContain('Goal: Ship it');
     expect(input.decided).toEqual(['Use Jest']);
     expect(lastMeta().memory).toEqual({ match: 'root-recent' });
@@ -68,21 +69,21 @@ describe('conditioning with conversation memory', () => {
   it('serves the cached conditioning while the memory is unchanged, and recomputes after a newer fold', async () => {
     row();
     const text = skill();
-    await conditionPrompt(text, 'task', `file://${ROOT}`, 'get_skill');
-    await conditionPrompt(text, 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: text, task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
+    await conditionPrompt({ text: text, task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(resolveAmbiguities).toHaveBeenCalledTimes(1);
     row({ folded_at: future(120_000), fold_count: 2, summary: summary('Ship it, then test') });
-    await conditionPrompt(text, 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: text, task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(resolveAmbiguities).toHaveBeenCalledTimes(2);
-    expect(((resolveAmbiguities.mock.calls[1] as any[])[2]).conversation).toContain('then test');
+    expect(((resolveAmbiguities.mock.calls[1] as any[])[0]).conversation).toContain('then test');
   });
 
   it('does not serve an entry cached without memory once a usable memory exists', async () => {
     const text = skill();
-    await conditionPrompt(text, 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: text, task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(lastMeta().memory).toEqual({ match: 'none' });
     row();
-    await conditionPrompt(text, 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: text, task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(resolveAmbiguities).toHaveBeenCalledTimes(2);
     expect(lastMeta().memory).toEqual({ match: 'root-recent' });
   });
@@ -90,10 +91,10 @@ describe('conditioning with conversation memory', () => {
   it('skips the semantic cache while a usable memory exists, and uses it otherwise', async () => {
     (CONFIG as any).SEMCACHE = true;
     row();
-    await conditionPrompt(skill(), 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: skill(), task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(checkSemanticCache).not.toHaveBeenCalled();
     getDb().prepare('DELETE FROM conversation_memory').run();
-    await conditionPrompt(skill(), 'task', `file://${ROOT}`, 'get_skill');
+    await conditionPrompt({ text: skill(), task: 'task', rootUri: `file://${ROOT}`, toolName: 'get_skill' });
     expect(checkSemanticCache).toHaveBeenCalledTimes(1);
   });
 });

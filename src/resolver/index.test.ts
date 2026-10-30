@@ -51,7 +51,7 @@ describe('Resolver Module', () => {
         decisions: [{ id: '1', question: 'Use React?', kind: 'framework' }]
       });
 
-      const result = await extractAmbiguities(mockSlm, 'Some skill', 'Some task');
+      const result = await extractAmbiguities({ slm: mockSlm, skillText: 'Some skill', task: 'Some task' });
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('1');
     });
@@ -64,7 +64,7 @@ describe('Resolver Module', () => {
 
       const fsRead = jest.fn<import('./index.js').FsReadFn>().mockResolvedValue(['{"dependencies":{"react":"*"}}']);
       
-      const result = await resolveEach(mockSlm, fsRead, [{ id: '1', question: 'React?', kind: 'fw' }], '/repo');
+      const result = await resolveEach({ slm: mockSlm, fsRead, decisions: [{ id: '1', question: 'React?', kind: 'fw' }], repoRoot: '/repo' });
       
       expect(result[0].confidence).toBeGreaterThanOrEqual(0.9);
       expect(result[0].source).toBe('evidence');

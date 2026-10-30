@@ -23,4 +23,4 @@ Patterns are executed in Node.js using V8's regex engine. Avoid pathological bac
 
 ## The Line-Based Caveat
 The regex preservation engine operates **line-by-line**. It cannot inherently protect multi-line blocks (like a fenced code block) unless every internal line independently matches a pattern.
-For atomic structural protection, `slm-gate` employs an AST-based tokenizer (Phase 1) and adaptive DB-driven policies (Phase 2 & 3). Regexes serve as the fallback floor.
+Fenced code blocks, tables, headings and frontmatter are protected as whole blocks by the built-in rules in `src/utils/elision.ts` before any pattern is tried; these patterns are the extra, line-based floor on top of them. With `DISTILL_ADAPTIVE=on`, lines whose meaning matches a past expansion are protected too.

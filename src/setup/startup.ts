@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONFIG } from '../config.js';
+import { log } from '../log.js';
 import { checkLocalModels, ModelUse, SetupProblem } from './local-models.js';
 import { cliCommand, GATE_LOG_FILE, isStoppedByUser, launchModelGate, probeGate, waitForModelGate } from './model-gate.js';
 import { notifyUser } from './notify.js';
@@ -75,7 +76,7 @@ function noSettingsNotice(): Notice {
 }
 
 function report(notice: Notice): void {
-  console.error(`[slm-gate] ${notice.message} Fix: ${notice.fix}`);
+  log.warn('slm-gate', `${notice.message} Fix: ${notice.fix}`);
   notifyUser({ key: notice.key, message: `${notice.message} ${notice.fix}` });
 }
 
@@ -158,7 +159,7 @@ export function watchModelGate(params: { firstMs?: number; everyMs?: number } = 
     notices.filter(notice => !notice.transient || awaitingConfirmation.has(notice.key)).forEach(report);
     awaitingConfirmation = new Set(notices.filter(notice => notice.transient).map(notice => notice.key));
   };
-  const run = () => void check().catch(err => console.error(`[slm-gate] model gate check failed: ${err instanceof Error ? err.message : String(err)}`));
+  const run = () => void check().catch(err => log.error('slm-gate', 'model gate check failed', { error: err }));
 
   let interval: NodeJS.Timeout | undefined;
   const first = setTimeout(() => {

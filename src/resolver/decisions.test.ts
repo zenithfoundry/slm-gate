@@ -113,7 +113,7 @@ describe('the resolver with decision memory', () => {
       .mockResolvedValueOnce({ decisions: [question] })                       // extract
       .mockResolvedValueOnce({ applies: true, answer: 'API-first.' })        // decision confirms
       .mockResolvedValueOnce({ risk: 'low' });                                // risk gate
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(out.autoApplied).toHaveLength(1);
     expect(out.autoApplied[0].answer).toBe('API-first.');
     expect(out.autoApplied[0].provenance).toContain('decision: .slm-gate/decisions/architecture-direction.md (verified by human:bz3b 2026-10-21)');
@@ -128,7 +128,7 @@ describe('the resolver with decision memory', () => {
       .mockResolvedValueOnce({ decisions: [question] })
       .mockResolvedValueOnce({ applies: true, answer: 'API-first.' })
       .mockResolvedValueOnce({ risk: 'low' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(out.autoApplied).toHaveLength(0);
     expect(out.askUser[0].recommendedAnswer).toBe('API-first.');
     expect(out.askUser[0].provenance).toContain('unverified');
@@ -140,7 +140,7 @@ describe('the resolver with decision memory', () => {
       .mockResolvedValueOnce({ decisions: [question] })
       .mockResolvedValueOnce({ applies: true, answer: 'Drop it.' })
       .mockResolvedValueOnce({ risk: 'destructive' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(out.autoApplied).toHaveLength(0);
     expect(out.askUser).toHaveLength(1);
   });
@@ -153,7 +153,7 @@ describe('the resolver with decision memory', () => {
       .mockResolvedValueOnce({ patterns: ['package.json'] })                   // evidence patterns
       .mockResolvedValueOnce({ answer: 'API-first', options: [] })             // evidence answer
       .mockResolvedValueOnce({ risk: 'low' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(fsRead).toHaveBeenCalled();
     expect(out.autoApplied[0].provenance).toBeUndefined();
   });
@@ -164,7 +164,7 @@ describe('the resolver with decision memory', () => {
       .mockResolvedValueOnce({ patterns: ['package.json'] })
       .mockResolvedValueOnce({ answer: 'API-first', options: [] })
       .mockResolvedValueOnce({ risk: 'low' });
-    const out = await resolveAmbiguities(slm, fsRead, { skillText: 'skill', task: 'task', repoRoot: repo });
+    const out = await resolveAmbiguities({ slm: slm, fsRead: fsRead, skillText: 'skill', task: 'task', repoRoot: repo });
     expect(fsRead).toHaveBeenCalled();
     // The only dependency is the repo root, so a decisions folder created later is noticed.
     expect(out.dependencies?.map(d => d.path)).toEqual([repo]);

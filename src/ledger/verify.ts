@@ -12,14 +12,15 @@
  */
 
 import Database from 'better-sqlite3';
+import type { z } from 'zod';
 import { CONFIG, requireKeys } from '../config.js';
+import { metricsCountsResponse, readJson, traceListTotal } from '../langfuse/api.js';
+import { log } from '../log.js';
 import { isEntryPoint } from '../utils/entry-point.js';
-import { waitWithBackoff } from '../utils/backoff.js';
+import { LANGFUSE_REQUEST_SPACING_MS, LANGFUSE_REQUEST_TIMEOUT_MS, waitWithBackoff } from '../utils/backoff.js';
 import { formatEventForLangfuse, SLM_GATE_SOURCE_TAG, type LedgerEvent } from './index.js';
 import { RETIRED_SCORE_NAMES } from './sync-config.js';
 
-/** Hobby projects allow 30 requests a minute; one every 2.1 s stays under it. */
-const REQUEST_SPACING_MS = 2100;
 const MAX_RETRIES = 3;
 
 export interface VerifyWindow {
@@ -94,20 +95,24 @@ function readLedgerEvents(window: VerifyWindow): LedgerEvent[] {
   }
 }
 
-/** One paced GET against Langfuse, retried on 429 and 5xx. Returns null (and says why) on any other failure. */
-async function langfuseGet(pathAndQuery: string): Promise<unknown | null> {
+/**
+ * One paced GET against Langfuse, retried on 429 and 5xx, its answer read as `schema` describes it. Returns
+ * null (and says why) on any other failure or an answer of another shape.
+ */
+async function langfuseGet<T extends z.ZodTypeAny>(pathAndQuery: string, schema: T): Promise<z.infer<T> | null> {
   const baseUrl = CONFIG.LANGFUSE_HOST!.replace(/\/$/, '');
   const auth = `Basic ${Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64')}`;
+  const what = pathAndQuery.split('?')[0];
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    await new Promise(resolve => setTimeout(resolve, REQUEST_SPACING_MS));
-    const res = await fetch(`${baseUrl}${pathAndQuery}`, { headers: { Authorization: auth } });
-    if (res.ok) return res.json();
+    await new Promise(resolve => setTimeout(resolve, LANGFUSE_REQUEST_SPACING_MS));
+    const res = await fetch(`${baseUrl}${pathAndQuery}`, { headers: { Authorization: auth }, signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS) });
+    if (res.ok) return readJson({ res, schema, scope: 'verify', what });
     const transient = res.status === 429 || res.status >= 500;
     if (!transient || attempt === MAX_RETRIES - 1) {
-      console.error(`[verify] GET ${pathAndQuery.split('?')[0]} failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 300)}`);
+      log.warn('verify', `GET ${what} failed (${res.status})`, { body: (await res.text().catch(() => '')).slice(0, 300) });
       return null;
     }
-    await waitWithBackoff(attempt, MAX_RETRIES, `Langfuse ${res.status}`, res.headers.get('retry-after'), 'verify');
+    await waitWithBackoff({ attempt, maxRetries: MAX_RETRIES, reason: `Langfuse ${res.status}`, retryAfter: res.headers.get('retry-after'), layer: 'verify' });
   }
   return null;
 }
@@ -122,9 +127,9 @@ async function langfuseScoreCounts(params: { view: 'scores-numeric' | 'scores-ca
     fromTimestamp: params.window.from,
     toTimestamp: params.window.to,
   };
-  const body = await langfuseGet(`/api/public/v2/metrics?query=${encodeURIComponent(JSON.stringify(query))}`) as { data?: { name: string; count_count: string }[] } | null;
-  if (!body?.data) return null;
-  return new Map(body.data.filter(row => row.name).map(row => [row.name, Number(row.count_count)]));
+  const body = await langfuseGet(`/api/public/v2/metrics?query=${encodeURIComponent(JSON.stringify(query))}`, metricsCountsResponse);
+  if (!body) return null;
+  return new Map(body.data.flatMap(row => row.name ? [[row.name, Number(row.count_count)] as const] : []));
 }
 
 /**
@@ -137,8 +142,8 @@ async function langfuseScoreCounts(params: { view: 'scores-numeric' | 'scores-ca
 async function langfuseTraceCount(params: { window: VerifyWindow; tag?: string }): Promise<number | null> {
   const query = new URLSearchParams({ limit: '1', fromTimestamp: params.window.from, toTimestamp: params.window.to });
   if (params.tag) query.set('tags', params.tag);
-  const body = await langfuseGet(`/api/public/traces?${query}`) as { meta?: { totalItems?: number } } | null;
-  return typeof body?.meta?.totalItems === 'number' ? body.meta.totalItems : null;
+  const body = await langfuseGet(`/api/public/traces?${query}`, traceListTotal);
+  return body?.meta.totalItems ?? null;
 }
 
 async function verify(window: VerifyWindow): Promise<void> {

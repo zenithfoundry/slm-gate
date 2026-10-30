@@ -1,8 +1,14 @@
+/**
+ * The model gate's HTTP server: receives a coding tool's provider request on this computer, distils the
+ * tool results in its body (distill.ts), forwards it to the provider the wire format belongs to
+ * (forward.ts), streams the answer back and writes the ledger row. Answers the health path itself.
+ */
 import fs from 'node:fs';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
 import { readMemoryRow, writeEvent } from '../ledger/index.js';
+import { log } from '../log.js';
 import { estimateTokens } from '../utils/elision.js';
 import { DistillStats, distilRequest } from './distill.js';
 import * as anthropic from './formats/anthropic.js';
@@ -12,7 +18,8 @@ import * as gemini from './formats/gemini.js';
 import * as responses from './formats/responses.js';
 import { ForwardOutcome, forwardRequest, resolveUpstream, SUPPORTED_PATHS, UpstreamRoute, WireFormat } from './forward.js';
 import { noteTurn } from './memory.js';
-import { beginRequest } from '../models/busy.js';
+import { requestBodyProblem } from './request-schema.js';
+import { asRequest } from '../models/busy.js';
 import { HEALTH_PATH } from '../setup/model-gate.js';
 import { requiredModels } from '../setup/local-models.js';
 import { isLocalRequest } from '../utils/local-only.js';
@@ -40,19 +47,21 @@ const HEALTH = {
   ledger: CONFIG.LEDGER_PATH,
 };
 
+/**
+ * The largest request body the gate reads. A provider request with a long history and many tool results runs
+ * to a few MB; past this the body is refused (413) instead of being buffered without bound.
+ */
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
+
 function generateId(): string {
   return 'req_' + Math.random().toString(36).substring(2, 15);
 }
 
 /** The model a request is for: Gemini names it in the path, the other formats in the body. */
-function requestModel(route: UpstreamRoute, body: Buffer): string | undefined {
+function requestModel(route: UpstreamRoute, parsed: JsonObject | null): string | undefined {
   if (route.pathModel) return route.pathModel;
-  try {
-    const model = JSON.parse(body.toString('utf8'))?.model;
-    return typeof model === 'string' ? model : undefined;
-  } catch {
-    return undefined;
-  }
+  const model = parsed?.model;
+  return typeof model === 'string' ? model : undefined;
 }
 
 function parseJsonObject(body: Buffer): JsonObject | null {
@@ -75,7 +84,7 @@ async function distilBody(params: { route: UpstreamRoute; parsed: JsonObject | n
     const result = await distilRequest({ format: FORMATS[route.format], body: parsed });
     return { sent: result.body ? Buffer.from(JSON.stringify(result.body)) : body, distill: result.stats };
   } catch (err) {
-    console.error(`LLM Gate: distillation skipped for this request: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('llm-gate', 'distillation skipped for this request', { error: err });
     return { sent: body, distill: null };
   }
 }
@@ -88,6 +97,8 @@ function recordRequest(params: {
   reqId: string;
   path: string;
   body: Buffer;
+  /** The body as JSON, parsed once by the caller; null when it is not a JSON object. */
+  parsed?: JsonObject | null;
   route: UpstreamRoute | null;
   outcome: Pick<ForwardOutcome, 'status'> & Partial<ForwardOutcome>;
   /** What was forwarded, when Step B changed the body. */
@@ -106,12 +117,12 @@ function recordSafely(params: { reqId: string; path: string; write: () => void }
     params.write();
   } catch (err) {
     // Telemetry must never hold up model traffic: the row is lost, the request is not.
-    console.error(`LLM Gate: ledger row for ${params.reqId} (${params.path}) not written: ${err instanceof Error ? err.message : String(err)}`);
+    log.error('llm-gate', `ledger row for ${params.reqId} (${params.path}) not written`, { error: err });
   }
 }
 
 function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
-  const { reqId, path, body, route, outcome, distill = null, tools = null, memory = null } = params;
+  const { reqId, path, body, parsed = null, route, outcome, distill = null, tools = null, memory = null } = params;
   const sent = params.sent ?? body;
   const distilled = sent !== body;
   writeEvent({
@@ -120,7 +131,7 @@ function writeLedgerRow(params: Parameters<typeof recordRequest>[0]): void {
     request_id: reqId,
     route: distilled ? 'forward_compressed' : 'forward_raw',
     is_local_call: 0,
-    api_model: route ? requestModel(route, body) : undefined,
+    api_model: route ? requestModel(route, parsed) : undefined,
     in_tok: 0,
     out_tok: 0,
     // Estimated from the bodies until provider usage is read from responses.
@@ -157,13 +168,9 @@ async function handleRequest(params: {
   reqId: string;
   body: Buffer;
 }): Promise<void> {
-  // Counted as in flight until it returns, so background work (the memory fold) never overlaps a request.
-  const done = beginRequest();
-  try {
-    await handleRequestInner(params);
-  } finally {
-    done();
-  }
+  // Counted as in flight until it returns, so background work (the memory fold) never overlaps a request and
+  // a shutdown waits for it (src/shutdown.ts).
+  await asRequest(() => handleRequestInner(params));
 }
 
 async function handleRequestInner(params: {
@@ -190,12 +197,24 @@ async function handleRequestInner(params: {
     res.end(JSON.stringify({
       error: { type: 'slm_gate_unsupported_path', message: `slm-gate does not handle ${req.method} ${path}`, supported: SUPPORTED_PATHS },
     }));
-    console.info(`LLM Gate: ${req.method} ${path} -> 404 (unsupported path)`);
+    log.info('llm-gate', `${req.method} ${path} -> 404 (unsupported path)`);
     recordRequest({ reqId, path, body, route, outcome: { status: 404 } });
     return;
   }
 
   const parsed = route.generation ? parseJsonObject(body) : null;
+  // A generation body the gate cannot read (not JSON, no history, no model) is refused here with the reason,
+  // rather than forwarded for the provider to reject or failing somewhere in distillation.
+  const problem = route.generation ? requestBodyProblem({ format: route.format, body: parsed }) : null;
+  if (problem) {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      error: { type: 'slm_gate_invalid_request', message: `slm-gate cannot forward this ${route.format} request: ${problem}` },
+    }));
+    log.info('llm-gate', `${req.method} ${path} -> 400`, { reason: problem });
+    recordRequest({ reqId, path, body, parsed, route, outcome: { status: 400 } });
+    return;
+  }
   // Measurement only, for the "tool definitions in context" card: how many tool schemas this request carries and how many stay deferred.
   const tools = parsed ? FORMATS[route.format].toolStats?.(parsed) ?? null : null;
 
@@ -203,12 +222,15 @@ async function handleRequestInner(params: {
     ? await distilBody({ route, parsed, body })
     : { sent: body, distill: null };
   const outcome = await forwardRequest({ req, res, body: sent, route });
-  const saved = sent === body ? '' : `, distilled ${body.length} -> ${sent.length} bytes`;
-  console.info(`LLM Gate: ${req.method} ${path} -> ${route.format} ${outcome.status} in ${outcome.durationMs}ms${saved}${outcome.clientAborted ? ' (client aborted)' : ''}`);
+  log.info('llm-gate', `${req.method} ${path} -> ${route.format} ${outcome.status}`, {
+    ms: outcome.durationMs,
+    ...(sent === body ? {} : { distilled: `${body.length}->${sent.length}` }),
+    ...(outcome.clientAborted ? { client_aborted: true } : {}),
+  });
   // Conversation memory: note this turn now that the response is complete; the fold itself runs later, only
   // when this process has no request in flight (src/llm-gate/memory.ts).
   const memory = parsed && route.generation ? noteMemory({ route, parsed }) : null;
-  if (route.generation) recordRequest({ reqId, path, body, route, outcome, sent, distill, tools, memory });
+  if (route.generation) recordRequest({ reqId, path, body, parsed, route, outcome, sent, distill, tools, memory });
 }
 
 /** What the ledger row says about the conversation's memory: numbers only, never the text. */
@@ -229,7 +251,7 @@ function noteMemory(params: { route: UpstreamRoute; parsed: JsonObject }): Memor
     const row = readMemoryRow(key);
     return { turns_known: row?.turns ?? 0, age_s: row ? Math.round((Date.now() - new Date(row.folded_at).getTime()) / 1000) : null };
   } catch (err) {
-    console.error(`[memory] turn not noted: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('memory', 'turn not noted', { error: err });
     return null;
   }
 }
@@ -262,19 +284,35 @@ export function requestListener(req: http.IncomingMessage, res: http.ServerRespo
   }
 
   const chunks: Buffer[] = [];
-  req.on('data', (chunk: Buffer) => chunks.push(chunk));
+  let received = 0;
+  let refused = false;
+  req.on('data', (chunk: Buffer) => {
+    if (refused) return;
+    received += chunk.length;
+    if (received > MAX_BODY_BYTES) {
+      refused = true;
+      chunks.length = 0;
+      res.writeHead(413, { 'content-type': 'application/json', connection: 'close' });
+      // The rest of the upload is dropped once the answer has reached the client.
+      res.once('finish', () => req.destroy());
+      res.end(JSON.stringify({ error: { type: 'slm_gate_body_too_large', message: `slm-gate reads request bodies up to ${MAX_BODY_BYTES} bytes` } }));
+      return;
+    }
+    chunks.push(chunk);
+  });
   req.on('end', () => {
+    if (refused) return;
     handleRequest({ req, res, reqId, body: Buffer.concat(chunks) }).catch(err => {
       // Only a ledger or programming error reaches here; the response may already be complete.
-      console.error('LLM Gate Error:', err);
+      log.error('llm-gate', 'request failed', { id: reqId, error: err });
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { type: 'slm_gate_error', message: err instanceof Error ? err.message : String(err) } }));
       }
     });
   });
-  // The client dropped while still sending: nothing was forwarded, so there is nothing to record.
-  req.on('error', () => res.destroy());
+  // The client dropped while still sending (or was cut off above): nothing was forwarded, nothing to record.
+  req.on('error', () => { if (!refused) res.destroy(); });
 }
 
 /** A server for tests; the gate itself listens through listenOnThisComputer (index.ts). */

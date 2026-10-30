@@ -26,12 +26,13 @@ const ROOT_DIR = path.resolve(dirname, '..');
 /**
  * Spawns a child process for a given command.
  * 
- * @param command - The executable to run (e.g., 'node' or 'tsx')
- * @param args - Arguments to pass to the executable
- * @param env - Additional environment variables to overlay on top of process.env
+ * @param params.command - The executable to run (e.g., 'node' or 'tsx')
+ * @param params.args - Arguments to pass to the executable
+ * @param params.env - Additional environment variables to overlay on top of process.env
  * @returns The spawned ChildProcess instance
  */
-function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv = {}) {
+function runCommand(params: { command: string; args: string[]; env?: NodeJS.ProcessEnv }) {
+  const { command, args, env = {} } = params;
   const child = spawn(command, args, {
     stdio: 'inherit', // Connects child's stdout/stderr directly to the terminal
     cwd: ROOT_DIR,
@@ -72,11 +73,21 @@ function getRunPath(srcPath: string) {
   return { command: tsxPath, args: [path.join(ROOT_DIR, srcPath)] };
 }
 
-/** `metrics` runs the ledger metrics script with tsx; only a git checkout has it. */
-function requireCheckout(params: { command: string; script: string }): void {
-  if (fs.existsSync(path.join(ROOT_DIR, params.script)) && fs.existsSync(tsxPath)) return;
-  console.error(`\`slm-gate ${params.command}\` needs a git checkout of slm-gate (https://github.com/zenithfoundry/slm-gate): it runs a script from the harness folder, which an npm install does not include.`);
-  process.exit(1);
+/** The value after `--flag`, or undefined when the flag is absent. */
+function flagValue(args: string[], flag: string): string | undefined {
+  const at = args.indexOf(flag);
+  return at >= 0 ? args[at + 1] : undefined;
+}
+
+/** Asks one question in the terminal and returns the trimmed answer ('' when the user just presses Enter). */
+async function ask(question: string): Promise<string> {
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } finally {
+    rl.close();
+  }
 }
 
 async function main() {
@@ -97,7 +108,11 @@ Commands:
   init           Create your settings file (.env), set up for this computer's RAM. Never replaces one
                  that exists
                  Options:
+                   --profile <name>         starter (default) | proven | toolbox; see docs/npm/profiles.md
+                   --provider <name>        claude | chatgpt | gemini: the AI provider your coding tool
+                                            uses (asked in a terminal when left out)
                    --ram <GB>               (set up for a computer with this much RAM instead)
+                   --show                   (print the lines init would set, without writing anything)
   mcp            Run the MCP server for a coding tool. This is what you register in the tool:
                  command \`slm-gate\`, argument \`mcp\`. It starts the model gate by itself
   serve          Run the model gate in this terminal (normally not needed: it starts by itself
@@ -114,9 +129,11 @@ Commands:
   ledger:sync    Sync local SQLite ledger traces and scores to Langfuse
                  Options:
                    --all                    (sync all historical events)
-                   --limit <number>         (limit number of events to sync)
+                   --limit <number>         (sync only the oldest n events, counted after --after)
                    --dry-run                (simulate without sending network requests)
-  ledger:reset   Nuke local SQLite database and start fresh
+  ledger:reset   Delete the local ledger (every request and saving recorded) and start fresh
+                 Options:
+                   --yes                    (required: there is no undo)
   setup-dashboard Setup Langfuse dashboard and widgets
   config         Print the current resolved configuration
   models:check   Check if required models are pulled and fit in RAM
@@ -126,21 +143,47 @@ Commands:
   }
 
   if (command === 'init') {
-    const ramAt = args.indexOf('--ram');
-    const ramGb = ramAt >= 0 ? Number(args[ramAt + 1]) : undefined;
+    const { PROFILE_NAMES, PROFILES, PROVIDER_NAMES, initSettings, settingsFor } = await import('./setup/init.js');
+    const { detectHardware } = await import('./hardware.js');
+    const ramFlag = flagValue(args, '--ram');
+    const ramGb = ramFlag === undefined ? undefined : Number(ramFlag);
     if (ramGb !== undefined && !(Number.isInteger(ramGb) && ramGb > 0)) {
       console.error('--ram takes a whole number of gigabytes, e.g. --ram 64');
       process.exit(1);
     }
-    const { initSettings } = await import('./setup/init.js');
-    const { detectHardware } = await import('./hardware.js');
+    const profile = flagValue(args, '--profile') ?? 'starter';
+    if (!(PROFILE_NAMES as string[]).includes(profile)) {
+      console.error(`--profile takes one of ${PROFILE_NAMES.join(', ')}; got ${profile}`);
+      process.exit(1);
+    }
+    let provider = flagValue(args, '--provider');
+    if (provider === undefined && !args.includes('--show') && process.stdin.isTTY) {
+      provider = await ask(`Which AI provider does your coding tool use? ${PROVIDER_NAMES.join(', ')} (Enter to decide later): `);
+    }
+    if (provider && !(PROVIDER_NAMES as string[]).includes(provider)) {
+      console.error(`--provider takes one of ${PROVIDER_NAMES.join(', ')}; got ${provider}`);
+      process.exit(1);
+    }
     const setUpFor = ramGb ?? detectHardware().totalRamGB;
+    const choice = { ramGb: setUpFor, profile: profile as typeof PROFILE_NAMES[number], provider: (provider || undefined) as typeof PROVIDER_NAMES[number] | undefined };
+    if (args.includes('--show')) {
+      let shown: ReturnType<typeof settingsFor>;
+      try {
+        shown = settingsFor(choice);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+      console.log(`# ${profile}: ${PROFILES[choice.profile].summary}. Lines init sets for ${setUpFor} GB of RAM; every other setting keeps its default.`);
+      for (const [key, value] of Object.entries(shown.lines)) console.log(`${key}=${value}`);
+      return;
+    }
     let result: ReturnType<typeof initSettings>;
     try {
       result = initSettings({
         installDir: ROOT_DIR,
         homeDir: resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }),
-        ramGb: setUpFor,
+        ...choice,
       });
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err));
@@ -153,7 +196,9 @@ Commands:
       return;
     }
     console.log(`Created your settings file: ${result.envPath}`);
-    console.log(`It is set up for ${setUpFor} GB of RAM (RAM_PRESET=${result.preset}); every other setting is explained in the file.`);
+    console.log(`It is set up for ${setUpFor} GB of RAM (RAM_PRESET=${result.preset}) with the ${profile} profile (${PROFILES[choice.profile].summary}).`);
+    if (!provider) console.log('PROVIDER is blank: set it to claude, chatgpt or gemini in the file when you know which one your coding tool uses.');
+    if (profile === 'toolbox') console.log('DOWNSTREAM_MCP runs tech-lead-stack from npm; point it at your checkout instead if you have one.');
     if (result.preset === 'custom') {
       console.log('That is more than 128 GB, so it starts from the 128 GB models; you can choose bigger ones (step 4).');
     }
@@ -165,7 +210,7 @@ Commands:
     console.log('  4. To pick models that fit this computer best, use llmfit: https://github.com/AlexsJones/llmfit');
     console.log('     Then set SLM_BRAIN_MODEL and SLM_GATE_MODEL in the settings file.');
     console.log('\nRather have an AI assistant do steps 1 to 3 with you? Paste this prompt into it:');
-    console.log('  https://github.com/zenithfoundry/slm-gate/blob/main/docs/agent-setup.md');
+    console.log('  https://github.com/zenithfoundry/slm-gate/blob/main/docs/npm/ai-assisted-setup.md');
     return;
   }
 
@@ -203,49 +248,39 @@ Commands:
 
     for (const src of layersToStart) {
       const { command: cmd, args: cmdArgs } = getRunPath(src);
-      runCommand(cmd, cmdArgs, envOverride);
+      runCommand({ command: cmd, args: cmdArgs, env: envOverride });
     }
   } else if (command === 'metrics') {
-    requireCheckout({ command: 'metrics', script: 'harness/metrics.ts' });
-    runCommand(tsxPath, [path.join(ROOT_DIR, 'harness/metrics.ts')]);
+    const { command: cmd, args: cmdArgs } = getRunPath('src/metrics.ts');
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'ledger:sync' || command === 'sync') {
     const syncArgs = args.slice(1);
     const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/sync.ts');
-    runCommand(cmd, [...cmdArgs, ...syncArgs]);
+    runCommand({ command: cmd, args: [...cmdArgs, ...syncArgs] });
   } else if (command === 'setup-dashboard') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/setup-dashboard.ts');
-    runCommand(cmd, cmdArgs);
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'ledger:reset') {
-    const outputDir = path.join(resolveHomeDir({ installDir: ROOT_DIR, env: process.env, userHome: os.homedir() }), 'output');
-    const filesToNuke = [
-      path.join(outputDir, 'ledger.sqlite'),
-      path.join(outputDir, 'ledger.sqlite-wal'),
-      path.join(outputDir, 'ledger.sqlite-shm'),
-    ];
-    for (const f of filesToNuke) {
-      if (fs.existsSync(f)) {
-        fs.unlinkSync(f);
-      }
-    }
-    console.log('Local SQLite ledger deleted.');
-    process.exit(0);
+    // A child, like every command that needs the configuration: LEDGER_PATH decides which file goes.
+    const { command: cmd, args: cmdArgs } = getRunPath('src/ledger/reset.ts');
+    runCommand({ command: cmd, args: [...cmdArgs, ...args.slice(1)] });
   } else if (command === 'config') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/config.ts');
     // For config, if using node, we need to make sure we don't just import it but run it.
     // The config.ts has a block that checks if it's the main module.
-    runCommand(cmd, cmdArgs);
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'models:check') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/models/check.ts');
-    runCommand(cmd, cmdArgs);
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'doctor') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/doctor.ts');
-    runCommand(cmd, cmdArgs);
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'memory') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/llm-gate/memory-cli.ts');
-    runCommand(cmd, cmdArgs);
+    runCommand({ command: cmd, args: cmdArgs });
   } else if (command === 'start' || command === 'stop' || command === 'restart') {
     const { command: cmd, args: cmdArgs } = getRunPath('src/setup/gate-command.ts');
-    runCommand(cmd, [...cmdArgs, command]);
+    runCommand({ command: cmd, args: [...cmdArgs, command] });
   } else {
     console.error(`Unknown command: ${command}`);
     process.exit(1);

@@ -1,5 +1,9 @@
 # Claude Desktop MCP Configuration
 
+First: `npm install -g @zenithfoundry/slm-gate`, then `slm-gate init --profile starter` (or `proven` or `toolbox`,
+see [Profiles](../../docs/npm/profiles.md)), the `ollama pull` line it prints, and `slm-gate doctor`
+([Install](../../docs/npm/install.md)). Then add the entry below.
+
 **File Location:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
@@ -16,7 +20,7 @@
 - **Without installing it:** `"command": "npx", "args": ["-y", "@zenithfoundry/slm-gate@1", "mcp"]`.
 - **From a git checkout:** `"command": "node", "args": ["/full/path/to/small-language-model-gate/dist/mcp-gate/index.js"]`.
 - **A toolbox behind `slm-gate` (optional):** add an `env` block to the entry, as in
-  [Connect a toolbox](../../docs/install-from-npm.md#connect-a-toolbox-optional).
+  [Connect a toolbox](../../docs/npm/install.md#connect-a-toolbox).
 
 Then quit Claude Desktop completely, open it again, and check with `slm-gate doctor`.
 
@@ -40,14 +44,14 @@ starting with `mcp`.
 
 ## Ledger path: full path on your machine, or blank
 
-Claude Desktop starts MCP servers from a working directory that does not exist. Any relative path in your configuration is resolved against that directory, so `LEDGER_PATH=./output/ledger.sqlite` makes the server fail on startup with `ENOENT: no such file or directory, mkdir './output'`, and Claude Desktop shows **slm-gate — Failed — Server disconnected**.
+Claude Desktop starts MCP servers from a working directory that does not exist. Any relative path in your configuration is resolved against that directory, so `LEDGER_PATH=./output/ledger.sqlite` makes the server fail on startup with `ENOENT: no such file or directory, mkdir './output'`, and Claude Desktop shows **slm-gate** as **Failed** (Server disconnected).
 
 - Leave `LEDGER_PATH` blank in `.env` (the default is already a full path: `~/.slm-gate/output/ledger.sqlite`, or
   `output/ledger.sqlite` in a git checkout), **or**
 - set it to the full path on your machine, in `.env` or in the `env` block above, for example `/Users/yourname/.slm-gate/output/ledger.sqlite`.
 
-The same rule applies to every path inside `DOWNSTREAM_MCP`, and to the checkout path above. The configuration guide covers this in [Ledger Path Must Be a Full Path on Your Machine](../../docs/configuration.md#ledger-path-must-be-a-full-path-on-your-machine).
+The same rule applies to every path inside `DOWNSTREAM_MCP`, and to the checkout path above. The settings reference covers this in [The ledger and Langfuse](../../docs/reference/settings.md#the-ledger-and-langfuse).
 
-## Model gate (Layer 2): not possible in Claude Desktop
+## Model gate: not possible in Claude Desktop
 
-The Claude desktop app (chat and its Code tab) and claude.ai have no setting for the model's address, so their model requests can't go through the gate. Use the MCP server above (Layer 1) only. It still starts the model gate for your other coding tools; the `env` values above never reach the model gate, which reads only `slm-gate`'s `.env`.
+The Claude desktop app (chat and its Code tab) and claude.ai have no setting for the model's address, so their AI requests can't go through the gate. Use the MCP gate above only. It still starts the model gate for your other coding tools; the `env` values above never reach the model gate, which reads only `slm-gate`'s `.env`.

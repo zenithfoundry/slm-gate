@@ -1,9 +1,12 @@
+import type http from 'node:http';
 import { CONFIG } from '../config.js';
 import { createServer } from './server.js';
 import { installLangfuseFlushLifecycle } from '../ledger/flush-lifecycle.js';
 import { logLedgerInfo } from '../ledger/index.js';
+import { log } from '../log.js';
 import { exitWithParent } from '../setup/parent-watch.js';
 import { runStartupChecks, watchModelGate } from '../setup/startup.js';
+import { installShutdown } from '../shutdown.js';
 
 /**
  * Leave nothing running that no coding tool owns. Registered before any work that could hang, so a
@@ -30,13 +33,23 @@ async function main() {
   }
   shutDownWhenNobodyOwnsUs();
 
-  console.error(`[mcp-gate] Starting up...`);
-  console.error(`[mcp-gate] Mode: ${CONFIG.DOWNSTREAM_MCP ? 'Proxy' : 'Standalone'}`);
-  console.error(`[mcp-gate] Transport: ${CONFIG.MCP_GATE_TRANSPORT}`);
-  console.error(`[mcp-gate] Models -> Brain: ${CONFIG.SLM_BRAIN_MODEL} | Gate: ${CONFIG.SLM_GATE_MODEL}`);
+  log.info('mcp-gate', 'Starting up', {
+    mode: CONFIG.DOWNSTREAM_MCP ? 'proxy' : 'standalone',
+    transport: CONFIG.MCP_GATE_TRANSPORT,
+    brain: CONFIG.SLM_BRAIN_MODEL,
+    gate: CONFIG.SLM_GATE_MODEL,
+  });
   logLedgerInfo('mcp-gate');
 
-  installLangfuseFlushLifecycle('mcp-gate');
+  const langfuse = installLangfuseFlushLifecycle('mcp-gate');
+  // SIGTERM/SIGINT (also what the owner watch above sends): in HTTP mode stop listening; a tool call in
+  // flight completes either way; then flush, close the ledger, exit.
+  let listening: http.Server[] = [];
+  installShutdown({
+    scope: 'mcp-gate',
+    stopAccepting: () => { for (const s of listening) { s.close(); s.closeIdleConnections(); } },
+    drainLangfuse: langfuse.drainForShutdown,
+  });
 
   // A coding tool starting this server is the sign that work is about to start: check Ollama and the
   // configured models and make sure the model gate runs (launched in the background if it does not).
@@ -45,16 +58,16 @@ async function main() {
   try {
     notices = await runStartupChecks();
   } catch (err) {
-    console.error(`[mcp-gate] Start-up checks failed (continuing):`, err);
+    log.error('mcp-gate', 'Start-up checks failed (continuing)', { error: err });
   }
 
   try {
     const { start } = await createServer({ notices });
-    await start();
-    console.error(`[mcp-gate] Server is running and listening for messages.`);
+    listening = await start();
+    log.info('mcp-gate', 'Server is running and listening for messages.');
     watchModelGate();
   } catch (err) {
-    console.error(`[mcp-gate] Fatal error during startup:`, err);
+    log.error('mcp-gate', 'Fatal error during startup', { error: err });
     process.exit(1);
   }
 }

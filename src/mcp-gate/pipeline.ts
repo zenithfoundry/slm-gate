@@ -1,3 +1,8 @@
+/**
+ * The conditioning pipeline of the MCP gate: one tool result in, the text the coding tool should see out.
+ * Serves the exact and semantic caches, distils the text with the fidelity guard, grounds it in the
+ * workspace, runs the resolver, writes the `condition` ledger row and appends the existing-code section.
+ */
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -5,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { checkSemanticCache, setSemanticCache } from '../cache/index.js';
 import { CONFIG } from '../config.js';
 import { cacheDepsFresh, cacheGet, cacheSet, matchMemory, readMemoryRow, writeCacheDeps, writeEvent } from '../ledger/index.js';
+import { log } from '../log.js';
 import { parseSummary, renderSummary } from '../llm-gate/memory.js';
 import { handleSlmError } from '../models/helpers.js';
 import { checkKept, compressNarrativeRun } from '../models/reasoning.js';
@@ -28,16 +34,32 @@ function rootPathOf(rootUri: string): string {
 function existingCodeFor(params: { rootUri?: string; task: string }): string {
   if (!CONFIG.REPO_INDEX || !params.rootUri) return '';
   try {
-    const root = rootPathOf(params.rootUri);
-    refreshRepoIndex(root);
-    return existingCodeSection({ root, task: params.task });
+    return existingCodeSection({ root: rootPathOf(params.rootUri), task: params.task });
   } catch (err) {
-    console.error(`[pipeline] repo index skipped: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn('pipeline', 'repo index skipped', { error: err });
     return '';
   }
 }
 
-/** Resolves the `index:<root>` pseudo-dependency (the repository index revision) from the ledger; real paths fall through to a stat. */
+/** How often a workspace's symbol index is brought up to date. */
+const REPO_INDEX_REFRESH_MS = 30_000;
+const refreshedRoots = new Set<string>();
+
+/**
+ * Keeps a workspace's repository index fresh on a timer rather than on every call: a refresh walks the tree
+ * with synchronous reads, which held up each request. The first sight of a root refreshes it at once, so the
+ * index exists before the first conditioning reads it; after that an edit is seen within REPO_INDEX_REFRESH_MS.
+ */
+function keepRepoIndexFresh(root: string): void {
+  if (refreshedRoots.has(root)) return;
+  refreshedRoots.add(root);
+  const refresh = () => {
+    try { refreshRepoIndex(root, { force: true }); } catch (err) { log.warn('pipeline', 'repo index refresh skipped', { error: err }); }
+  };
+  refresh();
+  setInterval(refresh, REPO_INDEX_REFRESH_MS).unref();
+}
+
 /** Resolves pseudo-path dependencies (`index:<root>`, `memory:<key>`) from the ledger; real paths fall through to a stat. */
 const depValue = (depPath: string): number | null | undefined => {
   if (depPath.startsWith('index:')) return repoIndexRevision(depPath.slice('index:'.length));
@@ -57,10 +79,33 @@ function conversationFor(rootUri?: string): { text: string | null; decided: stri
   if (!found.row || !parsed) return { text: null, decided: [], row: null, match: 'none' };
   return { text: renderSummary(parsed), decided: parsed.decided, row: found.row, match: found.match };
 }
-import { distillToolResultWithStats, FidelityStats, FidelityVerify } from '../utils/elision.js';
+import { CHARS_PER_TOKEN, distillToolResultWithStats, estimateTokens, FidelityStats, FidelityVerify } from '../utils/elision.js';
 import { scan } from './ground.js';
 import { buildPreserveList } from '../utils/preserve-patterns.js';
 
+
+/** Lines the resolver may read as evidence: the head of a file the model named, only ever inside the workspace. */
+const EVIDENCE_MAX_LINES = 50;
+
+/**
+ * The first EVIDENCE_MAX_LINES lines of a workspace file the brain model named, or none. The path is
+ * model-chosen, so one that resolves outside the workspace (`../`, an absolute path) is refused.
+ */
+export async function readWorkspaceLines(params: { rootPath: string; pattern: string }): Promise<string[]> {
+  const { rootPath, pattern } = params;
+  const root = path.resolve(rootPath);
+  const target = path.resolve(root, pattern);
+  const relative = path.relative(root, target);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return [];
+  try {
+    const content = await fs.readFile(target, 'utf-8');
+    // Single `\n`: splitting on the two characters backslash-n never matched, so the whole
+    // file arrived as ONE element and the line cap silently did nothing.
+    return content.split('\n').slice(0, EVIDENCE_MAX_LINES);
+  } catch {
+    return [];
+  }
+}
 
 let slmClient: ReturnType<typeof createSlmClient>;
 /**
@@ -159,8 +204,8 @@ function emitConditionEvent(params: {
     slm_model: CONFIG.SLM_GATE_MODEL,
     api_model: args?.model ? String(args.model) : undefined,
     agent: args?.agent ? String(args.agent) : undefined,
-    in_tok: Math.round(text.length / 4),
-    out_tok: Math.round(conditioned.length / 4),
+    in_tok: Math.round(text.length / CHARS_PER_TOKEN),
+    out_tok: Math.round(conditioned.length / CHARS_PER_TOKEN),
     api_in_tok: 0,
     api_out_tok: 0,
     cost_usd: 0,
@@ -173,21 +218,25 @@ function emitConditionEvent(params: {
 }
 
 /**
- * The main entry point for the MCP gate pipeline. Processes an incoming prompt by checking the cache, 
- * optionally distilling (compressing) the text, grounding it with workspace context, and resolving 
- * ambiguities using a small language model. 
- * 
- * @param {string} text - The raw skill/prompt text received from the client.
- * @param {string} task - A description of the current task for context during distillation and resolution.
- * @param {string} [rootUri] - Optional URI of the workspace root to enable grounding and file context extraction.
- * @returns {Promise<string>} The conditioned and enriched prompt ready for the cloud model.
+ * The main entry point for the MCP gate pipeline. Processes an incoming tool result by checking the caches,
+ * distilling (compressing) the text, and, for a result large enough to distil, grounding it with workspace
+ * context and resolving ambiguities with the local models.
+ *
+ * @param params.text The raw tool result text received from the toolbox.
+ * @param params.task A description of the current task, for context during distillation and resolution.
+ * @param params.rootUri The workspace root URI, when the editor sent one: enables grounding, file evidence, the
+ *   repository index and conversation memory.
+ * @param params.toolName The toolbox tool that produced the text; picks the distillation policy and the cache key.
+ * @param params.args The tool call's arguments; carry the host's model/agent/session hints for the ledger row.
+ * @returns The conditioned text, ready for the cloud model.
  */
-export async function conditionPrompt(text: string, task: string, rootUri?: string, toolName?: string, args?: any): Promise<string> {
+export async function conditionPrompt(params: { text: string; task: string; rootUri?: string; toolName?: string; args?: any }): Promise<string> {
+  const { text, task, rootUri, toolName, args } = params;
   const startTime = Date.now();
   
   if (!slmClient) {
     slmClient = createSlmClient();
-    console.error(`[pipeline] Initialized SLM with OLLAMA_HOST=${CONFIG.OLLAMA_HOST}`);
+    log.info('pipeline', 'Initialized SLM', { OLLAMA_HOST: CONFIG.OLLAMA_HOST });
   }
 
   // 1. Cache Check
@@ -201,12 +250,10 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
     .update(text + '||' + task + '||' + (rootUri || '') + '||' + (toolName || '') + '||' + CONFIG.PROMPT_VERSION + '||' + memoryPart)
     .digest('hex');
   const cacheKey = `condition_${hash}`;
-  // A hit is served only while the repository state it relied on (decision files and the symbol index) is unchanged; rows without dependencies are served as before. The index is brought up to date
-  // first — forced past its debounce, because this compare must see the revision AFTER any code edit; the
-  // section appended later reuses the fresh index through the debounced path.
-  if (CONFIG.REPO_INDEX && rootUri) {
-    try { refreshRepoIndex(rootPathOf(rootUri), { force: true }); } catch (err) { console.error(`[pipeline] repo index refresh skipped: ${err instanceof Error ? err.message : String(err)}`); }
-  }
+  // A hit is served only while the repository state it relied on (decision files and the symbol index) is
+  // unchanged; rows without dependencies are served as before. The index is kept fresh on a timer, off the
+  // request path, so this compare sees a code edit within REPO_INDEX_REFRESH_MS rather than at once.
+  if (CONFIG.REPO_INDEX && rootUri) keepRepoIndexFresh(rootPathOf(rootUri));
   const cached = cacheDepsFresh(cacheKey, { statMtime: depValue }) ? cacheGet(cacheKey) : null;
   if (cached) {
     // A cache hit is the BEST outcome — full compression at zero SLM compute — yet it used
@@ -219,7 +266,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   // A semantic hit returns before the resolver runs and cannot carry a memory dependency, so it is skipped
   // whenever a usable conversation memory exists.
   if (CONFIG.SEMCACHE && !conversation.row) {
-    const semCached = await checkSemanticCache(text);
+    const semCached = await checkSemanticCache(text, rootUri ? rootPathOf(rootUri) : undefined);
     if (semCached && typeof semCached === 'string') {
       emitConditionEvent({ text, conditioned: semCached, args, startTime, cacheHit: 'semantic', fidelity: { mode: 'cache_hit' } });
       return semCached + existingCodeFor({ rootUri, task });
@@ -240,35 +287,27 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   try {
     ({ text: conditioned, fidelity } = await distillToolResultWithStats({ slm: slmFunc, text, task, toolName, args, preservePatterns: preserveList, verify }));
   } catch (err: any) {
-    handleSlmError(err, 'pipeline:distill', CONFIG.SLM_GATE_MODEL);
+    handleSlmError({ err, stage: 'pipeline:distill', model: CONFIG.SLM_GATE_MODEL });
     distillErrorKind = classifySlmError(err);
     conditioned = text;
   }
-  console.error(`[pipeline] distill ${((Date.now() - startDistill) / 1000).toFixed(1)}s`);
+  log.info('pipeline', 'distill', { s: ((Date.now() - startDistill) / 1000).toFixed(1) });
+
+  // Grounding and the resolver are gated on the same size as distillation: a result too small to distil is
+  // also too small to carry open decisions worth several local-model calls.
+  const worthConditioning = estimateTokens(text) >= (CONFIG.DISTILL_MIN_TOKENS ?? 500);
 
   // 3. Ground
   let groundCtx = '';
-  if (rootUri) {
+  if (rootUri && worthConditioning) {
     groundCtx = await scan(rootUri);
   }
 
   // 4. Clarify (Resolver)
   let fsReadFn = async (pattern: string) => [] as string[];
   if (rootUri) {
-    let rootPath = rootUri;
-    if (rootUri.startsWith('file://')) {
-       try { rootPath = fileURLToPath(rootUri); } catch { rootPath = rootUri.substring(7); }
-    }
-    fsReadFn = async (pattern: string) => {
-      try {
-        const content = await fs.readFile(path.join(rootPath, pattern), 'utf-8');
-        // Single `\n`: splitting on the two characters backslash-n never matched, so the whole
-        // file arrived as ONE element and the 50-line cap silently did nothing.
-        return content.split('\n').slice(0, 50);
-      } catch {
-        return [];
-      }
-    };
+    const rootPath = rootPathOf(rootUri);
+    fsReadFn = async (pattern: string) => readWorkspaceLines({ rootPath, pattern });
   }
 
   const startResolver = Date.now();
@@ -276,19 +315,23 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
   let resolverErrorKind: SlmErrorKind = null;
   // Slice 4: the resolver's prompt must fit the local context; a whole skill often does not.
   const skillContext = prepareSkillContext(text, CONFIG.RESOLVER_PROMPT_TOKENS);
-  try {
-    resolveOut = await resolveAmbiguities(slmClient, fsReadFn, {
-      skillText: skillContext.text,
-      task,
-      conversation: conversation.text,
-      decided: conversation.decided,
-      repoRoot: rootUri ? (rootUri.startsWith('file://') ? fileURLToPath(rootUri) : rootUri) : undefined
-    });
-  } catch (err: any) {
-    handleSlmError(err, 'pipeline:resolver', CONFIG.SLM_BRAIN_MODEL);
-    resolverErrorKind = classifySlmError(err);
+  if (worthConditioning) {
+    try {
+      resolveOut = await resolveAmbiguities({
+        slm: slmClient,
+        fsRead: fsReadFn,
+        skillText: skillContext.text,
+        task,
+        conversation: conversation.text,
+        decided: conversation.decided,
+        repoRoot: rootUri ? rootPathOf(rootUri) : undefined
+      });
+    } catch (err: any) {
+      handleSlmError({ err, stage: 'pipeline:resolver', model: CONFIG.SLM_BRAIN_MODEL });
+      resolverErrorKind = classifySlmError(err);
+    }
+    log.info('pipeline', 'resolver', { s: ((Date.now() - startResolver) / 1000).toFixed(1) });
   }
-  console.error(`[pipeline] resolver ${((Date.now() - startResolver) / 1000).toFixed(1)}s`);
 
   // Append findings to the conditioned output.
   // NOTE: single `\n` inside these template literals. `\\n` emits the two characters backslash-n,
@@ -358,7 +401,7 @@ export async function conditionPrompt(text: string, task: string, rootUri?: stri
       ...(conversation.row ? [{ path: `memory:${conversation.row.key}`, mtime: new Date(conversation.row.folded_at).getTime(), expiresAt: null }] : []),
     ]);
     if (CONFIG.SEMCACHE) {
-      await setSemanticCache(text, conditioned);
+      await setSemanticCache({ text, response: conditioned, rootPath: rootUri ? rootPathOf(rootUri) : undefined });
     }
   }
 

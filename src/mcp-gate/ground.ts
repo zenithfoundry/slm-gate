@@ -1,3 +1,8 @@
+/**
+ * Grounding: a few lines on what the workspace is (runtime, framework, package manager, test runner), read
+ * from its root files with no model call. Appended to a conditioned result so the cloud model does not
+ * guess the environment it is working in.
+ */
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';

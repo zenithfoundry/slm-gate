@@ -121,6 +121,9 @@ function lastReceived(): Received {
   return received[received.length - 1];
 }
 
+/** The least an Anthropic Messages body must carry for the gate to forward it. */
+const MINIMAL_MESSAGES = Buffer.from('{"model":"claude-sonnet-5","messages":[]}');
+
 function ledgerRow(requestId: string): { route: string; api_model: string | null; meta: string } | undefined {
   return getDb().prepare('SELECT route, api_model, meta FROM events WHERE request_id = ?').get(requestId) as
     { route: string; api_model: string | null; meta: string } | undefined;
@@ -240,7 +243,7 @@ describe('llm-gate pass-through', () => {
     const res = await send({
       path: '/v1/messages',
       headers: { 'x-test-mode': 'stream', 'accept-encoding': 'gzip' },
-      body: Buffer.from('{}'),
+      body: MINIMAL_MESSAGES,
       onFirstChunk: () => {
         endedBeforeFirstChunk = upstreamEnded;
         firstChunkSeen();
@@ -254,7 +257,7 @@ describe('llm-gate pass-through', () => {
   });
 
   it('returns an upstream error status, headers and body unchanged', async () => {
-    const res = await send({ path: '/v1/messages', headers: { 'x-test-mode': 'error' }, body: Buffer.from('{}') });
+    const res = await send({ path: '/v1/messages', headers: { 'x-test-mode': 'error' }, body: MINIMAL_MESSAGES });
 
     expect(res.status).toBe(401);
     expect(res.headers['request-id']).toBe('req_upstream_1');
@@ -262,10 +265,11 @@ describe('llm-gate pass-through', () => {
   });
 
   it('routes a Responses request by login', async () => {
-    await send({ path: '/v1/responses', headers: { authorization: 'Bearer sk-proj-abc' }, body: Buffer.from('{}') });
+    const responses = Buffer.from('{"model":"gpt-5.6-sol","input":[]}');
+    await send({ path: '/v1/responses', headers: { authorization: 'Bearer sk-proj-abc' }, body: responses });
     expect(lastReceived().url).toBe('/openai/v1/responses');
 
-    await send({ path: '/v1/responses', headers: { 'chatgpt-account-id': 'acct', authorization: 'Bearer token' }, body: Buffer.from('{}') });
+    await send({ path: '/v1/responses', headers: { 'chatgpt-account-id': 'acct', authorization: 'Bearer token' }, body: responses });
     expect(lastReceived().url).toBe('/chatgpt/codex/responses');
   });
 
@@ -298,17 +302,44 @@ describe('llm-gate pass-through', () => {
       res.once('data', () => req.destroy());
     });
     req.on('error', () => {});
-    req.end('{}');
+    req.end(MINIMAL_MESSAGES);
 
     await expect(upstreamClosed).resolves.toBeUndefined();
   });
 
   it('answers 502 with the connection error when the upstream cannot be reached', async () => {
-    const res = await send({ path: '/v1beta/models/gemini-3:generateContent', body: Buffer.from('{}') });
+    const res = await send({ path: '/v1beta/models/gemini-3:generateContent', body: Buffer.from('{"contents":[]}') });
 
     expect(res.status).toBe(502);
     const error = JSON.parse(res.body.toString()).error;
     expect(error.type).toBe('slm_gate_upstream_unreachable');
     expect(error.message).toMatch(/ECONNREFUSED/);
+  });
+
+  it('answers 400 with the reason, and forwards nothing, when a generation body lacks what the gate relies on', async () => {
+    const before = received.length;
+    const cases: Array<[string, string, RegExp]> = [
+      ['/v1/messages', 'not json', /not a JSON object/],
+      ['/v1/messages', '{"model":"claude-sonnet-5"}', /messages: Required/],
+      ['/v1/chat/completions', '{"messages":[]}', /model: Required/],
+      ['/v1/responses', '{"model":"gpt-5.6-sol","input":5}', /input/],
+      ['/v1beta/models/gemini-3:generateContent', '{}', /contents: Required/],
+    ];
+    for (const [path, body, reason] of cases) {
+      const res = await send({ path, body: Buffer.from(body) });
+      expect(res.status).toBe(400);
+      const error = JSON.parse(res.body.toString()).error;
+      expect(error.type).toBe('slm_gate_invalid_request');
+      expect(error.message).toMatch(reason);
+      expect(JSON.parse(ledgerRow(String(res.headers['x-correlation-id']))!.meta)).toMatchObject({ status: 400 });
+    }
+    expect(received.length).toBe(before);
+  });
+
+  it('keeps fields it does not know, and a hello ping needs no body at all', async () => {
+    const body = Buffer.from('{"model":"claude-sonnet-5","messages":[],"stream":true,"metadata":{"user_id":"u1"},"future_field":[1,2]}');
+    const res = await send({ path: '/v1/messages', body });
+    expect(res.status).toBe(200);
+    expect(lastReceived().body.equals(body)).toBe(true);
   });
 });
