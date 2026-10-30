@@ -18,22 +18,18 @@
  */
 
 import { setTimeout } from 'node:timers/promises';
+import { z } from 'zod';
 import { CONFIG, requireKeys } from '../config.js';
-import { waitWithBackoff } from '../utils/backoff.js';
+import { page, readJson } from '../langfuse/api.js';
+import { LANGFUSE_REQUEST_SPACING_MS, LANGFUSE_REQUEST_TIMEOUT_MS, waitWithBackoff } from '../utils/backoff.js';
+import { isEntryPoint } from '../utils/entry-point.js';
 import { SLM_GATE_SOURCE_TAG } from './index.js';
 import { SCORE_CONFIGS } from './sync-config.js';
 
-/** Hobby projects allow 30 requests a minute; one every 2.1 s stays under it. */
-const REQUEST_SPACING_MS = 2100;
 const MAX_RETRIES = 3;
 /** A 429 asking to wait longer than this is a quota (e.g. daily deletes), not a burst: stop and report. */
 const MAX_RETRY_WAIT_S = 120;
 const DELETE_CHUNK = 100;
-
-interface Page<T> {
-  data: T[];
-  meta?: { totalPages?: number };
-}
 
 /** Seconds a 429/5xx asks us to wait, from the Retry-After header or Langfuse's error body. */
 async function retryAfterSeconds(res: Response): Promise<number | null> {
@@ -48,16 +44,17 @@ async function send(params: { path: string; init?: RequestInit; label: string })
   const baseUrl = CONFIG.LANGFUSE_HOST!.replace(/\/$/, '');
   const auth = `Basic ${Buffer.from(`${CONFIG.LANGFUSE_PUBLIC_KEY}:${CONFIG.LANGFUSE_SECRET_KEY}`).toString('base64')}`;
   for (let attempt = 0; ; attempt++) {
-    await setTimeout(REQUEST_SPACING_MS);
+    await setTimeout(LANGFUSE_REQUEST_SPACING_MS);
     const res = await fetch(`${baseUrl}${params.path}`, {
       ...params.init,
       headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS),
     });
     const transient = res.status === 429 || res.status >= 500;
     if (!transient || attempt >= MAX_RETRIES - 1) return res;
     const wait = await retryAfterSeconds(res);
     if (wait !== null && wait > MAX_RETRY_WAIT_S) return res;
-    await waitWithBackoff(attempt, MAX_RETRIES, `${params.label}: HTTP ${res.status}`, wait === null ? null : String(wait), 'wipe');
+    await waitWithBackoff({ attempt, maxRetries: MAX_RETRIES, reason: `${params.label}: HTTP ${res.status}`, retryAfter: wait === null ? null : String(wait), layer: 'wipe' });
   }
 }
 
@@ -72,15 +69,17 @@ async function failure(res: Response, label: string): Promise<Error> {
     `Quota resets at ${resetAt}. Run this command again after that to continue.`);
 }
 
-/** Every item of a paginated Langfuse list. */
-async function listAll<T>(params: { path: string; label: string }): Promise<T[]> {
-  const items: T[] = [];
-  for (let page = 1; ; page++) {
-    const res = await send({ path: `${params.path}${params.path.includes('?') ? '&' : '?'}page=${page}&limit=100`, label: params.label });
+/** Every item of a paginated Langfuse list, each read as `item` describes it. */
+async function listAll<T extends z.ZodTypeAny>(params: { path: string; label: string; item: T }): Promise<z.infer<T>[]> {
+  const items: z.infer<T>[] = [];
+  const pageSchema = page(params.item);
+  for (let pageNo = 1; ; pageNo++) {
+    const res = await send({ path: `${params.path}${params.path.includes('?') ? '&' : '?'}page=${pageNo}&limit=100`, label: params.label });
     if (!res.ok) throw await failure(res, params.label);
-    const body = await res.json() as Page<T>;
-    items.push(...(body.data ?? []));
-    if ((body.data ?? []).length === 0 || page >= (body.meta?.totalPages ?? 1)) return items;
+    const body = await readJson({ res, schema: pageSchema, scope: 'wipe', what: params.label });
+    if (!body) throw new Error(`${params.label}: Langfuse's answer was not understood (see the warning above).`);
+    items.push(...body.data);
+    if (body.data.length === 0 || pageNo >= (body.meta?.totalPages ?? 1)) return items;
   }
 }
 
@@ -95,16 +94,20 @@ async function wipeLangfuse(options: { dryRun: boolean }): Promise<void> {
   // The trace list is Langfuse's only way to find traces by tag. It is deprecated on Cloud
   // (removal 2026-11-16) and lags live data by about 10 minutes, so traces written in the
   // last few minutes may need a second run.
-  const traces = await listAll<{ id: string }>({
+  const traces = await listAll({
     path: `/api/public/traces?tags=${encodeURIComponent(SLM_GATE_SOURCE_TAG)}`,
     label: 'list gate traces',
+    item: z.object({ id: z.string() }).passthrough(),
   });
   const traceIds = traces.map(t => t.id);
   console.log(`Found ${traceIds.length} gate trace(s). Their scores and observations are deleted with them.`);
 
   const gateConfigNames = new Set(SCORE_CONFIGS.map(c => c.name));
-  const configs = (await listAll<{ id: string; name: string; isArchived?: boolean }>({ path: '/api/public/score-configs', label: 'list score configs' }))
-    .filter(c => gateConfigNames.has(c.name) && !c.isArchived);
+  const configs = (await listAll({
+    path: '/api/public/score-configs',
+    label: 'list score configs',
+    item: z.object({ id: z.string(), name: z.string(), isArchived: z.boolean().optional() }).passthrough(),
+  })).filter(c => gateConfigNames.has(c.name) && !c.isArchived);
   console.log(`Found ${configs.length} active gate score config(s) to archive.\n`);
 
   if (options.dryRun) {
@@ -134,7 +137,9 @@ async function wipeLangfuse(options: { dryRun: boolean }): Promise<void> {
   console.log('Langfuse can take ~10 minutes to stop listing deleted traces; check with `pnpm run ledger:verify`.');
 }
 
-wipeLangfuse({ dryRun: process.argv.includes('--dry-run') }).catch((err) => {
-  console.error('\n⛔', err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+if (isEntryPoint(import.meta.url)) {
+  wipeLangfuse({ dryRun: process.argv.includes('--dry-run') }).catch((err) => {
+    console.error('\n⛔', err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

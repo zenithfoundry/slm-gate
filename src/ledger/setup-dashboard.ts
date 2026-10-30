@@ -4,6 +4,8 @@
  */
 import { CONFIG, requireKeys } from '../config.js';
 import { setTimeout } from 'timers/promises';
+import { LANGFUSE_REQUEST_SPACING_MS, LANGFUSE_REQUEST_TIMEOUT_MS } from '../utils/backoff.js';
+import { isEntryPoint } from '../utils/entry-point.js';
 import { RETIRED_SCORE_NAMES } from './sync-config.js';
 
 // The cards do not filter on SLM_GATE_SOURCE_TAG. Each already filters on a score name only
@@ -47,10 +49,10 @@ async function apiFetch(url: string, init: RequestInit, label: string): Promise<
   const maxRetries = 5;
   
   while (attempt <= maxRetries) {
-    // Pace all mutating/read requests to ensure we stay under 30/min (~2000ms/req)
-    await setTimeout(2100);
+    // Pace all mutating/read requests to stay under the rate limit.
+    await setTimeout(LANGFUSE_REQUEST_SPACING_MS);
     
-    const res = await fetch(url, init);
+    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS) });
     if (res.status === 429) {
       attempt++;
       if (attempt > maxRetries) {
@@ -141,7 +143,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle: Est. Seconds Saved (per prompt)',
-      description: "Only measured when Claude traffic passes through the gate and CLAUDE_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so CLAUDE_WINDOW_BUDGET is a measured best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
+      description: "Only measured when Claude traffic passes through the gate and a window budget is known (the estimate for the plan named in SUBSCRIPTION_PLAN, or your own measured CLAUDE_WINDOW_BUDGET); shows 0 otherwise, which means not measured. SECONDS of your 5-hour Claude window freed per prompt, averaged — bounded [0, 18000]. Read it as-is: 11.4 means eleven and a half seconds of window time given back by the average prompt. An estimate within a margin of error: providers do not publish their window limits, so the budget is a best guess. Claude's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -150,7 +152,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle: Est. Seconds Saved (per prompt)',
-      description: "Only measured when ChatGPT traffic passes through the gate and CHATGPT_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 3-hour ChatGPT window freed per prompt, averaged — bounded [0, 10800]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so CHATGPT_WINDOW_BUDGET is a best guess. ChatGPT uses message-based metering, so only a prompt answered entirely locally frees anything; a distilled-but-forwarded prompt still costs a message and scores 0.",
+      description: "Only measured when ChatGPT traffic passes through the gate and a window budget is known (the estimate for the plan named in SUBSCRIPTION_PLAN, or your own measured CHATGPT_WINDOW_BUDGET); shows 0 otherwise, which means not measured. SECONDS of your 3-hour ChatGPT window freed per prompt, averaged — bounded [0, 10800]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so the budget is a best guess. ChatGPT uses message-based metering, so only a prompt answered entirely locally frees anything; a distilled-but-forwarded prompt still costs a message and scores 0.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -159,7 +161,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle: Est. Seconds Saved (per prompt)',
-      description: "Only measured when Gemini traffic passes through the gate and GEMINI_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. SECONDS of your 5-hour Gemini window freed per prompt, averaged — bounded [0, 18000]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so GEMINI_WINDOW_BUDGET is a best guess. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
+      description: "Only measured when Gemini traffic passes through the gate and a window budget is known (the estimate for the plan named in SUBSCRIPTION_PLAN, or your own measured GEMINI_WINDOW_BUDGET); shows 0 otherwise, which means not measured. SECONDS of your 5-hour Gemini window freed per prompt, averaged — bounded [0, 18000]. Read it as-is. An estimate within a margin of error: providers do not publish their window limits, so the budget is a best guess. Gemini's limits scale with tokens sent, so shrunk tool results and prompts extend the cycle.",
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'avg' }],
@@ -168,7 +170,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Claude Cycle: Est. Minutes Saved (total)',
-      description: "Only measured when Claude traffic passes through the gate and CLAUDE_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Claude window freed across every prompt in the selected date range. This is the companion to the per-prompt seconds card above it: same quantity, summed instead of averaged, so it grows as you use the gate. An estimate within a margin of error — CLAUDE_WINDOW_BUDGET is a measured best guess. " + RANGE_TOTAL_NOTE,
+      description: "Only measured when Claude traffic passes through the gate and a window budget is known (the plan's estimate from SUBSCRIPTION_PLAN, or your measured CLAUDE_WINDOW_BUDGET); shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Claude window freed across every prompt in the selected date range. This is the companion to the per-prompt seconds card above it: same quantity, summed instead of averaged, so it grows as you use the gate. An estimate within a margin of error — the budget is a best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -177,7 +179,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'ChatGPT Cycle: Est. Minutes Saved (total)',
-      description: "Only measured when ChatGPT traffic passes through the gate and CHATGPT_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 3-hour ChatGPT window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — CHATGPT_WINDOW_BUDGET is a best guess. " + RANGE_TOTAL_NOTE,
+      description: "Only measured when ChatGPT traffic passes through the gate and a window budget is known (the plan's estimate from SUBSCRIPTION_PLAN, or your measured CHATGPT_WINDOW_BUDGET); shows 0 otherwise, which means not measured. Total MINUTES of your 3-hour ChatGPT window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — the budget is a best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -186,7 +188,7 @@ async function setupDashboard(): Promise<void> {
     },
     {
       name: 'Gemini Cycle: Est. Minutes Saved (total)',
-      description: "Only measured when Gemini traffic passes through the gate and GEMINI_WINDOW_BUDGET is set; shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Gemini window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — GEMINI_WINDOW_BUDGET is a best guess. " + RANGE_TOTAL_NOTE,
+      description: "Only measured when Gemini traffic passes through the gate and a window budget is known (the plan's estimate from SUBSCRIPTION_PLAN, or your measured GEMINI_WINDOW_BUDGET); shows 0 otherwise, which means not measured. Total MINUTES of your 5-hour Gemini window freed across every prompt in the selected date range. The companion to the per-prompt seconds card above it: same quantity, summed instead of averaged. An estimate within a margin of error — the budget is a best guess. " + RANGE_TOTAL_NOTE,
       view: 'scores-numeric',
       chartType: 'NUMBER',
       metrics: [{ measure: 'value', agg: 'sum' }],
@@ -456,7 +458,9 @@ async function setupDashboard(): Promise<void> {
   }
 }
 
-setupDashboard().catch((err) => {
-  console.error('Fatal error setting up dashboard:', err);
-  process.exit(1);
-});
+if (isEntryPoint(import.meta.url)) {
+  setupDashboard().catch((err) => {
+    console.error('Fatal error setting up dashboard:', err);
+    process.exit(1);
+  });
+}

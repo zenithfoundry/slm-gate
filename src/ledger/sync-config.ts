@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONFIG } from '../config.js';
 import { PRICING } from '../pricing/index.js';
+import { LANGFUSE_REQUEST_TIMEOUT_MS } from '../utils/backoff.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,7 +110,8 @@ export async function syncScoreConfigs(): Promise<void> {
           'Authorization': authHeader,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(config)
+        body: JSON.stringify(config),
+        signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS),
       });
       if (res.ok) {
         console.log(`  ✓ Score config registered: ${config.name}`);
@@ -153,7 +155,8 @@ export async function syncModelDefinitions(): Promise<void> {
           'Authorization': authHeader,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(modelPayload)
+        body: JSON.stringify(modelPayload),
+        signal: AbortSignal.timeout(LANGFUSE_REQUEST_TIMEOUT_MS),
       });
       if (res.ok) {
         console.log(`  ✓ Model definition registered: ${modelName}`);
