@@ -9,19 +9,46 @@
     "repository": {
       "url": "https://github.com/zenithfoundry/slm-gate",
       "provider": "github",
-      "revision": "c2645099b14f210c226ab121175991be55640212"
+      "revision": "c8036c94bbb0ce932baf2db746de5000d95c29c9"
     }
   },
   "lanes": [
-    { "id": "tool", "label": "Coding tool" },
-    { "id": "mcp", "label": "MCP gate" },
-    { "id": "checks", "label": "Start-up checks" },
-    { "id": "ollama", "label": "Ollama" },
-    { "id": "gate", "label": "Model gate" },
-    { "id": "problems", "label": "Problems", "variant": "exception" },
-    { "id": "you", "label": "You and the CLI" }
+    {
+      "id": "tool",
+      "label": "Coding tool"
+    },
+    {
+      "id": "mcp",
+      "label": "MCP gate"
+    },
+    {
+      "id": "checks",
+      "label": "Start-up checks"
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama"
+    },
+    {
+      "id": "gate",
+      "label": "Model gate"
+    },
+    {
+      "id": "problems",
+      "label": "Problems",
+      "variant": "exception"
+    },
+    {
+      "id": "you",
+      "label": "You and the CLI"
+    }
   ],
-  "mainPath": ["tool", "mcp", "checks", "gate"],
+  "mainPath": [
+    "tool",
+    "mcp",
+    "checks",
+    "gate"
+  ],
   "nodes": [
     {
       "id": "tool",
@@ -32,7 +59,12 @@
       "sublabel": "runs slm-gate mcp",
       "icon": "person",
       "sources": [
-        { "path": "src/cli.ts", "line": 172, "end_line": 177, "label": "the mcp command" }
+        {
+          "path": "src/cli.ts",
+          "line": 217,
+          "end_line": 222,
+          "label": "the mcp command"
+        }
       ]
     },
     {
@@ -43,7 +75,12 @@
       "label": "Your AI assistant",
       "sublabel": "told at start-up, word for word",
       "sources": [
-        { "path": "src/mcp-gate/tool-names.ts", "line": 43, "end_line": 56, "label": "notices in the instructions" }
+        {
+          "path": "src/mcp-gate/tool-names.ts",
+          "line": 43,
+          "end_line": 56,
+          "label": "notices in the instructions"
+        }
       ]
     },
     {
@@ -54,8 +91,18 @@
       "label": "MCP gate",
       "sublabel": "answers within 1.5 s",
       "sources": [
-        { "path": "src/mcp-gate/index.ts", "line": 44, "end_line": 55, "label": "checks, then serve, then watch" },
-        { "path": "src/setup/startup.ts", "line": 112, "end_line": 128, "label": "capped at 1.5 s" }
+        {
+          "path": "src/mcp-gate/index.ts",
+          "line": 57,
+          "end_line": 68,
+          "label": "checks, then serve, then watch"
+        },
+        {
+          "path": "src/setup/startup.ts",
+          "line": 113,
+          "end_line": 129,
+          "label": "capped at 1.5 s"
+        }
       ]
     },
     {
@@ -67,8 +114,18 @@
       "sublabel": "at start, after 15 s, then every minute",
       "tag": "LLM_GATE_AUTOSTART",
       "sources": [
-        { "path": "src/setup/startup.ts", "line": 24, "end_line": 27, "label": "1.5 s, 15 s, 60 s" },
-        { "path": "src/setup/startup.ts", "line": 138, "end_line": 168, "label": "the watch" }
+        {
+          "path": "src/setup/startup.ts",
+          "line": 25,
+          "end_line": 28,
+          "label": "1.5 s, 15 s, 60 s"
+        },
+        {
+          "path": "src/setup/startup.ts",
+          "line": 139,
+          "end_line": 169,
+          "label": "the watch"
+        }
       ]
     },
     {
@@ -79,8 +136,18 @@
       "label": "Ollama",
       "sublabel": "running? models downloaded?",
       "sources": [
-        { "path": "src/setup/local-models.ts", "line": 66, "end_line": 72, "label": "asks Ollama for its models" },
-        { "path": "src/setup/local-models.ts", "line": 138, "end_line": 154, "label": "every model the settings name" }
+        {
+          "path": "src/setup/local-models.ts",
+          "line": 66,
+          "end_line": 72,
+          "label": "asks Ollama for its models"
+        },
+        {
+          "path": "src/setup/local-models.ts",
+          "line": 138,
+          "end_line": 154,
+          "label": "every model the settings name"
+        }
       ]
     },
     {
@@ -91,9 +158,24 @@
       "label": "Model gate",
       "sublabel": "started if nothing is on its port",
       "sources": [
-        { "path": "src/setup/startup.ts", "line": 88, "end_line": 99, "label": "probe, then launch" },
-        { "path": "src/setup/model-gate.ts", "line": 165, "end_line": 189, "label": "a detached background process" },
-        { "path": "src/setup/startup.ts", "line": 143, "end_line": 153, "label": "relaunched if it stopped" }
+        {
+          "path": "src/setup/startup.ts",
+          "line": 89,
+          "end_line": 100,
+          "label": "probe, then launch"
+        },
+        {
+          "path": "src/setup/model-gate.ts",
+          "line": 178,
+          "end_line": 202,
+          "label": "a detached background process"
+        },
+        {
+          "path": "src/setup/startup.ts",
+          "line": 144,
+          "end_line": 154,
+          "label": "relaunched if it stopped"
+        }
       ]
     },
     {
@@ -104,8 +186,18 @@
       "label": "Problem found",
       "sublabel": "desktop notification",
       "sources": [
-        { "path": "src/setup/startup.ts", "line": 77, "end_line": 80, "label": "log + notify" },
-        { "path": "src/setup/notify.ts", "line": 28, "end_line": 36, "label": "macOS and Linux" }
+        {
+          "path": "src/setup/startup.ts",
+          "line": 78,
+          "end_line": 81,
+          "label": "log + notify"
+        },
+        {
+          "path": "src/setup/notify.ts",
+          "line": 28,
+          "end_line": 36,
+          "label": "macOS and Linux"
+        }
       ]
     },
     {
@@ -124,22 +216,93 @@
       "label": "slm-gate CLI",
       "sublabel": "start, stop, restart, serve",
       "sources": [
-        { "path": "src/cli.ts", "line": 179, "end_line": 207, "label": "serve" },
-        { "path": "src/cli.ts", "line": 246, "end_line": 248, "label": "start, stop, restart" },
-        { "path": "src/setup/gate-command.ts", "line": 7, "end_line": 35, "label": "what they do" }
+        {
+          "path": "src/cli.ts",
+          "line": 224,
+          "end_line": 252,
+          "label": "serve"
+        },
+        {
+          "path": "src/cli.ts",
+          "line": 281,
+          "end_line": 283,
+          "label": "start, stop, restart"
+        },
+        {
+          "path": "src/setup/gate-command.ts",
+          "line": 7,
+          "end_line": 35,
+          "label": "what they do"
+        }
       ]
     }
   ],
   "edges": [
-    { "id": "starts", "from": "tool", "to": "mcp", "label": "1. starts", "variant": "emphasis" },
-    { "id": "runs-checks", "from": "mcp", "to": "checks", "label": "2. at start, then on a timer", "variant": "emphasis" },
-    { "id": "ollama-check", "from": "checks", "to": "ollama", "label": "3. running? models downloaded?" },
-    { "id": "start-gate", "from": "checks", "to": "gate", "label": "4. start it if not running", "variant": "emphasis" },
-    { "id": "problem", "from": "checks", "to": "problems", "label": "problem", "variant": "security", "role": "error" },
-    { "id": "notify-you", "from": "problems", "to": "you", "label": "desktop notification", "variant": "dashed", "role": "return", "route": "bottom-channel" },
-    { "id": "tell-assistant", "from": "problems", "to": "assistant", "label": "at start-up only", "variant": "dashed", "role": "branch" },
-    { "id": "you-cli", "from": "you", "to": "cli", "label": "by hand" },
-    { "id": "cli-gate", "from": "cli", "to": "gate", "label": "start, stop, restart, serve", "role": "branch" }
+    {
+      "id": "starts",
+      "from": "tool",
+      "to": "mcp",
+      "label": "1. starts",
+      "variant": "emphasis"
+    },
+    {
+      "id": "runs-checks",
+      "from": "mcp",
+      "to": "checks",
+      "label": "2. at start, then on a timer",
+      "variant": "emphasis"
+    },
+    {
+      "id": "ollama-check",
+      "from": "checks",
+      "to": "ollama",
+      "label": "3. running? models downloaded?"
+    },
+    {
+      "id": "start-gate",
+      "from": "checks",
+      "to": "gate",
+      "label": "4. start it if not running",
+      "variant": "emphasis"
+    },
+    {
+      "id": "problem",
+      "from": "checks",
+      "to": "problems",
+      "label": "problem",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "id": "notify-you",
+      "from": "problems",
+      "to": "you",
+      "label": "desktop notification",
+      "variant": "dashed",
+      "role": "return",
+      "route": "bottom-channel"
+    },
+    {
+      "id": "tell-assistant",
+      "from": "problems",
+      "to": "assistant",
+      "label": "at start-up only",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "you-cli",
+      "from": "you",
+      "to": "cli",
+      "label": "by hand"
+    },
+    {
+      "id": "cli-gate",
+      "from": "cli",
+      "to": "gate",
+      "label": "start, stop, restart, serve",
+      "role": "branch"
+    }
   ],
   "cards": [
     {

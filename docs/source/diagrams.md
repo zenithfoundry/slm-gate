@@ -31,9 +31,10 @@ node's `sources` must point at files and line ranges that exist in this reposito
 | `startup` | workflow | [How it works](../reference/how-it-works.md#how-it-starts-and-what-the-cli-does) | The start-up checks, Ollama, the model gate, notifications and the CLI |
 | `ledger-modules` | architecture | [Architecture](../../ARCHITECTURE.md) | The modules of `src/ledger/` and `src/langfuse/`, what each keeps and who reads it |
 
-When the behaviour changes, edit the source, re-render, and look at the PNG before committing. The sources pin
-the commit their evidence was checked against; after the code they cite moves, update the line ranges and the
-pinned revision together.
+When the behaviour changes, edit the source, re-render, and look at the PNG before committing. Each source pins
+the commit its evidence was checked against (`meta.repository.revision`); when the code it cites moves, update
+the line ranges and the pinned revision together, and take the line numbers from `git show <revision>:<path>`,
+not from the working tree.
 
 ---
 

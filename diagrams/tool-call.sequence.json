@@ -9,19 +9,35 @@
     "repository": {
       "url": "https://github.com/zenithfoundry/slm-gate",
       "provider": "github",
-      "revision": "c2645099b14f210c226ab121175991be55640212"
+      "revision": "c8036c94bbb0ce932baf2db746de5000d95c29c9"
     }
   },
   "participants": [
-    { "id": "tool", "type": "external", "label": "Coding tool", "sublabel": "asks for a tool", "icon": "person" },
+    {
+      "id": "tool",
+      "type": "external",
+      "label": "Coding tool",
+      "sublabel": "asks for a tool",
+      "icon": "person"
+    },
     {
       "id": "gate",
       "type": "backend",
       "label": "MCP gate",
       "sublabel": "src/mcp-gate/server.ts",
       "sources": [
-        { "path": "src/mcp-gate/server.ts", "line": 335, "end_line": 354, "label": "pass on, condition the text" },
-        { "path": "src/mcp-gate/server.ts", "line": 100, "end_line": 140, "label": "its own three tools" }
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 348,
+          "end_line": 367,
+          "label": "pass on, condition the text"
+        },
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 136,
+          "end_line": 176,
+          "label": "its own three tools"
+        }
       ]
     },
     {
@@ -30,7 +46,12 @@
       "label": "Toolbox",
       "sublabel": "DOWNSTREAM_MCP",
       "sources": [
-        { "path": "src/mcp-gate/server.ts", "line": 45, "end_line": 73, "label": "connected at start" }
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 80,
+          "end_line": 101,
+          "label": "connected at start"
+        }
       ]
     },
     {
@@ -39,9 +60,24 @@
       "label": "Shrink the text",
       "sublabel": "src/mcp-gate/pipeline.ts",
       "sources": [
-        { "path": "src/mcp-gate/pipeline.ts", "line": 185, "end_line": 241, "label": "saved result, then shrink" },
-        { "path": "src/mcp-gate/pipeline.ts", "line": 249, "end_line": 290, "label": "project scan, open decisions" },
-        { "path": "src/utils/elision.ts", "line": 391, "end_line": 425, "label": "rules by tool name" }
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 233,
+          "end_line": 288,
+          "label": "saved result, then shrink"
+        },
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 300,
+          "end_line": 334,
+          "label": "project scan, open decisions"
+        },
+        {
+          "path": "src/utils/elision.ts",
+          "line": 392,
+          "end_line": 426,
+          "label": "rules by tool name"
+        }
       ]
     },
     {
@@ -50,8 +86,18 @@
       "label": "Local models",
       "sublabel": "gate model, brain model",
       "sources": [
-        { "path": "src/mcp-gate/pipeline.ts", "line": 231, "end_line": 234, "label": "gate model + fidelity guard" },
-        { "path": "src/resolver/index.ts", "line": 462, "end_line": 488, "label": "open decisions" }
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 278,
+          "end_line": 281,
+          "label": "gate model + fidelity guard"
+        },
+        {
+          "path": "src/resolver/index.ts",
+          "line": 524,
+          "end_line": 547,
+          "label": "open decisions"
+        }
       ]
     },
     {
@@ -60,7 +106,12 @@
       "label": "API model",
       "sublabel": "optional, off by default",
       "sources": [
-        { "path": "src/resolver/index.ts", "line": 77, "end_line": 85, "label": "RESOLVER_CLOUD_TIER + budget" }
+        {
+          "path": "src/resolver/index.ts",
+          "line": 102,
+          "end_line": 110,
+          "label": "RESOLVER_CLOUD_TIER + budget"
+        }
       ]
     },
     {
@@ -69,46 +120,242 @@
       "label": "Ledger",
       "sublabel": "SQLite",
       "sources": [
-        { "path": "src/ledger/index.ts", "line": 615, "end_line": 630, "label": "saved results (now cache-deps.ts)" },
-        { "path": "src/ledger/index.ts", "line": 308, "end_line": 360, "label": "the cut lines (now elisions.ts)" },
-        { "path": "src/ledger/index.ts", "line": 560, "end_line": 613, "label": "the row (now events.ts)" }
+        {
+          "path": "src/ledger/cache-deps.ts",
+          "line": 9,
+          "end_line": 20,
+          "label": "cacheGet, cacheSet"
+        },
+        {
+          "path": "src/ledger/elisions.ts",
+          "line": 24,
+          "end_line": 87,
+          "label": "writeElision, getElision"
+        },
+        {
+          "path": "src/ledger/events.ts",
+          "line": 247,
+          "end_line": 300,
+          "label": "writeEvent"
+        }
       ]
     }
   ],
   "segments": [
-    { "from": 150, "to": 232, "label": "Pass it on" },
-    { "from": 238, "to": 923, "label": "Shrink the text, once per call" },
-    { "from": 929, "to": 958, "label": "Back to the tool" },
-    { "from": 964, "to": 1080, "label": "Later, from the same tool" }
+    {
+      "from": 150,
+      "to": 232,
+      "label": "Pass it on"
+    },
+    {
+      "from": 238,
+      "to": 923,
+      "label": "Shrink the text, once per call"
+    },
+    {
+      "from": 929,
+      "to": 958,
+      "label": "Back to the tool"
+    },
+    {
+      "from": 964,
+      "to": 1080,
+      "label": "Later, from the same tool"
+    }
   ],
   "messages": [
-    { "id": "call", "from": "tool", "to": "gate", "y": 160, "label": "1. tool call", "variant": "emphasis" },
-    { "id": "pass-on", "from": "gate", "to": "toolbox", "y": 188, "label": "2. passed on unchanged" },
-    { "id": "raw", "from": "toolbox", "to": "gate", "y": 216, "label": "3. raw result", "variant": "return" },
-    { "id": "text-only", "from": "gate", "to": "shrink", "y": 250, "label": "4. the text only", "note": "Pictures, the error flag and structured data pass through untouched." },
-    { "id": "saved", "from": "shrink", "to": "ledger", "y": 325, "label": "saved result?", "note": "Seen before? The saved result goes out and the steps below are skipped." },
-    { "id": "saved-answer", "from": "ledger", "to": "shrink", "y": 400, "label": "hit or miss", "variant": "return" },
-    { "id": "shorten", "from": "shrink", "to": "models", "y": 432, "label": "5. shorten long prose (gate model)", "variant": "emphasis", "note": "Rules by tool name first; code blocks, tables, paths and numbers never change; file reads never shrink." },
-    { "id": "shorter", "from": "models", "to": "shrink", "y": 530, "label": "shorter text", "variant": "return", "note": "Skills: the brain model checks each cut; a failed run goes out as it was." },
-    { "id": "decisions", "from": "shrink", "to": "models", "y": 608, "label": "6. open decisions (brain model)", "note": "Project scan first. Up to 3 open decisions, answered from your decision files, symbol index or files." },
-    { "id": "unsure", "from": "models", "to": "paid", "y": 706, "label": "unsure ones", "variant": "dashed", "note": "Off by default: RESOLVER_CLOUD_TIER=on with a budget." },
-    { "id": "paid-answer", "from": "paid", "to": "models", "y": 776, "label": "answer", "variant": "return" },
-    { "id": "decided", "from": "models", "to": "shrink", "y": 804, "label": "decided, plus questions for you", "variant": "return" },
-    { "id": "log", "from": "shrink", "to": "ledger", "y": 832, "label": "7. log it", "variant": "dashed", "note": "Route, tokens, fidelity; the cut lines for expand_elision; never the text." },
-    { "id": "shorter-back", "from": "shrink", "to": "gate", "y": 910, "label": "shorter text", "variant": "return" },
-    { "id": "result", "from": "gate", "to": "tool", "y": 938, "label": "8. smaller result", "variant": "return" },
-    { "id": "later", "from": "tool", "to": "gate", "y": 980, "label": "expand_elision, ask_elision, find_existing", "variant": "dashed" },
-    { "id": "lookup", "from": "gate", "to": "ledger", "y": 1008, "label": "the cut lines, the original, the symbol index" },
-    { "id": "found", "from": "ledger", "to": "gate", "y": 1036, "label": "found", "variant": "return" },
-    { "id": "answer", "from": "gate", "to": "tool", "y": 1064, "label": "answer", "variant": "return" }
+    {
+      "id": "call",
+      "from": "tool",
+      "to": "gate",
+      "y": 160,
+      "label": "1. tool call",
+      "variant": "emphasis"
+    },
+    {
+      "id": "pass-on",
+      "from": "gate",
+      "to": "toolbox",
+      "y": 188,
+      "label": "2. passed on unchanged"
+    },
+    {
+      "id": "raw",
+      "from": "toolbox",
+      "to": "gate",
+      "y": 216,
+      "label": "3. raw result",
+      "variant": "return"
+    },
+    {
+      "id": "text-only",
+      "from": "gate",
+      "to": "shrink",
+      "y": 250,
+      "label": "4. the text only",
+      "note": "Pictures, the error flag and structured data pass through untouched."
+    },
+    {
+      "id": "saved",
+      "from": "shrink",
+      "to": "ledger",
+      "y": 325,
+      "label": "saved result?",
+      "note": "Seen before? The saved result goes out and the steps below are skipped."
+    },
+    {
+      "id": "saved-answer",
+      "from": "ledger",
+      "to": "shrink",
+      "y": 400,
+      "label": "hit or miss",
+      "variant": "return"
+    },
+    {
+      "id": "shorten",
+      "from": "shrink",
+      "to": "models",
+      "y": 432,
+      "label": "5. shorten long prose (gate model)",
+      "variant": "emphasis",
+      "note": "Rules by tool name first; code blocks, tables, paths and numbers never change; file reads never shrink."
+    },
+    {
+      "id": "shorter",
+      "from": "models",
+      "to": "shrink",
+      "y": 530,
+      "label": "shorter text",
+      "variant": "return",
+      "note": "Skills: the brain model checks each cut; a failed run goes out as it was."
+    },
+    {
+      "id": "decisions",
+      "from": "shrink",
+      "to": "models",
+      "y": 608,
+      "label": "6. open decisions (brain model)",
+      "note": "Project scan first. Up to 3 open decisions, answered from your decision files, symbol index or files."
+    },
+    {
+      "id": "unsure",
+      "from": "models",
+      "to": "paid",
+      "y": 706,
+      "label": "unsure ones",
+      "variant": "dashed",
+      "note": "Off by default: RESOLVER_CLOUD_TIER=on with a budget."
+    },
+    {
+      "id": "paid-answer",
+      "from": "paid",
+      "to": "models",
+      "y": 776,
+      "label": "answer",
+      "variant": "return"
+    },
+    {
+      "id": "decided",
+      "from": "models",
+      "to": "shrink",
+      "y": 804,
+      "label": "decided, plus questions for you",
+      "variant": "return"
+    },
+    {
+      "id": "log",
+      "from": "shrink",
+      "to": "ledger",
+      "y": 832,
+      "label": "7. log it",
+      "variant": "dashed",
+      "note": "Route, tokens, fidelity; the cut lines for expand_elision; never the text."
+    },
+    {
+      "id": "shorter-back",
+      "from": "shrink",
+      "to": "gate",
+      "y": 910,
+      "label": "shorter text",
+      "variant": "return"
+    },
+    {
+      "id": "result",
+      "from": "gate",
+      "to": "tool",
+      "y": 938,
+      "label": "8. smaller result",
+      "variant": "return"
+    },
+    {
+      "id": "later",
+      "from": "tool",
+      "to": "gate",
+      "y": 980,
+      "label": "expand_elision, ask_elision, find_existing",
+      "variant": "dashed"
+    },
+    {
+      "id": "lookup",
+      "from": "gate",
+      "to": "ledger",
+      "y": 1008,
+      "label": "the cut lines, the original, the symbol index"
+    },
+    {
+      "id": "found",
+      "from": "ledger",
+      "to": "gate",
+      "y": 1036,
+      "label": "found",
+      "variant": "return"
+    },
+    {
+      "id": "answer",
+      "from": "gate",
+      "to": "tool",
+      "y": 1064,
+      "label": "answer",
+      "variant": "return"
+    }
   ],
   "activations": [
-    { "participant": "gate", "from": 160, "to": 944, "type": "backend" },
-    { "participant": "toolbox", "from": 188, "to": 222, "type": "external" },
-    { "participant": "shrink", "from": 250, "to": 916, "type": "backend" },
-    { "participant": "models", "from": 432, "to": 810, "type": "backend" },
-    { "participant": "paid", "from": 706, "to": 782, "type": "cloud" },
-    { "participant": "gate", "from": 980, "to": 1070, "type": "backend" }
+    {
+      "participant": "gate",
+      "from": 160,
+      "to": 944,
+      "type": "backend"
+    },
+    {
+      "participant": "toolbox",
+      "from": 188,
+      "to": 222,
+      "type": "external"
+    },
+    {
+      "participant": "shrink",
+      "from": 250,
+      "to": 916,
+      "type": "backend"
+    },
+    {
+      "participant": "models",
+      "from": 432,
+      "to": 810,
+      "type": "backend"
+    },
+    {
+      "participant": "paid",
+      "from": 706,
+      "to": 782,
+      "type": "cloud"
+    },
+    {
+      "participant": "gate",
+      "from": 980,
+      "to": 1070,
+      "type": "backend"
+    }
   ],
   "cards": [
     {

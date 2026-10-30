@@ -9,7 +9,7 @@
     "repository": {
       "url": "https://github.com/zenithfoundry/slm-gate",
       "provider": "github",
-      "revision": "c2645099b14f210c226ab121175991be55640212"
+      "revision": "c8036c94bbb0ce932baf2db746de5000d95c29c9"
     }
   },
   "components": [
@@ -29,20 +29,20 @@
       "sources": [
         {
           "path": "src/mcp-gate/pipeline.ts",
-          "line": 326,
-          "end_line": 343,
+          "line": 369,
+          "end_line": 386,
           "label": "the row after each shrink"
         },
         {
           "path": "src/mcp-gate/pipeline.ts",
-          "line": 7,
-          "end_line": 15,
+          "line": 12,
+          "end_line": 21,
           "label": "what it reads and writes"
         },
         {
           "path": "src/mcp-gate/server.ts",
-          "line": 171,
-          "end_line": 177,
+          "line": 185,
+          "end_line": 191,
           "label": "ask_elision reads the original"
         }
       ]
@@ -63,8 +63,8 @@
       "sources": [
         {
           "path": "src/llm-gate/server.ts",
-          "line": 113,
-          "end_line": 121,
+          "line": 124,
+          "end_line": 132,
           "label": "the row per request"
         },
         {
@@ -75,8 +75,8 @@
         },
         {
           "path": "src/llm-gate/memory.ts",
-          "line": 167,
-          "end_line": 207,
+          "line": 168,
+          "end_line": 208,
           "label": "the memory fold"
         }
       ]
@@ -96,9 +96,9 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 308,
-          "end_line": 360,
+          "path": "src/ledger/elisions.ts",
+          "line": 24,
+          "end_line": 87,
           "label": "writeElision, getElision"
         }
       ]
@@ -118,15 +118,15 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 615,
-          "end_line": 630,
+          "path": "src/ledger/cache-deps.ts",
+          "line": 9,
+          "end_line": 20,
           "label": "cacheGet, cacheSet"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 703,
-          "end_line": 740,
+          "path": "src/ledger/cache-deps.ts",
+          "line": 30,
+          "end_line": 69,
           "label": "writeCacheDeps, cacheDepsFresh"
         }
       ]
@@ -146,15 +146,15 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 655,
-          "end_line": 690,
+          "path": "src/ledger/protections.ts",
+          "line": 32,
+          "end_line": 64,
           "label": "recordLostSentences, learnedProtections"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 176,
-          "end_line": 186,
+          "path": "src/ledger/db.ts",
+          "line": 127,
+          "end_line": 137,
           "label": "the distill_protect table"
         }
       ]
@@ -174,9 +174,9 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 754,
-          "end_line": 790,
+          "path": "src/ledger/decisions.ts",
+          "line": 13,
+          "end_line": 39,
           "label": "replaceDecisionIndex, searchDecisions"
         }
       ]
@@ -196,9 +196,9 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 876,
-          "end_line": 925,
+          "path": "src/ledger/repo-index.ts",
+          "line": 16,
+          "end_line": 57,
           "label": "replaceRepoFileSymbols, searchRepoSymbols"
         }
       ]
@@ -218,21 +218,21 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 560,
-          "end_line": 613,
+          "path": "src/ledger/events.ts",
+          "line": 247,
+          "end_line": 300,
           "label": "writeEvent"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 440,
-          "end_line": 470,
+          "path": "src/ledger/events.ts",
+          "line": 121,
+          "end_line": 150,
           "label": "minutes and tokens per row"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 101,
-          "end_line": 126,
+          "path": "src/ledger/db.ts",
+          "line": 48,
+          "end_line": 73,
           "label": "the events table"
         }
       ]
@@ -252,10 +252,10 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 804,
-          "end_line": 860,
-          "label": "readMemoryRow, writeMemoryRow, matchMemory"
+          "path": "src/ledger/memory.ts",
+          "line": 27,
+          "end_line": 45,
+          "label": "readMemoryRow, writeMemoryRow"
         }
       ]
     },
@@ -274,15 +274,15 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 926,
-          "end_line": 950,
+          "path": "src/ledger/distill.ts",
+          "line": 34,
+          "end_line": 52,
           "label": "getDistillDecision, recordDistillDecision"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 1489,
-          "end_line": 1501,
+          "path": "src/ledger/distill.ts",
+          "line": 84,
+          "end_line": 100,
           "label": "getDistillPolicy"
         }
       ]
@@ -302,15 +302,15 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 67,
-          "end_line": 80,
+          "path": "src/ledger/db.ts",
+          "line": 14,
+          "end_line": 27,
           "label": "getDb"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 236,
-          "end_line": 243,
+          "path": "src/ledger/db.ts",
+          "line": 187,
+          "end_line": 194,
           "label": "additive migrations"
         }
       ]
@@ -330,9 +330,9 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 1021,
-          "end_line": 1040,
+          "path": "src/langfuse/format.ts",
+          "line": 91,
+          "end_line": 110,
           "label": "formatEventForLangfuse"
         }
       ]
@@ -352,21 +352,21 @@
       ],
       "sources": [
         {
-          "path": "src/ledger/index.ts",
-          "line": 1252,
-          "end_line": 1272,
+          "path": "src/langfuse/sink.ts",
+          "line": 25,
+          "end_line": 50,
           "label": "mirrorEvent queues a copy"
         },
         {
-          "path": "src/ledger/index.ts",
-          "line": 1297,
-          "end_line": 1316,
+          "path": "src/langfuse/sink.ts",
+          "line": 70,
+          "end_line": 99,
           "label": "flushQueue"
         },
         {
           "path": "src/ledger/flush-lifecycle.ts",
-          "line": 28,
-          "end_line": 38,
+          "line": 30,
+          "end_line": 40,
           "label": "every 15 s, and at shutdown"
         }
       ]
@@ -400,10 +400,10 @@
       ],
       "sources": [
         {
-          "path": "harness/metrics.ts",
+          "path": "src/metrics.ts",
           "line": 6,
           "end_line": 19,
-          "label": "now src/metrics.ts"
+          "label": "rows, tokens, cost from the events table"
         }
       ]
     },
@@ -445,13 +445,13 @@
       "sources": [
         {
           "path": "src/ledger/sync.ts",
-          "line": 46,
-          "end_line": 61,
+          "line": 50,
+          "end_line": 68,
           "label": "reads every row"
         },
         {
           "path": "src/ledger/sync.ts",
-          "line": 180,
+          "line": 185,
           "label": "same format as the mirror"
         }
       ]

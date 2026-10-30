@@ -9,7 +9,7 @@
     "repository": {
       "url": "https://github.com/zenithfoundry/slm-gate",
       "provider": "github",
-      "revision": "c2645099b14f210c226ab121175991be55640212"
+      "revision": "c8036c94bbb0ce932baf2db746de5000d95c29c9"
     }
   },
   "components": [
@@ -19,19 +19,41 @@
       "label": "Coding tool",
       "sublabel": "Claude Code, Codex, Gemini CLI…",
       "icon": "person",
-      "pos": [40, 260],
-      "size": [180, 90]
+      "pos": [
+        40,
+        260
+      ],
+      "size": [
+        180,
+        90
+      ]
     },
     {
       "id": "mcp",
       "type": "backend",
       "label": "MCP gate",
       "sublabel": "one per editor session",
-      "pos": [300, 40],
-      "size": [170, 64],
+      "pos": [
+        300,
+        40
+      ],
+      "size": [
+        170,
+        64
+      ],
       "sources": [
-        { "path": "src/mcp-gate/server.ts", "line": 32, "end_line": 95, "label": "createServer" },
-        { "path": "src/mcp-gate/server.ts", "line": 335, "end_line": 354, "label": "pass on, then condition the text" }
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 67,
+          "end_line": 130,
+          "label": "createServer"
+        },
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 348,
+          "end_line": 367,
+          "label": "pass on, then condition the text"
+        }
       ]
     },
     {
@@ -39,10 +61,21 @@
       "type": "external",
       "label": "Toolbox (optional)",
       "sublabel": "DOWNSTREAM_MCP",
-      "pos": [560, 40],
-      "size": [170, 64],
+      "pos": [
+        560,
+        40
+      ],
+      "size": [
+        170,
+        64
+      ],
       "sources": [
-        { "path": "src/mcp-gate/server.ts", "line": 45, "end_line": 73, "label": "connect to the toolbox" }
+        {
+          "path": "src/mcp-gate/server.ts",
+          "line": 80,
+          "end_line": 101,
+          "label": "connect to the toolbox"
+        }
       ]
     },
     {
@@ -50,11 +83,27 @@
       "type": "backend",
       "label": "Shrink long text",
       "sublabel": "rules by tool name, then the gate model",
-      "pos": [300, 170],
-      "size": [220, 64],
+      "pos": [
+        300,
+        170
+      ],
+      "size": [
+        220,
+        64
+      ],
       "sources": [
-        { "path": "src/mcp-gate/pipeline.ts", "line": 231, "end_line": 241, "label": "the shrink step" },
-        { "path": "src/utils/elision.ts", "line": 391, "end_line": 425, "label": "rules, then the model" }
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 278,
+          "end_line": 288,
+          "label": "the shrink step"
+        },
+        {
+          "path": "src/utils/elision.ts",
+          "line": 392,
+          "end_line": 426,
+          "label": "rules, then the model"
+        }
       ]
     },
     {
@@ -62,12 +111,32 @@
       "type": "security",
       "label": "Fidelity guard",
       "sublabel": "skills: the brain model checks each cut",
-      "pos": [620, 170],
-      "size": [220, 64],
+      "pos": [
+        620,
+        170
+      ],
+      "size": [
+        220,
+        64
+      ],
       "sources": [
-        { "path": "src/mcp-gate/pipeline.ts", "line": 231, "end_line": 234, "label": "checkKept" },
-        { "path": "src/utils/elision.ts", "line": 522, "end_line": 526, "label": "DISTILL_SKILLS" },
-        { "path": "src/utils/elision.ts", "line": 773, "label": "a lost sentence is learned" }
+        {
+          "path": "src/mcp-gate/pipeline.ts",
+          "line": 278,
+          "end_line": 281,
+          "label": "checkKept"
+        },
+        {
+          "path": "src/utils/elision.ts",
+          "line": 523,
+          "end_line": 527,
+          "label": "DISTILL_SKILLS"
+        },
+        {
+          "path": "src/utils/elision.ts",
+          "line": 773,
+          "label": "a lost sentence is learned"
+        }
       ]
     },
     {
@@ -75,11 +144,26 @@
       "type": "backend",
       "label": "Shrink new tool output",
       "sublabel": "command, search and listing results",
-      "pos": [300, 340],
-      "size": [210, 64],
+      "pos": [
+        300,
+        340
+      ],
+      "size": [
+        210,
+        64
+      ],
       "sources": [
-        { "path": "src/llm-gate/distill.ts", "line": 230, "end_line": 260, "label": "distilRequest" },
-        { "path": "src/llm-gate/distill.ts", "line": 112, "label": "file reads are never shrunk" }
+        {
+          "path": "src/llm-gate/distill.ts",
+          "line": 228,
+          "end_line": 258,
+          "label": "distilRequest"
+        },
+        {
+          "path": "src/llm-gate/distill.ts",
+          "line": 113,
+          "label": "file reads are never shrunk"
+        }
       ]
     },
     {
@@ -87,11 +171,27 @@
       "type": "backend",
       "label": "Model gate",
       "sublabel": "localhost:8787, four request formats",
-      "pos": [300, 470],
-      "size": [210, 64],
+      "pos": [
+        300,
+        470
+      ],
+      "size": [
+        210,
+        64
+      ],
       "sources": [
-        { "path": "src/llm-gate/server.ts", "line": 169, "end_line": 211, "label": "one request, start to finish" },
-        { "path": "src/llm-gate/forward.ts", "line": 76, "end_line": 110, "label": "which provider a request belongs to" }
+        {
+          "path": "src/llm-gate/server.ts",
+          "line": 176,
+          "end_line": 233,
+          "label": "one request, start to finish"
+        },
+        {
+          "path": "src/llm-gate/forward.ts",
+          "line": 83,
+          "end_line": 118,
+          "label": "which provider a request belongs to"
+        }
       ]
     },
     {
@@ -99,11 +199,27 @@
       "type": "backend",
       "label": "Conversation memory",
       "sublabel": "the brain model folds each turn, while idle",
-      "pos": [300, 600],
-      "size": [240, 64],
+      "pos": [
+        300,
+        600
+      ],
+      "size": [
+        240,
+        64
+      ],
       "sources": [
-        { "path": "src/llm-gate/memory.ts", "line": 133, "end_line": 152, "label": "note the turn" },
-        { "path": "src/llm-gate/memory.ts", "line": 167, "end_line": 207, "label": "fold it when idle" }
+        {
+          "path": "src/llm-gate/memory.ts",
+          "line": 134,
+          "end_line": 153,
+          "label": "note the turn"
+        },
+        {
+          "path": "src/llm-gate/memory.ts",
+          "line": 168,
+          "end_line": 208,
+          "label": "fold it when idle"
+        }
       ]
     },
     {
@@ -111,32 +227,135 @@
       "type": "cloud",
       "label": "Your AI provider",
       "sublabel": "your own login or API key",
-      "pos": [820, 470],
-      "size": [180, 64],
+      "pos": [
+        820,
+        470
+      ],
+      "size": [
+        180,
+        64
+      ],
       "sources": [
-        { "path": "src/llm-gate/forward.ts", "line": 112, "end_line": 152, "label": "every header is passed on" }
+        {
+          "path": "src/llm-gate/forward.ts",
+          "line": 119,
+          "end_line": 161,
+          "label": "every header is passed on"
+        }
       ]
     }
   ],
   "boundaries": [
-    { "kind": "region", "label": "Tool calls: the MCP gate", "wraps": ["mcp", "toolbox", "shrink1", "guard"] },
-    { "kind": "region", "label": "Model requests: the model gate", "wraps": ["shrink2", "llm", "memory"] }
+    {
+      "kind": "region",
+      "label": "Tool calls: the MCP gate",
+      "wraps": [
+        "mcp",
+        "toolbox",
+        "shrink1",
+        "guard"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Model requests: the model gate",
+      "wraps": [
+        "shrink2",
+        "llm",
+        "memory"
+      ]
+    }
   ],
   "connections": [
-    { "id": "tool-call", "from": "tool", "to": "mcp", "label": "tool call", "variant": "emphasis" },
-    { "id": "smaller-result", "from": "mcp", "to": "tool", "label": "smaller result" },
-    { "id": "pass-on", "from": "mcp", "to": "toolbox", "label": "passed on unchanged" },
-    { "id": "raw-result", "from": "toolbox", "to": "mcp", "label": "raw result" },
-    { "id": "text-only", "from": "mcp", "to": "shrink1", "label": "the text only" },
-    { "id": "shorter-text", "from": "shrink1", "to": "mcp", "label": "shorter text" },
-    { "id": "skills-guard", "from": "shrink1", "to": "guard", "label": "skills only", "variant": "security" },
-    { "id": "model-request", "from": "tool", "to": "llm", "label": "model request", "variant": "emphasis" },
-    { "id": "reply-back", "from": "llm", "to": "tool", "label": "reply, unchanged" },
-    { "id": "every-request", "from": "llm", "to": "shrink2", "label": "every request" },
-    { "id": "smaller-request", "from": "shrink2", "to": "llm", "label": "smaller request" },
-    { "id": "forward", "from": "llm", "to": "cloud", "label": "forwarded with the tool's own login", "variant": "emphasis" },
-    { "id": "reply", "from": "cloud", "to": "llm", "label": "reply, streamed" },
-    { "id": "note-turn", "from": "llm", "to": "memory", "label": "after each reply", "variant": "dashed" }
+    {
+      "id": "tool-call",
+      "from": "tool",
+      "to": "mcp",
+      "label": "tool call",
+      "variant": "emphasis"
+    },
+    {
+      "id": "smaller-result",
+      "from": "mcp",
+      "to": "tool",
+      "label": "smaller result"
+    },
+    {
+      "id": "pass-on",
+      "from": "mcp",
+      "to": "toolbox",
+      "label": "passed on unchanged"
+    },
+    {
+      "id": "raw-result",
+      "from": "toolbox",
+      "to": "mcp",
+      "label": "raw result"
+    },
+    {
+      "id": "text-only",
+      "from": "mcp",
+      "to": "shrink1",
+      "label": "the text only"
+    },
+    {
+      "id": "shorter-text",
+      "from": "shrink1",
+      "to": "mcp",
+      "label": "shorter text"
+    },
+    {
+      "id": "skills-guard",
+      "from": "shrink1",
+      "to": "guard",
+      "label": "skills only",
+      "variant": "security"
+    },
+    {
+      "id": "model-request",
+      "from": "tool",
+      "to": "llm",
+      "label": "model request",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reply-back",
+      "from": "llm",
+      "to": "tool",
+      "label": "reply, unchanged"
+    },
+    {
+      "id": "every-request",
+      "from": "llm",
+      "to": "shrink2",
+      "label": "every request"
+    },
+    {
+      "id": "smaller-request",
+      "from": "shrink2",
+      "to": "llm",
+      "label": "smaller request"
+    },
+    {
+      "id": "forward",
+      "from": "llm",
+      "to": "cloud",
+      "label": "forwarded with the tool's own login",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reply",
+      "from": "cloud",
+      "to": "llm",
+      "label": "reply, streamed"
+    },
+    {
+      "id": "note-turn",
+      "from": "llm",
+      "to": "memory",
+      "label": "after each reply",
+      "variant": "dashed"
+    }
   ],
   "cards": [
     {
