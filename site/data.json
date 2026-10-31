@@ -1,33 +1,29 @@
 {
-  "generatedAt": "2026-10-30T00:11:36.955Z",
+  "generatedAt": "2026-10-31T00:03:23.654Z",
   "firstEventTs": "2026-10-21T15:59:59.881Z",
-  "lastEventTs": "2026-10-29T23:30:27.599Z",
-  "realEvents": 7830,
+  "lastEventTs": "2026-10-31T00:03:23.469Z",
+  "realEvents": 10701,
   "benchEvents": 0,
   "routing": {
     "resolvedLocal": 0,
-    "distilledForwarded": 2036,
-    "escalatedCloud": 4145
+    "distilledForwarded": 2181,
+    "escalatedCloud": 4630
   },
   "toolDefs": {
-    "requests": 5480,
-    "avgCount": 22.2,
-    "avgDeferred": 8.3,
-    "avgTokEst": 19504.3,
-    "last": {
-      "count": 17,
-      "deferred": 1,
-      "tokEst": 21810
-    },
+    "requests": 0,
+    "avgCount": null,
+    "avgDeferred": null,
+    "avgTokEst": null,
+    "last": null,
     "warn": false
   },
   "fidelity": {
-    "conditionings": 18,
+    "conditionings": 25,
     "measured": 0,
     "avgRecall": null,
     "deterministicPassPct": null,
     "notShrunk": 0,
-    "expansionRate": 0.89,
+    "expansionRate": 0.84,
     "worst": [],
     "learned": 0
   },
@@ -94,6 +90,24 @@
       "resolvedLocal": 0,
       "distilledForwarded": 250,
       "escalatedCloud": 475
+    },
+    {
+      "day": "2026-10-30",
+      "events": 2870,
+      "tokensSaved": 244724,
+      "baselineTokens": 191158671,
+      "resolvedLocal": 0,
+      "distilledForwarded": 145,
+      "escalatedCloud": 485
+    },
+    {
+      "day": "2026-10-31",
+      "events": 1,
+      "tokensSaved": 0,
+      "baselineTokens": 442,
+      "resolvedLocal": 0,
+      "distilledForwarded": 0,
+      "escalatedCloud": 0
     }
   ],
   "providers": [
@@ -103,10 +117,10 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 7652,
-      "tokensSaved": 2479719,
-      "minutesTotal": 328.699,
-      "avgMinutesPerCycle": 16.435,
+      "events": 10523,
+      "tokensSaved": 2724443,
+      "minutesTotal": 361.623,
+      "avgMinutesPerCycle": 15.723,
       "medianMinutesPerCycle": 4.186,
       "cycles": [
         {
@@ -228,6 +242,24 @@
           "events": 197,
           "tokensSaved": 32089,
           "minutes": 4.186
+        },
+        {
+          "start": "2026-10-30T10:07:28.620Z",
+          "events": 604,
+          "tokensSaved": 197591,
+          "minutes": 26.557
+        },
+        {
+          "start": "2026-10-30T15:20:12.969Z",
+          "events": 1382,
+          "tokensSaved": 42949,
+          "minutes": 5.821
+        },
+        {
+          "start": "2026-10-30T20:22:20.695Z",
+          "events": 885,
+          "tokensSaved": 4184,
+          "minutes": 0.546
         }
       ],
       "weeks": [
@@ -239,9 +271,9 @@
         },
         {
           "weekStart": "2026-10-26",
-          "events": 7353,
-          "tokensSaved": 2416323,
-          "minutes": 320.371
+          "events": 10224,
+          "tokensSaved": 2661047,
+          "minutes": 353.277
         }
       ]
     },
