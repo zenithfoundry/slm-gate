@@ -28,8 +28,8 @@ settings always win over `RAM_PRESET`.
 | **32 to 47 GB** | `ram-32` | `qwen2.5:7b` | `qwen3.5:2b` | 6.6 GB | 8192 |
 | **48 to 63 GB** | `ram-48` | `qwen3.5:9b` | `qwen3.5:2b` | 8.5 GB | 8192 |
 | **64 to 127 GB** | `ram-64` | `qwen3.5:9b` | `qwen3.5:4b` | 10.0 GB | 8192 |
-| **128 GB** | `ram-128` | `qwen3:14b` | `qwen3:8b` | 14.5 GB | 8192 |
-| **More than 128 GB** | `custom` | starts from `qwen3:14b` | starts from `qwen3:8b` | 14.5 GB | 8192 |
+| **128 GB** | `ram-128` | `qwen3.6:35b-a3b` | `qwen3.5:4b` | 25.3 GB | 8192 |
+| **More than 128 GB** | `custom` | starts from `qwen3.6:35b-a3b` | starts from `qwen3.5:4b` | 25.3 GB | 8192 |
 
 **The two models.** The [gate model](../README.md#glossary) is small and fast: it shrinks tool output and rates
 the risk of an answer to an open decision. The [brain model](../README.md#glossary) is larger: it folds the

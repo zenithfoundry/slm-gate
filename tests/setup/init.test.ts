@@ -49,8 +49,8 @@ describe('initSettings', () => {
 
   it('sets up more than 128 GB as custom, starting from the 128 GB models', () => {
     const result = initSettings({ installDir, homeDir, ramGb: 192 });
-    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3:8b', 'qwen3:14b'] });
-    expect(parse(fs.readFileSync(result.envPath))).toMatchObject({ RAM_PRESET: 'custom', SLM_BRAIN_MODEL: 'qwen3:14b', SLM_GATE_MODEL: 'qwen3:8b' });
+    expect(result).toMatchObject({ created: true, preset: 'custom', models: ['qwen3.5:4b', 'qwen3.6:35b-a3b'] });
+    expect(parse(fs.readFileSync(result.envPath))).toMatchObject({ RAM_PRESET: 'custom', SLM_BRAIN_MODEL: 'qwen3.6:35b-a3b', SLM_GATE_MODEL: 'qwen3.5:4b' });
   });
 
   it('refuses a computer with less than 16 GB of RAM and writes nothing', () => {

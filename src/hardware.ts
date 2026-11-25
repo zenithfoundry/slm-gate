@@ -120,7 +120,7 @@ export const ramPresets: Record<string, { brain: string, gate: string }> = {
   'ram-32':  { brain: 'qwen2.5:7b',       gate: 'qwen3.5:2b' },
   'ram-48':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:2b' },
   'ram-64':  { brain: 'qwen3.5:9b',       gate: 'qwen3.5:4b' },
-  'ram-128': { brain: 'qwen3:14b',        gate: 'qwen3:8b' },
+  'ram-128': { brain: 'qwen3.6:35b-a3b',  gate: 'qwen3.5:4b' },
   'custom':  { brain: 'qwen3.5:4b',       gate: 'qwen3.5:2b' },
 };
 
