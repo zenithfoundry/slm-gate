@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.2](https://github.com/zenithfoundry/slm-gate/compare/v1.5.1...v1.5.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **data:** update event statistics and timestamps for improved accuracy ([414bf51](https://github.com/zenithfoundry/slm-gate/commit/414bf51b4aee6882a08823c40a1508a8e5c917a9))
+
 ## [1.5.1](https://github.com/zenithfoundry/slm-gate/compare/v1.5.0...v1.5.1) (2026-11-26)
 
 
