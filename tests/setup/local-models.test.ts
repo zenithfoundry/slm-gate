@@ -10,6 +10,7 @@ const config = {
   EMBED_MODEL: 'nomic-embed-text',
   SEMCACHE: false,
   DISTILL_ADAPTIVE: false,
+  SET_IN_ENVIRONMENT: [] as string[],
 };
 jest.unstable_mockModule('../../src/config.js', () => ({ CONFIG: config }));
 
@@ -46,7 +47,7 @@ afterAll(() => new Promise(resolve => {
 
 beforeEach(() => {
   mode = 'ollama';
-  Object.assign(config, { SLM_PROVIDER: 'ollama', OLLAMA_HOST: ollamaUrl, SLM_GATE_MODEL: 'qwen3.5:2b', SLM_BRAIN_MODEL: 'qwen3.5:4b', SEMCACHE: false });
+  Object.assign(config, { SLM_PROVIDER: 'ollama', OLLAMA_HOST: ollamaUrl, SLM_GATE_MODEL: 'qwen3.5:2b', SLM_BRAIN_MODEL: 'qwen3.5:4b', SEMCACHE: false, SET_IN_ENVIRONMENT: [] });
 });
 
 describe('checkLocalModels', () => {
@@ -61,6 +62,17 @@ describe('checkLocalModels', () => {
     expect(problems).toHaveLength(1);
     expect(problems[0].message).toContain('qwen3.5:4b (SLM_BRAIN_MODEL,');
     expect(problems[0].fix).toBe('ollama pull qwen3.5:4b');
+  });
+
+  it('names the project and its "env" settings when a missing model is set there instead of in .env', async () => {
+    config.SET_IN_ENVIRONMENT = ['SLM_GATE_MODEL'];
+    pulled = ['qwen3.5:4b'];
+    const { problems } = await checkLocalModels();
+    expect(problems).toHaveLength(1);
+    expect(problems[0].message).toContain(`slm-gate started in ${process.cwd()} uses the local model qwen3.5:2b (SLM_GATE_MODEL,`);
+    expect(problems[0].message).toContain('override slm-gate\'s .env');
+    expect(problems[0].fix).toContain('Delete SLM_GATE_MODEL from those "env" settings');
+    expect(problems[0].fix).toContain('ollama pull qwen3.5:2b');
   });
 
   it('also checks the models the running model gate uses, which come from slm-gate\'s .env', async () => {

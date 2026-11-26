@@ -128,6 +128,22 @@ function probeProblem(probe: Exclude<OllamaProbe, { kind: 'ok' }>): SetupProblem
 }
 
 /**
+ * A model setting from the environment overrides slm-gate's .env, so editing .env does not stop this problem.
+ * For the MCP server that environment is a coding tool's "env" settings for the project it was started in,
+ * so the message names that project: it is the only clue to which file to change.
+ */
+function missingModelProblem(model: ModelUse): SetupProblem {
+  const usage = `${model.name} (${model.setting}, used for ${model.purpose})`;
+  if (!CONFIG.SET_IN_ENVIRONMENT.includes(model.setting)) {
+    return { message: `The local model ${usage} is not downloaded.`, fix: `ollama pull ${model.name}` };
+  }
+  return {
+    message: `slm-gate started in ${process.cwd()} uses the local model ${usage}, which is not downloaded. ${model.setting} is set in the "env" settings it was started with (often that project's .mcp.json), which override slm-gate's .env.`,
+    fix: `Delete ${model.setting} from those "env" settings and reconnect slm-gate, so slm-gate's .env picks the model. Or run ollama pull ${model.name}.`,
+  };
+}
+
+/**
  * @param params.timeoutMs How long to wait for Ollama (default 3000)
  * @param params.gateModels The models the running model gate uses (from its health answer). The gate reads
  *   only slm-gate's .env, which can name other models than the MCP env block this process was started with.
@@ -146,9 +162,6 @@ export async function checkLocalModels(params: { timeoutMs?: number; gateModels?
   const problems = [...requiredModels(), ...gateModels]
     .filter((model, index, all) => all.findIndex(other => other.name === model.name) === index) // two settings, one model
     .filter(model => !isPulled(model.name, pulled))
-    .map(model => ({
-      message: `The local model ${model.name} (${model.setting}, used for ${model.purpose}) is not downloaded.`,
-      fix: `ollama pull ${model.name}`,
-    }));
+    .map(missingModelProblem);
   return { problems, pulled };
 }
