@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-11-25T18:29:51.954Z",
+  "generatedAt": "2026-11-26T18:17:11.716Z",
   "firstEventTs": "2026-10-26T23:26:20.503Z",
-  "lastEventTs": "2026-11-25T18:29:29.053Z",
-  "realEvents": 15361,
+  "lastEventTs": "2026-11-26T18:17:00.845Z",
+  "realEvents": 15600,
   "benchEvents": 0,
   "routing": {
     "resolvedLocal": 0,
-    "distilledForwarded": 163,
-    "escalatedCloud": 1967
+    "distilledForwarded": 245,
+    "escalatedCloud": 2322
   },
   "toolDefs": {
     "requests": 0,
@@ -18,12 +18,12 @@
     "warn": false
   },
   "fidelity": {
-    "conditionings": 6,
-    "measured": 2,
+    "conditionings": 8,
+    "measured": 4,
     "avgRecall": null,
     "deterministicPassPct": 100,
-    "notShrunk": 0,
-    "expansionRate": 0,
+    "notShrunk": 1,
+    "expansionRate": 0.13,
     "worst": [],
     "learned": 0
   },
@@ -147,21 +147,30 @@
     },
     {
       "day": "2026-11-24",
-      "events": 543,
+      "events": 125,
       "tokensSaved": 0,
-      "baselineTokens": 78560081,
+      "baselineTokens": 21183786,
       "resolvedLocal": 0,
       "distilledForwarded": 0,
-      "escalatedCloud": 396
+      "escalatedCloud": 90
     },
     {
       "day": "2026-11-25",
-      "events": 515,
-      "tokensSaved": 0,
-      "baselineTokens": 24399047,
+      "events": 227,
+      "tokensSaved": 5907,
+      "baselineTokens": 27635357,
       "resolvedLocal": 0,
-      "distilledForwarded": 0,
-      "escalatedCloud": 167
+      "distilledForwarded": 1,
+      "escalatedCloud": 172
+    },
+    {
+      "day": "2026-11-26",
+      "events": 945,
+      "tokensSaved": 166179,
+      "baselineTokens": 183976069,
+      "resolvedLocal": 0,
+      "distilledForwarded": 81,
+      "escalatedCloud": 656
     }
   ],
   "providers": [
@@ -171,10 +180,10 @@
       "plan": "claude-max-5x",
       "windowMinutes": 300,
       "windowBudgetTokens": 2300000,
-      "events": 15361,
-      "tokensSaved": 19091,
-      "minutesTotal": 2.489,
-      "avgMinutesPerCycle": 0.062,
+      "events": 15600,
+      "tokensSaved": 191177,
+      "minutesTotal": 25.093,
+      "avgMinutesPerCycle": 0.627,
       "medianMinutesPerCycle": 0,
       "cycles": [
         {
@@ -395,25 +404,25 @@
         },
         {
           "start": "2026-11-24T12:00:24.033Z",
-          "events": 127,
+          "events": 121,
           "tokensSaved": 0,
           "minutes": 0
         },
         {
-          "start": "2026-11-24T17:28:17.678Z",
-          "events": 412,
-          "tokensSaved": 0,
-          "minutes": 0
+          "start": "2026-11-25T19:57:52.605Z",
+          "events": 227,
+          "tokensSaved": 5907,
+          "minutes": 0.77
         },
         {
-          "start": "2026-11-25T09:54:23.446Z",
-          "events": 165,
-          "tokensSaved": 0,
-          "minutes": 0
+          "start": "2026-11-26T10:36:12.434Z",
+          "events": 415,
+          "tokensSaved": 166179,
+          "minutes": 21.834
         },
         {
-          "start": "2026-11-25T15:08:41.060Z",
-          "events": 350,
+          "start": "2026-11-26T16:04:04.578Z",
+          "events": 530,
           "tokensSaved": 0,
           "minutes": 0
         }
@@ -439,9 +448,9 @@
         },
         {
           "weekStart": "2026-11-23",
-          "events": 1197,
-          "tokensSaved": 2391,
-          "minutes": 0.296
+          "events": 1436,
+          "tokensSaved": 174477,
+          "minutes": 22.897
         }
       ]
     },
