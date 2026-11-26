@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.1](https://github.com/zenithfoundry/slm-gate/compare/v1.5.0...v1.5.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **hardware:** update RAM presets for 128 GB models ([426e766](https://github.com/zenithfoundry/slm-gate/commit/426e766addb6886df7b383a90bf091043e9dd506))
+* **pnpm-workspace:** update allowBuilds to use boolean values ([158143d](https://github.com/zenithfoundry/slm-gate/commit/158143dfdcd7eb2d55e2047b7611ee2d46be5014))
+* **setup:** name the project and env settings when a missing model is set outside .env ([398bdb0](https://github.com/zenithfoundry/slm-gate/commit/398bdb02171f132a8a971220677f07c464f61fe9))
+* **setup:** name the project and env settings when a missing model is set outside .env ([154331a](https://github.com/zenithfoundry/slm-gate/commit/154331af99c61e24065c731b8cbb30ba040db906))
+
 ## [1.5.0](https://github.com/zenithfoundry/slm-gate/compare/v1.4.0...v1.5.0) (2026-10-30)
 
 
