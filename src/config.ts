@@ -258,6 +258,10 @@ export const CONFIG = Object.freeze({
   // .env sets it. LLM_GATE_PORT above prefers the process environment, so a value in one coding tool's MCP
   // env block (or the shell) would send that session to another port, where it would start a second gate.
   MODEL_GATE_PORT: envSchema.shape.LLM_GATE_PORT.parse(envFile.parsed?.LLM_GATE_PORT || undefined),
+  // The settings whose value comes from the environment this process was started with (a coding tool's MCP
+  // env block, or the shell) and not from .env, which they override. Problem messages name these, so the fix
+  // goes in the file that really sets them: editing .env changes nothing for them.
+  SET_IN_ENVIRONMENT: CONFIG_ENV_KEYS.filter(key => envInput[key] !== undefined && envInput[key] !== envFile.parsed?.[key]),
   RESOLVED_PLAN_CLAUDE: claudePlan,
   RESOLVED_PLAN_CHATGPT: chatgptPlan,
   RESOLVED_PLAN_GEMINI: geminiPlan,
